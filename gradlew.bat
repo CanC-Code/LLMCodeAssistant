@@ -1,4 +1,7 @@
 @echo off
-REM Gradle wrapper for Windows
-set DIR=%~dp0
-java -jar "%DIR%\gradle\wrapper\gradle-wrapper.jar" %*
+REM --------------------------------------------------------
+REM Gradle wrapper script for Windows
+REM --------------------------------------------------------
+
+SET DIR=%~dp0
+CALL "%DIR%gradlew" %*
