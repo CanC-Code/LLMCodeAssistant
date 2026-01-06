@@ -10,9 +10,10 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static llama_model* g_model = nullptr;
-static llama_context* g_ctx = nullptr;
-static std::mutex g_mutex;
+static llama_model*   g_model = nullptr;
+static llama_context* g_ctx   = nullptr;
+static std::mutex     g_mutex;
+static bool           g_backend_initialized = false;
 
 extern "C" {
 
@@ -22,7 +23,7 @@ extern "C" {
 JNIEXPORT jboolean JNICALL
 Java_com_llmassistant_llm_LLMHandler_nativeInitModel(
         JNIEnv* env,
-        jobject,
+        jobject /* this */,
         jstring modelPath,
         jint threads
 ) {
@@ -35,7 +36,10 @@ Java_com_llmassistant_llm_LLMHandler_nativeInitModel(
 
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
 
-    llama_backend_init(false);
+    if (!g_backend_initialized) {
+        llama_backend_init(false);
+        g_backend_initialized = true;
+    }
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_load_model_from_file(path, mparams);
@@ -48,9 +52,9 @@ Java_com_llmassistant_llm_LLMHandler_nativeInitModel(
     }
 
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = 4096;
-    cparams.n_threads = threads;
-    cparams.n_threads_batch = threads;
+    cparams.n_ctx            = 4096;
+    cparams.n_threads        = threads;
+    cparams.n_threads_batch  = threads;
 
     g_ctx = llama_new_context_with_model(g_model, cparams);
     if (!g_ctx) {
@@ -70,7 +74,7 @@ Java_com_llmassistant_llm_LLMHandler_nativeInitModel(
 JNIEXPORT jstring JNICALL
 Java_com_llmassistant_llm_LLMHandler_nativeInfer(
         JNIEnv* env,
-        jobject,
+        jobject /* this */,
         jstring prompt,
         jint maxTokens
 ) {
@@ -84,15 +88,19 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
     std::string prompt_str(input);
     env->ReleaseStringUTFChars(prompt, input);
 
-    std::vector<llama_token> tokens(prompt_str.size() + 8);
+    // ---- Tokenize ----
+    std::vector<llama_token> tokens(
+        prompt_str.size() + 16
+    );
+
     int n_tokens = llama_tokenize(
-            g_model,
-            prompt_str.c_str(),
-            prompt_str.length(),
-            tokens.data(),
-            tokens.size(),
-            true,
-            true
+        g_model,
+        prompt_str.c_str(),
+        prompt_str.size(),
+        tokens.data(),
+        tokens.size(),
+        true,
+        true
     );
 
     if (n_tokens <= 0) {
@@ -101,48 +109,66 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
 
     tokens.resize(n_tokens);
 
-    llama_batch batch = llama_batch_init(512, 0, 1);
+    // ---- Prefill ----
+    llama_batch batch = llama_batch_init(
+        512,   // max tokens
+        0,     // embd
+        1      // seqs
+    );
 
     for (int i = 0; i < n_tokens; ++i) {
-        llama_batch_add(batch, tokens[i], i, {0}, false);
+        llama_batch_add(
+            batch,
+            tokens[i],
+            i,
+            {0},
+            i == n_tokens - 1
+        );
     }
-    batch.logits[batch.n_tokens - 1] = true;
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
         return env->NewStringUTF("Decode failed");
     }
 
+    // ---- Sampling ----
+    llama_sampling_params sparams = llama_sampling_default_params();
+    sparams.top_k = 40;
+    sparams.top_p = 0.95f;
+    sparams.temp  = 0.8f;
+
+    llama_sampling_context* sampler =
+        llama_sampling_init(sparams);
+
     std::string output;
     output.reserve(4096);
 
     for (int i = 0; i < maxTokens; ++i) {
-        const float* logits = llama_get_logits_ith(g_ctx, batch.n_tokens - 1);
-
-        llama_token token = llama_sample_token(
-                g_ctx,
-                llama_sample_top_p_top_k(
-                        g_ctx,
-                        logits,
-                        40,
-                        0.95f,
-                        1.0f,
-                        1.0f
-                )
+        llama_token token = llama_sampling_sample(
+            sampler,
+            g_ctx,
+            nullptr
         );
 
         if (token == llama_token_eos(g_model)) {
             break;
         }
 
-        char piece[8];
+        llama_sampling_accept(
+            sampler,
+            g_ctx,
+            token,
+            true
+        );
+
+        char piece[32];
         int len = llama_token_to_piece(
-                g_model,
-                token,
-                piece,
-                sizeof(piece),
-                0,
-                true
+            g_model,
+            token,
+            piece,
+            sizeof(piece),
+            0,
+            true
         );
 
         if (len > 0) {
@@ -150,14 +176,22 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
         }
 
         llama_batch_clear(batch);
-        llama_batch_add(batch, token, batch.n_tokens, {0}, true);
+        llama_batch_add(
+            batch,
+            token,
+            n_tokens + i,
+            {0},
+            true
+        );
 
         if (llama_decode(g_ctx, batch) != 0) {
             break;
         }
     }
 
+    llama_sampling_free(sampler);
     llama_batch_free(batch);
+
     return env->NewStringUTF(output.c_str());
 }
 
@@ -181,7 +215,11 @@ Java_com_llmassistant_llm_LLMHandler_nativeClose(
         g_model = nullptr;
     }
 
-    llama_backend_free();
+    if (g_backend_initialized) {
+        llama_backend_free();
+        g_backend_initialized = false;
+    }
+
     LOGI("LLM shutdown complete");
 }
 
