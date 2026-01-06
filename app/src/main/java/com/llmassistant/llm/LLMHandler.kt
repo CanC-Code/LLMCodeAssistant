@@ -7,6 +7,7 @@ package com.llmassistant.llm
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 
 class LLMHandler(private val context: Context) {
 
@@ -33,6 +34,25 @@ class LLMHandler(private val context: Context) {
     ): String
 
     private external fun nativeClose()
+
+    // -----------------------------
+    // Conversation memory
+    // -----------------------------
+    private enum class Role {
+        SYSTEM,
+        USER,
+        ASSISTANT
+    }
+
+    private data class Message(
+        val role: Role,
+        val content: String
+    )
+
+    private val conversation = CopyOnWriteArrayList<Message>()
+
+    // Hard safety limit to avoid runaway context
+    private val maxContextChars = 12_000
 
     // -----------------------------
     // State
@@ -72,32 +92,42 @@ class LLMHandler(private val context: Context) {
             threads
         )
 
+        if (initialized) {
+            // Seed system prompt once
+            conversation.clear()
+            conversation.add(
+                Message(
+                    Role.SYSTEM,
+                    "You are a local coding assistant. Be precise, technical, and concise."
+                )
+            )
+        }
+
         Log.i(TAG, "LLM initialized = $initialized")
         return initialized
     }
 
     // -----------------------------
-    // Inference (free-form)
+    // Inference (free-form chat)
     // -----------------------------
     fun infer(
         userInput: String,
-        maxTokens: Int = 512,
-        contextPrefix: String? = null
+        maxTokens: Int = 512
     ): String {
         if (!initialized) {
             return "LLM not initialized"
         }
 
-        val prompt = buildString {
-            if (!contextPrefix.isNullOrBlank()) {
-                append(contextPrefix.trim())
-                append("\n\n")
-            }
-            append(userInput.trim())
-        }
+        conversation.add(Message(Role.USER, userInput.trim()))
+        trimContextIfNeeded()
 
+        val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
-        return nativeInfer(prompt, maxTokens)
+
+        val reply = nativeInfer(prompt, maxTokens)
+        conversation.add(Message(Role.ASSISTANT, reply))
+
+        return reply
     }
 
     // -----------------------------
@@ -127,17 +157,62 @@ class LLMHandler(private val context: Context) {
 
         val chunk = lines.subList(start, end).joinToString("\n")
 
-        val prompt = buildString {
-            append("You are analyzing the following source code:\n\n")
+        val userPrompt = buildString {
+            append("Analyze the following source code:\n\n")
             append(chunk)
-            append("\n\n")
             if (userInstruction.isNotBlank()) {
-                append("Instruction:\n")
+                append("\n\nInstruction:\n")
                 append(userInstruction.trim())
             }
         }
 
-        return nativeInfer(prompt, maxTokens = 512)
+        return infer(userPrompt, maxTokens = 512)
+    }
+
+    // -----------------------------
+    // Prompt assembly
+    // -----------------------------
+    private fun buildPrompt(): String {
+        val sb = StringBuilder()
+
+        for (msg in conversation) {
+            when (msg.role) {
+                Role.SYSTEM -> sb.append("[SYSTEM]\n")
+                Role.USER -> sb.append("[USER]\n")
+                Role.ASSISTANT -> sb.append("[ASSISTANT]\n")
+            }
+            sb.append(msg.content)
+            sb.append("\n\n")
+        }
+
+        sb.append("[ASSISTANT]\n")
+        return sb.toString()
+    }
+
+    // -----------------------------
+    // Context trimming
+    // -----------------------------
+    private fun trimContextIfNeeded() {
+        var totalChars = conversation.sumOf { it.content.length }
+
+        // Always preserve SYSTEM message at index 0
+        while (totalChars > maxContextChars && conversation.size > 2) {
+            val removed = conversation.removeAt(1)
+            totalChars -= removed.content.length
+        }
+    }
+
+    // -----------------------------
+    // Reset conversation (keep model)
+    // -----------------------------
+    fun resetConversation() {
+        conversation.clear()
+        conversation.add(
+            Message(
+                Role.SYSTEM,
+                "You are a local coding assistant. Be precise, technical, and concise."
+            )
+        )
     }
 
     // -----------------------------
@@ -150,5 +225,6 @@ class LLMHandler(private val context: Context) {
         nativeClose()
         initialized = false
         modelFile = null
+        conversation.clear()
     }
 }
