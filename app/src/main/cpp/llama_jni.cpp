@@ -89,9 +89,7 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
     env->ReleaseStringUTFChars(prompt, input);
 
     // ---- Tokenize ----
-    std::vector<llama_token> tokens(
-        prompt_str.size() + 16
-    );
+    std::vector<llama_token> tokens(prompt_str.size() + 16);
 
     int n_tokens = llama_tokenize(
         g_model,
