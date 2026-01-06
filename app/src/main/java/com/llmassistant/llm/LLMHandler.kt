@@ -1,6 +1,11 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/llm/LLMHandler.kt
 // Author: CCVO
 // Purpose: Kotlin interface to embedded native LLM (llama.cpp GGUF)
+// Notes:
+//  - Explicit initialization required
+//  - Conversation-aware prompt assembly
+//  - Safe context trimming
+//  - JNI-backed inference (no network dependency)
 
 package com.llmassistant.llm
 
@@ -15,14 +20,14 @@ class LLMHandler(private val context: Context) {
         private const val TAG = "LLMHandler"
 
         init {
-            // Loads libllama_jni.so produced by CMake
+            // Load JNI bridge produced by CMake
             System.loadLibrary("llama_jni")
         }
     }
 
-    // -----------------------------
-    // Native JNI bindings
-    // -----------------------------
+    // -------------------------------------------------
+    // JNI bindings
+    // -------------------------------------------------
     private external fun nativeInitModel(
         modelPath: String,
         threads: Int
@@ -35,9 +40,9 @@ class LLMHandler(private val context: Context) {
 
     private external fun nativeClose()
 
-    // -----------------------------
-    // Conversation memory
-    // -----------------------------
+    // -------------------------------------------------
+    // Conversation model
+    // -------------------------------------------------
     private enum class Role {
         SYSTEM,
         USER,
@@ -51,18 +56,18 @@ class LLMHandler(private val context: Context) {
 
     private val conversation = CopyOnWriteArrayList<Message>()
 
-    // Hard safety limit to avoid runaway context
+    // Hard safety limit to prevent runaway context growth
     private val maxContextChars = 12_000
 
-    // -----------------------------
+    // -------------------------------------------------
     // State
-    // -----------------------------
+    // -------------------------------------------------
     private var initialized = false
     private var modelFile: File? = null
 
-    // -----------------------------
+    // -------------------------------------------------
     // Initialization
-    // -----------------------------
+    // -------------------------------------------------
     @Synchronized
     fun initialize(model: File): Boolean {
         if (initialized) {
@@ -93,7 +98,6 @@ class LLMHandler(private val context: Context) {
         )
 
         if (initialized) {
-            // Seed system prompt once
             conversation.clear()
             conversation.add(
                 Message(
@@ -107,9 +111,11 @@ class LLMHandler(private val context: Context) {
         return initialized
     }
 
-    // -----------------------------
-    // Inference (free-form chat)
-    // -----------------------------
+    fun isInitialized(): Boolean = initialized
+
+    // -------------------------------------------------
+    // Inference (conversation-aware)
+    // -------------------------------------------------
     fun infer(
         userInput: String,
         maxTokens: Int = 512
@@ -118,21 +124,33 @@ class LLMHandler(private val context: Context) {
             return "LLM not initialized"
         }
 
-        conversation.add(Message(Role.USER, userInput.trim()))
+        conversation.add(
+            Message(
+                Role.USER,
+                userInput.trim()
+            )
+        )
+
         trimContextIfNeeded()
 
         val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
 
         val reply = nativeInfer(prompt, maxTokens)
-        conversation.add(Message(Role.ASSISTANT, reply))
+
+        conversation.add(
+            Message(
+                Role.ASSISTANT,
+                reply
+            )
+        )
 
         return reply
     }
 
-    // -----------------------------
-    // File-aware inference (chunked)
-    // -----------------------------
+    // -------------------------------------------------
+    // File-aware inference (chunked source analysis)
+    // -------------------------------------------------
     fun inferFileChunk(
         file: File,
         chunkIndex: Int,
@@ -157,7 +175,7 @@ class LLMHandler(private val context: Context) {
 
         val chunk = lines.subList(start, end).joinToString("\n")
 
-        val userPrompt = buildString {
+        val prompt = buildString {
             append("Analyze the following source code:\n\n")
             append(chunk)
             if (userInstruction.isNotBlank()) {
@@ -166,12 +184,12 @@ class LLMHandler(private val context: Context) {
             }
         }
 
-        return infer(userPrompt, maxTokens = 512)
+        return infer(prompt, maxTokens = 512)
     }
 
-    // -----------------------------
+    // -------------------------------------------------
     // Prompt assembly
-    // -----------------------------
+    // -------------------------------------------------
     private fun buildPrompt(): String {
         val sb = StringBuilder()
 
@@ -189,9 +207,9 @@ class LLMHandler(private val context: Context) {
         return sb.toString()
     }
 
-    // -----------------------------
+    // -------------------------------------------------
     // Context trimming
-    // -----------------------------
+    // -------------------------------------------------
     private fun trimContextIfNeeded() {
         var totalChars = conversation.sumOf { it.content.length }
 
@@ -202,9 +220,9 @@ class LLMHandler(private val context: Context) {
         }
     }
 
-    // -----------------------------
-    // Reset conversation (keep model)
-    // -----------------------------
+    // -------------------------------------------------
+    // Conversation reset (model remains loaded)
+    // -------------------------------------------------
     fun resetConversation() {
         conversation.clear()
         conversation.add(
@@ -215,14 +233,16 @@ class LLMHandler(private val context: Context) {
         )
     }
 
-    // -----------------------------
-    // Cleanup
-    // -----------------------------
+    // -------------------------------------------------
+    // Shutdown
+    // -------------------------------------------------
     @Synchronized
     fun close() {
         if (!initialized) return
+
         Log.i(TAG, "Shutting down LLM")
         nativeClose()
+
         initialized = false
         modelFile = null
         conversation.clear()
