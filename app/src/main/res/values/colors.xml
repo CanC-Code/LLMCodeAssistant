@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: colors.xml
+    Purpose: Centralized color definitions
+-->
+
+<resources>
+
+    <!-- Brand / Primary -->
+    <color name="colorPrimary">#1E1E1E</color>
+    <color name="colorPrimaryVariant">#121212</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+
+    <!-- Secondary / Accent -->
+    <color name="colorSecondary">#0077CC</color>
+    <color name="colorSecondaryVariant">#005999</color>
+    <color name="colorOnSecondary">#FFFFFF</color>
+
+    <!-- Backgrounds -->
+    <color name="colorBackground">#F5F5F5</color>
+    <color name="colorSurface">#FFFFFF</color>
+    <color name="colorOnBackground">#000000</color>
+    <color name="colorOnSurface">#000000</color>
+
+    <!-- Utility -->
+    <color name="colorDivider">#DDDDDD</color>
+    <color name="colorError">#B00020</color>
+    <color name="colorOnError">#FFFFFF</color>
+
+</resources>
