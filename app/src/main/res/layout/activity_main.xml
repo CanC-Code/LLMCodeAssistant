@@ -11,17 +11,9 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Navigation Drawer -->
-    <com.google.android.material.navigation.NavigationView
-        android:id="@+id/nav_view"
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:layout_gravity="start"
-        android:fitsSystemWindows="true"
-        android:background="?attr/colorSurface"
-        app:menu="@menu/drawer_menu" />
-
-    <!-- Main Content -->
+    <!-- ===================== -->
+    <!-- Main Content (FIRST) -->
+    <!-- ===================== -->
     <LinearLayout
         android:orientation="vertical"
         android:layout_width="match_parent"
@@ -100,5 +92,17 @@
         </LinearLayout>
 
     </LinearLayout>
+
+    <!-- ===================== -->
+    <!-- Navigation Drawer -->
+    <!-- ===================== -->
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:fitsSystemWindows="true"
+        android:background="?attr/colorSurface"
+        app:menu="@menu/drawer_menu" />
 
 </androidx.drawerlayout.widget.DrawerLayout>
