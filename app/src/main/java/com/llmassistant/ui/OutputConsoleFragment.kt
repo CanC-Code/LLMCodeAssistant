@@ -1,6 +1,6 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/OutputConsoleFragment.kt
 // Author: CCVO
-// Purpose: Scrollable console fragment for displaying LLM responses and messages
+// Purpose: Scrollable console fragment for displaying LLM responses and messages, with optional chunk numbering
 
 package com.llmassistant.ui
 
@@ -43,10 +43,12 @@ class OutputConsoleFragment : Fragment() {
      * Append text to the console
      * @param text The message to display
      * @param type Optional: differentiate message types (e.g., user/LLM/system)
+     * @param chunkIndex Optional: show chunk number for file-based input
      */
-    fun appendOutput(text: String, type: MessageType = MessageType.LLM) {
+    fun appendOutput(text: String, type: MessageType = MessageType.LLM, chunkIndex: Int? = null) {
         val textView = TextView(requireContext()).apply {
-            val spannable = SpannableString(text)
+            val prefix = chunkIndex?.let { "[Chunk $it] " } ?: ""
+            val spannable = SpannableString(prefix + text)
             val color = when (type) {
                 MessageType.USER -> Color.parseColor("#0077CC")
                 MessageType.LLM -> Color.parseColor("#000000")
