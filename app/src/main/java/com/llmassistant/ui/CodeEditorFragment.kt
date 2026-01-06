@@ -1,6 +1,6 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
 // Author: CCVO
-// Purpose: Code editor fragment with dynamic syntax highlighting, scroll-synced line numbers, line wrapping, file loading, and LLM integration
+// Purpose: Code editor fragment with chunked file handling, syntax highlighting, line numbers, wrap toggle, and LLM integration
 
 package com.llmassistant.ui
 
@@ -15,7 +15,9 @@ import android.text.style.ForegroundColorSpan
 import android.view.*
 import android.widget.*
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.commit
 import com.llmassistant.editor.ChunkManager
+import com.llmassistant.llm.LLMHandler
 import com.llmassistant.R
 import java.io.File
 import java.util.regex.Pattern
@@ -30,9 +32,18 @@ class CodeEditorFragment : Fragment() {
     private lateinit var scrollView: HorizontalScrollView
     private lateinit var verticalScrollView: ScrollView
     private lateinit var wrapToggleButton: Button
+    private lateinit var nextChunkButton: Button
+    private lateinit var prevChunkButton: Button
+    private lateinit var sendChunkButton: Button
 
     private var lineWrapEnabled = true
     private val chunkManager = ChunkManager()
+
+    // -----------------------------
+    // Chunking state
+    // -----------------------------
+    private var currentChunkIndex = 0
+    private val chunkSize = 400 // lines per chunk
 
     companion object {
         private const val ARG_FILE_PATH = "file_path"
@@ -47,12 +58,11 @@ class CodeEditorFragment : Fragment() {
             return fragment
         }
 
-        // Simple syntax: keywords, strings, comments
+        // Basic syntax highlighting
         private val KEYWORDS = arrayOf(
             "fun", "val", "var", "if", "else", "for", "while",
             "return", "class", "object", "interface", "package", "import"
         )
-
         private val KEYWORD_PATTERN = Pattern.compile("\\b(${KEYWORDS.joinToString("|")})\\b")
         private val STRING_PATTERN = Pattern.compile("\"(.*?)\"")
         private val COMMENT_PATTERN = Pattern.compile("//.*")
@@ -79,7 +89,7 @@ class CodeEditorFragment : Fragment() {
             gravity = Gravity.TOP or Gravity.END
         }
 
-        // Editor EditText
+        // Editor
         editorEditText = EditText(requireContext()).apply {
             setTextColor(0xFF000000.toInt())
             setPadding(8)
@@ -106,7 +116,6 @@ class CodeEditorFragment : Fragment() {
         // ScrollViews
         verticalScrollView = ScrollView(requireContext())
         verticalScrollView.addView(editorEditText)
-
         scrollView = HorizontalScrollView(requireContext())
         scrollView.addView(verticalScrollView)
 
@@ -118,23 +127,36 @@ class CodeEditorFragment : Fragment() {
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
         layout.addView(scrollView, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
 
-        // Line wrap toggle button
-        wrapToggleButton = Button(requireContext()).apply {
-            text = "Toggle Wrap"
-            setOnClickListener { toggleLineWrap() }
+        // Bottom control buttons
+        wrapToggleButton = Button(requireContext()).apply { text = "Toggle Wrap" }
+        nextChunkButton = Button(requireContext()).apply { text = "Next Chunk" }
+        prevChunkButton = Button(requireContext()).apply { text = "Prev Chunk" }
+        sendChunkButton = Button(requireContext()).apply { text = "Send Chunk to LLM" }
+
+        val buttonLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(prevChunkButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(nextChunkButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(wrapToggleButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(sendChunkButton, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f))
         }
 
         val containerLayout = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             addView(layout, LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-            addView(wrapToggleButton, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(buttonLayout, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
+
+        setupButtonActions()
 
         loadFile()
 
         return containerLayout
     }
 
+    // -----------------------------
+    // Load file
+    // -----------------------------
     private fun loadFile() {
         val file = filePath?.let { File(it) } ?: return
         if (!file.exists()) return
@@ -143,8 +165,12 @@ class CodeEditorFragment : Fragment() {
         editorEditText.setText(text)
         highlightSyntax(text)
         updateLineNumbers(text)
+        resetChunks()
     }
 
+    // -----------------------------
+    // Syntax highlighting
+    // -----------------------------
     private fun highlightSyntax(text: String) {
         val spannable = SpannableString(text)
 
@@ -193,13 +219,62 @@ class CodeEditorFragment : Fragment() {
         lineNumbersView.text = numbers
     }
 
+    // -----------------------------
+    // Button actions
+    // -----------------------------
+    private fun setupButtonActions() {
+        wrapToggleButton.setOnClickListener { toggleLineWrap() }
+        nextChunkButton.setOnClickListener { nextChunk() }
+        prevChunkButton.setOnClickListener { previousChunk() }
+        sendChunkButton.setOnClickListener { sendCurrentChunkToLLM() }
+    }
+
     fun toggleLineWrap() {
         lineWrapEnabled = !lineWrapEnabled
         editorEditText.setHorizontallyScrolling(!lineWrapEnabled)
         Toast.makeText(requireContext(), "Line wrap: $lineWrapEnabled", Toast.LENGTH_SHORT).show()
     }
 
-    fun getCurrentChunk(): String {
-        return editorEditText.text.toString()
+    // -----------------------------
+    // Chunk management
+    // -----------------------------
+    fun getChunk(index: Int = currentChunkIndex): String {
+        val lines = editorEditText.text.toString().lines()
+        val start = index * chunkSize
+        val end = minOf(start + chunkSize, lines.size)
+        return if (start >= lines.size) "" else lines.subList(start, end).joinToString("\n")
     }
+
+    fun nextChunk() {
+        currentChunkIndex++
+        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+    }
+
+    fun previousChunk() {
+        currentChunkIndex = maxOf(0, currentChunkIndex - 1)
+        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+    }
+
+    fun resetChunks() {
+        currentChunkIndex = 0
+    }
+
+    // -----------------------------
+    // LLM integration
+    // -----------------------------
+    private fun sendCurrentChunkToLLM() {
+        val chunk = getChunk()
+        if (chunk.isBlank()) {
+            Toast.makeText(requireContext(), "No code in current chunk", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val mainActivity = activity as? MainActivity ?: return
+        mainActivity.sendLLMInput(chunk) { response ->
+            val console = mainActivity.supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
+            console?.appendOutput(response, OutputConsoleFragment.MessageType.LLM)
+        }
+    }
+
+    fun getCurrentChunk(): String = getChunk()
 }
