@@ -1,15 +1,17 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
 // Author: CCVO
-// Purpose: Code editor fragment with line numbers, line wrapping, file loading, syntax highlighting, and LLM integration
+// Purpose: Code editor fragment with dynamic syntax highlighting, line numbers, line wrapping, file loading, and LLM integration
 
 package com.llmassistant.ui
 
 import android.graphics.Color
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.text.method.ScrollingMovementMethod
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
-import android.text.method.ScrollingMovementMethod
 import android.view.*
 import android.widget.*
 import androidx.fragment.app.Fragment
@@ -23,7 +25,7 @@ class CodeEditorFragment : Fragment() {
     private var filePath: String? = null
     private var projectRootPath: String? = null
 
-    private lateinit var editorTextView: TextView
+    private lateinit var editorEditText: EditText
     private lateinit var lineNumbersView: TextView
     private lateinit var scrollView: HorizontalScrollView
     private lateinit var wrapToggleButton: Button
@@ -44,7 +46,7 @@ class CodeEditorFragment : Fragment() {
             return fragment
         }
 
-        // Example simple syntax: keywords, strings, comments
+        // Simple syntax: keywords, strings, comments
         private val KEYWORDS = arrayOf(
             "fun", "val", "var", "if", "else", "for", "while",
             "return", "class", "object", "interface", "package", "import"
@@ -75,16 +77,31 @@ class CodeEditorFragment : Fragment() {
             gravity = Gravity.TOP or Gravity.END
         }
 
-        editorTextView = TextView(requireContext()).apply {
+        editorEditText = EditText(requireContext()).apply {
             setTextColor(0xFF000000.toInt())
             setPadding(8)
             isFocusable = true
             isFocusableInTouchMode = true
             movementMethod = ScrollingMovementMethod()
+            setBackgroundColor(Color.TRANSPARENT)
         }
 
+        // Add dynamic syntax highlighting
+        editorEditText.addTextChangedListener(object : TextWatcher {
+            private var lastText: String = ""
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val currentText = s.toString()
+                if (currentText == lastText) return
+                lastText = currentText
+                highlightSyntax(currentText)
+                updateLineNumbers(currentText)
+            }
+        })
+
         scrollView = HorizontalScrollView(requireContext()).apply {
-            addView(editorTextView)
+            addView(editorEditText)
         }
 
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
@@ -111,15 +128,15 @@ class CodeEditorFragment : Fragment() {
         if (!file.exists()) return
 
         val text = chunkManager.loadFileChunks(file)
-        setHighlightedText(text)
-
+        editorEditText.setText(text)
+        highlightSyntax(text)
         updateLineNumbers(text)
     }
 
-    private fun setHighlightedText(text: String) {
+    private fun highlightSyntax(text: String) {
         val spannable = SpannableString(text)
 
-        // Highlight keywords
+        // Keywords
         val matcherKeywords = KEYWORD_PATTERN.matcher(text)
         while (matcherKeywords.find()) {
             spannable.setSpan(
@@ -130,7 +147,7 @@ class CodeEditorFragment : Fragment() {
             )
         }
 
-        // Highlight strings
+        // Strings
         val matcherStrings = STRING_PATTERN.matcher(text)
         while (matcherStrings.find()) {
             spannable.setSpan(
@@ -141,7 +158,7 @@ class CodeEditorFragment : Fragment() {
             )
         }
 
-        // Highlight comments
+        // Comments
         val matcherComments = COMMENT_PATTERN.matcher(text)
         while (matcherComments.find()) {
             spannable.setSpan(
@@ -152,7 +169,10 @@ class CodeEditorFragment : Fragment() {
             )
         }
 
-        editorTextView.text = spannable
+        // Preserve cursor position
+        val cursor = editorEditText.selectionStart
+        editorEditText.setText(spannable)
+        editorEditText.setSelection(cursor.coerceIn(0, spannable.length))
     }
 
     private fun updateLineNumbers(text: String) {
@@ -163,14 +183,11 @@ class CodeEditorFragment : Fragment() {
 
     fun toggleLineWrap() {
         lineWrapEnabled = !lineWrapEnabled
-        editorTextView.setHorizontallyScrolling(!lineWrapEnabled)
+        editorEditText.setHorizontallyScrolling(!lineWrapEnabled)
         Toast.makeText(requireContext(), "Line wrap: $lineWrapEnabled", Toast.LENGTH_SHORT).show()
     }
 
-    /**
-     * Returns the currently visible chunk of text (for LLM interaction)
-     */
     fun getCurrentChunk(): String {
-        return editorTextView.text.toString()
+        return editorEditText.text.toString()
     }
 }
