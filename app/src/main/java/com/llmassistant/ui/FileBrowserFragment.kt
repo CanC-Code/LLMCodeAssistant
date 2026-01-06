@@ -64,7 +64,7 @@ class FileBrowserFragment : Fragment() {
     }
 
     private fun refreshFileList() {
-        // Remove old file views but keep the hidden files toggle
+        // Keep the hidden toggle at top
         val toggleHidden = containerLayout.getChildAt(0)
         containerLayout.removeAllViews()
         containerLayout.addView(toggleHidden)
@@ -83,41 +83,39 @@ class FileBrowserFragment : Fragment() {
             setPadding(20 * indentLevel, 8, 8, 8)
             setOnClickListener {
                 if (file.isDirectory) {
-                    // Expand / collapse on click by refreshing children
                     toggleDirectory(this, file, indentLevel + 1)
                 } else {
-                    // Open in editor
                     (activity as? MainActivity)?.openFileInEditor(file)
                 }
-
-                // Highlight selection
                 highlightSelectedFile(this)
             }
         }
 
-        // Indicate if file is outside project root
+        // Mark if outside project root
         val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(file)!!
-        if (isOutside) textView.setBackgroundColor(Color.parseColor("#33FF0000"))
+        textView.setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
 
         containerLayout.addView(textView)
     }
 
     private fun toggleDirectory(parentView: TextView, folder: File, indentLevel: Int) {
-        // Remove existing child views under this folder
+        // Remove or add children
         val startIndex = containerLayout.indexOfChild(parentView) + 1
         val endIndex = containerLayout.childCount
-        val viewsToRemove = mutableListOf<View>()
+        val childrenToRemove = mutableListOf<View>()
 
         for (i in startIndex until endIndex) {
             val v = containerLayout.getChildAt(i)
             if ((v.tag as? File)?.parentFile == folder) {
-                viewsToRemove.add(v)
+                childrenToRemove.add(v)
             }
         }
 
-        if (viewsToRemove.isNotEmpty()) {
-            viewsToRemove.forEach { containerLayout.removeView(it) }
+        if (childrenToRemove.isNotEmpty()) {
+            // Collapse
+            childrenToRemove.forEach { containerLayout.removeView(it) }
         } else {
+            // Expand
             folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))?.forEach {
                 it.tag = folder
                 addFileView(it, indentLevel)
