@@ -167,8 +167,9 @@ class MainActivity : AppCompatActivity() {
                 consoleFragment.appendOutput(inputText, OutputConsoleFragment.MessageType.USER)
                 llmInputField.text.clear()
 
-                sendLLMInput(inputText) { response ->
-                    consoleFragment.appendOutput(response, OutputConsoleFragment.MessageType.LLM)
+                sendLLMInput(inputText) { response, chunkIndex ->
+                    val outputText = if (chunkIndex != null) "[Chunk $chunkIndex]\n$response" else response
+                    consoleFragment.appendOutput(outputText, OutputConsoleFragment.MessageType.LLM)
                 }
             }
         }
@@ -183,12 +184,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun sendLLMInput(userInput: String, onResult: (String) -> Unit) {
+    /**
+     * Sends user input to the LLM.
+     * Includes current editor chunk and returns optional chunk index.
+     */
+    fun sendLLMInput(userInput: String, onResult: (String, Int?) -> Unit) {
         val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
         val currentChunk = editorFragment?.getCurrentChunk() ?: ""
+        val chunkIndex = editorFragment?.currentChunkIndex // Optional: you need to track this in CodeEditorFragment
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
-            runOnUiThread { onResult(response) }
+            runOnUiThread { onResult(response, chunkIndex) }
         }
     }
 }
