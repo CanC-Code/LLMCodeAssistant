@@ -1,13 +1,11 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
 // Author: CCVO
-// Purpose: Optimized code editor fragment with dynamic syntax highlighting, line numbers, line wrapping, chunked file loading, and LLM integration
+// Purpose: Code editor fragment with dynamic syntax highlighting, scroll-synced line numbers, line wrapping, file loading, and LLM integration
 
 package com.llmassistant.ui
 
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.method.ScrollingMovementMethod
@@ -30,15 +28,11 @@ class CodeEditorFragment : Fragment() {
     private lateinit var editorEditText: EditText
     private lateinit var lineNumbersView: TextView
     private lateinit var scrollView: HorizontalScrollView
+    private lateinit var verticalScrollView: ScrollView
     private lateinit var wrapToggleButton: Button
 
     private var lineWrapEnabled = true
     private val chunkManager = ChunkManager()
-
-    // Debounce handler
-    private val handler = Handler(Looper.getMainLooper())
-    private var highlightRunnable: Runnable? = null
-    private val debounceDelay = 200L // ms
 
     companion object {
         private const val ARG_FILE_PATH = "file_path"
@@ -91,34 +85,40 @@ class CodeEditorFragment : Fragment() {
             setPadding(8)
             isFocusable = true
             isFocusableInTouchMode = true
-            movementMethod = ScrollingMovementMethod()
             setBackgroundColor(Color.TRANSPARENT)
             setHorizontallyScrolling(!lineWrapEnabled)
         }
 
-        // Text change listener with debounce
+        // Syntax highlighting
         editorEditText.addTextChangedListener(object : TextWatcher {
+            private var lastText: String = ""
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                highlightRunnable?.let { handler.removeCallbacks(it) }
-                highlightRunnable = Runnable {
-                    s?.let { highlightSyntax(it.toString()) }
-                    s?.let { updateLineNumbers(it.toString()) }
-                }
-                handler.postDelayed(highlightRunnable!!, debounceDelay)
+                val currentText = s.toString()
+                if (currentText == lastText) return
+                lastText = currentText
+                highlightSyntax(currentText)
+                updateLineNumbers(currentText)
             }
         })
 
-        // Horizontal scroll
-        scrollView = HorizontalScrollView(requireContext()).apply {
-            addView(editorEditText)
+        // ScrollViews
+        verticalScrollView = ScrollView(requireContext())
+        verticalScrollView.addView(editorEditText)
+
+        scrollView = HorizontalScrollView(requireContext())
+        scrollView.addView(verticalScrollView)
+
+        // Sync line numbers scroll
+        verticalScrollView.viewTreeObserver.addOnScrollChangedListener {
+            lineNumbersView.scrollTo(0, verticalScrollView.scrollY)
         }
 
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
         layout.addView(scrollView, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
 
-        // Wrap toggle button
+        // Line wrap toggle button
         wrapToggleButton = Button(requireContext()).apply {
             text = "Toggle Wrap"
             setOnClickListener { toggleLineWrap() }
@@ -199,9 +199,6 @@ class CodeEditorFragment : Fragment() {
         Toast.makeText(requireContext(), "Line wrap: $lineWrapEnabled", Toast.LENGTH_SHORT).show()
     }
 
-    /**
-     * Returns the currently visible chunk of text for LLM interaction
-     */
     fun getCurrentChunk(): String {
         return editorEditText.text.toString()
     }
