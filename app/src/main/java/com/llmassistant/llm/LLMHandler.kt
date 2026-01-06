@@ -43,22 +43,32 @@ class LLMHandler(private val context: Context) {
     // -----------------------------
     // Initialization
     // -----------------------------
-    fun initialize(model: File? = null): Boolean {
-        if (initialized) return true
+    @Synchronized
+    fun initialize(model: File): Boolean {
+        if (initialized) {
+            if (modelFile?.absolutePath != model.absolutePath) {
+                Log.e(TAG, "LLM already initialized with a different model")
+                return false
+            }
+            return true
+        }
 
-        val resolvedModel = model ?: File(context.filesDir, "model.gguf")
-        if (!resolvedModel.exists()) {
-            Log.e(TAG, "Model file not found: ${resolvedModel.absolutePath}")
+        if (!model.exists()) {
+            Log.e(TAG, "Model file not found: ${model.absolutePath}")
             return false
         }
 
-        modelFile = resolvedModel
+        modelFile = model
 
-        val threads = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
-        Log.i(TAG, "Initializing LLM with $threads threads")
+        val cpuCount = Runtime.getRuntime().availableProcessors()
+        val threads = maxOf(1, minOf(4, cpuCount - 1))
+
+        Log.i(TAG, "Initializing LLM")
+        Log.i(TAG, "Model: ${model.absolutePath}")
+        Log.i(TAG, "Threads: $threads")
 
         initialized = nativeInitModel(
-            resolvedModel.absolutePath,
+            model.absolutePath,
             threads
         )
 
@@ -67,7 +77,7 @@ class LLMHandler(private val context: Context) {
     }
 
     // -----------------------------
-    // Inference (free-form, always-on)
+    // Inference (free-form)
     // -----------------------------
     fun infer(
         userInput: String,
@@ -75,20 +85,19 @@ class LLMHandler(private val context: Context) {
         contextPrefix: String? = null
     ): String {
         if (!initialized) {
-            val ok = initialize()
-            if (!ok) return "LLM not initialized"
+            return "LLM not initialized"
         }
 
-        val fullPrompt = buildString {
+        val prompt = buildString {
             if (!contextPrefix.isNullOrBlank()) {
-                append(contextPrefix)
+                append(contextPrefix.trim())
                 append("\n\n")
             }
-            append(userInput)
+            append(userInput.trim())
         }
 
-        Log.d(TAG, "Infer prompt length=${fullPrompt.length}")
-        return nativeInfer(fullPrompt, maxTokens)
+        Log.d(TAG, "Infer prompt chars=${prompt.length}")
+        return nativeInfer(prompt, maxTokens)
     }
 
     // -----------------------------
@@ -100,6 +109,10 @@ class LLMHandler(private val context: Context) {
         chunkSize: Int = 400,
         userInstruction: String = ""
     ): String {
+        if (!initialized) {
+            return "LLM not initialized"
+        }
+
         if (!file.exists()) {
             return "File not found: ${file.absolutePath}"
         }
@@ -120,20 +133,22 @@ class LLMHandler(private val context: Context) {
             append("\n\n")
             if (userInstruction.isNotBlank()) {
                 append("Instruction:\n")
-                append(userInstruction)
+                append(userInstruction.trim())
             }
         }
 
-        return infer(prompt, maxTokens = 512)
+        return nativeInfer(prompt, maxTokens = 512)
     }
 
     // -----------------------------
     // Cleanup
     // -----------------------------
+    @Synchronized
     fun close() {
         if (!initialized) return
         Log.i(TAG, "Shutting down LLM")
         nativeClose()
         initialized = false
+        modelFile = null
     }
 }
