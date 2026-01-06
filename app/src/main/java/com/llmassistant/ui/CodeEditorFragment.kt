@@ -1,10 +1,14 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
 // Author: CCVO
-// Purpose: Code editor fragment with line numbers, line wrapping, file loading, and LLM integration
+// Purpose: Code editor fragment with line numbers, line wrapping, file loading, syntax highlighting, and LLM integration
 
 package com.llmassistant.ui
 
+import android.graphics.Color
 import android.os.Bundle
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.ForegroundColorSpan
 import android.text.method.ScrollingMovementMethod
 import android.view.*
 import android.widget.*
@@ -12,6 +16,7 @@ import androidx.fragment.app.Fragment
 import com.llmassistant.editor.ChunkManager
 import com.llmassistant.R
 import java.io.File
+import java.util.regex.Pattern
 
 class CodeEditorFragment : Fragment() {
 
@@ -38,6 +43,16 @@ class CodeEditorFragment : Fragment() {
             fragment.arguments = args
             return fragment
         }
+
+        // Example simple syntax: keywords, strings, comments
+        private val KEYWORDS = arrayOf(
+            "fun", "val", "var", "if", "else", "for", "while",
+            "return", "class", "object", "interface", "package", "import"
+        )
+
+        private val KEYWORD_PATTERN = Pattern.compile("\\b(${KEYWORDS.joinToString("|")})\\b")
+        private val STRING_PATTERN = Pattern.compile("\"(.*?)\"")
+        private val COMMENT_PATTERN = Pattern.compile("//.*")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,11 +87,9 @@ class CodeEditorFragment : Fragment() {
             addView(editorTextView)
         }
 
-        // Line numbers + editor
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
         layout.addView(scrollView, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
 
-        // Line wrap toggle
         wrapToggleButton = Button(requireContext()).apply {
             text = "Toggle Wrap"
             setOnClickListener { toggleLineWrap() }
@@ -98,9 +111,48 @@ class CodeEditorFragment : Fragment() {
         if (!file.exists()) return
 
         val text = chunkManager.loadFileChunks(file)
-        editorTextView.text = text
+        setHighlightedText(text)
 
         updateLineNumbers(text)
+    }
+
+    private fun setHighlightedText(text: String) {
+        val spannable = SpannableString(text)
+
+        // Highlight keywords
+        val matcherKeywords = KEYWORD_PATTERN.matcher(text)
+        while (matcherKeywords.find()) {
+            spannable.setSpan(
+                ForegroundColorSpan(Color.parseColor("#0077CC")),
+                matcherKeywords.start(),
+                matcherKeywords.end(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        // Highlight strings
+        val matcherStrings = STRING_PATTERN.matcher(text)
+        while (matcherStrings.find()) {
+            spannable.setSpan(
+                ForegroundColorSpan(Color.parseColor("#AA5500")),
+                matcherStrings.start(),
+                matcherStrings.end(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        // Highlight comments
+        val matcherComments = COMMENT_PATTERN.matcher(text)
+        while (matcherComments.find()) {
+            spannable.setSpan(
+                ForegroundColorSpan(Color.parseColor("#888888")),
+                matcherComments.start(),
+                matcherComments.end(),
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        editorTextView.text = spannable
     }
 
     private fun updateLineNumbers(text: String) {
