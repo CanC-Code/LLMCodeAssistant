@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: drawer_menu.xml
+    Purpose: Navigation drawer menu for LLMCodeAssistant
+-->
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="single">
+
+        <item
+            android:id="@+id/nav_files"
+            android:title="Files"
+            android:icon="@android:drawable/ic_menu_agenda" />
+
+        <item
+            android:id="@+id/nav_editor"
+            android:title="Editor"
+            android:icon="@android:drawable/ic_menu_edit" />
+
+        <item
+            android:id="@+id/nav_console"
+            android:title="LLM Console"
+            android:icon="@android:drawable/ic_menu_info_details" />
+
+    </group>
+
+    <item android:title="Actions">
+        <menu>
+            <item
+                android:id="@+id/nav_reload_model"
+                android:title="Reload Model"
+                android:icon="@android:drawable/ic_popup_sync" />
+
+            <item
+                android:id="@+id/nav_clear_console"
+                android:title="Clear Console"
+                android:icon="@android:drawable/ic_menu_close_clear_cancel" />
+        </menu>
+    </item>
+
+</menu>
