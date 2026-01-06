@@ -1,11 +1,13 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
 // Author: CCVO
-// Purpose: Code editor fragment with dynamic syntax highlighting, line numbers, line wrapping, file loading, and LLM integration
+// Purpose: Optimized code editor fragment with dynamic syntax highlighting, line numbers, line wrapping, chunked file loading, and LLM integration
 
 package com.llmassistant.ui
 
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.method.ScrollingMovementMethod
@@ -32,6 +34,11 @@ class CodeEditorFragment : Fragment() {
 
     private var lineWrapEnabled = true
     private val chunkManager = ChunkManager()
+
+    // Debounce handler
+    private val handler = Handler(Looper.getMainLooper())
+    private var highlightRunnable: Runnable? = null
+    private val debounceDelay = 200L // ms
 
     companion object {
         private const val ARG_FILE_PATH = "file_path"
@@ -71,12 +78,14 @@ class CodeEditorFragment : Fragment() {
             orientation = LinearLayout.HORIZONTAL
         }
 
+        // Line numbers view
         lineNumbersView = TextView(requireContext()).apply {
             setTextColor(0xFF888888.toInt())
             setPadding(8)
             gravity = Gravity.TOP or Gravity.END
         }
 
+        // Editor EditText
         editorEditText = EditText(requireContext()).apply {
             setTextColor(0xFF000000.toInt())
             setPadding(8)
@@ -84,22 +93,24 @@ class CodeEditorFragment : Fragment() {
             isFocusableInTouchMode = true
             movementMethod = ScrollingMovementMethod()
             setBackgroundColor(Color.TRANSPARENT)
+            setHorizontallyScrolling(!lineWrapEnabled)
         }
 
-        // Add dynamic syntax highlighting
+        // Text change listener with debounce
         editorEditText.addTextChangedListener(object : TextWatcher {
-            private var lastText: String = ""
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                val currentText = s.toString()
-                if (currentText == lastText) return
-                lastText = currentText
-                highlightSyntax(currentText)
-                updateLineNumbers(currentText)
+                highlightRunnable?.let { handler.removeCallbacks(it) }
+                highlightRunnable = Runnable {
+                    s?.let { highlightSyntax(it.toString()) }
+                    s?.let { updateLineNumbers(it.toString()) }
+                }
+                handler.postDelayed(highlightRunnable!!, debounceDelay)
             }
         })
 
+        // Horizontal scroll
         scrollView = HorizontalScrollView(requireContext()).apply {
             addView(editorEditText)
         }
@@ -107,6 +118,7 @@ class CodeEditorFragment : Fragment() {
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
         layout.addView(scrollView, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
 
+        // Wrap toggle button
         wrapToggleButton = Button(requireContext()).apply {
             text = "Toggle Wrap"
             setOnClickListener { toggleLineWrap() }
@@ -187,6 +199,9 @@ class CodeEditorFragment : Fragment() {
         Toast.makeText(requireContext(), "Line wrap: $lineWrapEnabled", Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Returns the currently visible chunk of text for LLM interaction
+     */
     fun getCurrentChunk(): String {
         return editorEditText.text.toString()
     }
