@@ -1,107 +1,135 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/FileBrowserFragment.kt
 // Author: CCVO
-// Purpose: Browse project folder files/folders, including hidden, and open files in editor
+// Purpose: Custom in-APK file browser with collapsible folders, hidden file toggle, and project boundary indicator
 
 package com.llmassistant.ui
 
 import android.graphics.Color
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.*
-import androidx.core.view.isVisible
+import android.view.*
+import android.widget.CheckBox
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
 import com.llmassistant.R
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    companion object {
-        private const val ARG_FOLDER_PATH = "folder_path"
+    private var projectRootPath: String? = null
+    private var showHiddenFiles: Boolean = false
 
-        fun newInstance(folderPath: String): FileBrowserFragment {
+    companion object {
+        private const val ARG_PROJECT_PATH = "project_path"
+
+        fun newInstance(projectPath: String): FileBrowserFragment {
             val fragment = FileBrowserFragment()
             val args = Bundle()
-            args.putString(ARG_FOLDER_PATH, folderPath)
+            args.putString(ARG_PROJECT_PATH, projectPath)
             fragment.arguments = args
             return fragment
         }
     }
 
-    private var projectFolderPath: String? = null
-    private lateinit var listView: ListView
-    private lateinit var adapter: FileAdapter
+    private lateinit var containerLayout: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        projectFolderPath = arguments?.getString(ARG_FOLDER_PATH)
+        projectRootPath = arguments?.getString(ARG_PROJECT_PATH)
     }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val root = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        listView = root.findViewById(R.id.file_list_view)
-        adapter = FileAdapter { file -> onFileClicked(file) }
-        listView.adapter = adapter
+        containerLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(8)
+        }
 
-        projectFolderPath?.let {
-            val folder = File(it)
-            if (folder.exists() && folder.isDirectory) {
-                loadFolder(folder)
-            } else {
-                Toast.makeText(context, "Project folder invalid", Toast.LENGTH_LONG).show()
+        // Hidden files toggle
+        val toggleHidden = CheckBox(requireContext()).apply {
+            text = "Show Hidden Files"
+            isChecked = showHiddenFiles
+            setOnCheckedChangeListener { _, isChecked ->
+                showHiddenFiles = isChecked
+                refreshFileList()
+            }
+        }
+        containerLayout.addView(toggleHidden)
+
+        refreshFileList()
+        return containerLayout
+    }
+
+    private fun refreshFileList() {
+        // Remove old file views but keep the hidden files toggle
+        val toggleHidden = containerLayout.getChildAt(0)
+        containerLayout.removeAllViews()
+        containerLayout.addView(toggleHidden)
+
+        val rootFolder = projectRootPath?.let { File(it) } ?: return
+        if (!rootFolder.exists()) return
+
+        addFileView(rootFolder, 0)
+    }
+
+    private fun addFileView(file: File, indentLevel: Int) {
+        if (!showHiddenFiles && file.name.startsWith(".")) return
+
+        val textView = TextView(requireContext()).apply {
+            text = if (file.isDirectory) "[${file.name}]" else file.name
+            setPadding(20 * indentLevel, 8, 8, 8)
+            setOnClickListener {
+                if (file.isDirectory) {
+                    // Expand / collapse on click by refreshing children
+                    toggleDirectory(this, file, indentLevel + 1)
+                } else {
+                    // Open in editor
+                    (activity as? MainActivity)?.openFileInEditor(file)
+                }
+
+                // Highlight selection
+                highlightSelectedFile(this)
             }
         }
 
-        return root
+        // Indicate if file is outside project root
+        val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(file)!!
+        if (isOutside) textView.setBackgroundColor(Color.parseColor("#33FF0000"))
+
+        containerLayout.addView(textView)
     }
 
-    private fun loadFolder(folder: File) {
-        val files = folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
-        adapter.submitList(files)
-    }
+    private fun toggleDirectory(parentView: TextView, folder: File, indentLevel: Int) {
+        // Remove existing child views under this folder
+        val startIndex = containerLayout.indexOfChild(parentView) + 1
+        val endIndex = containerLayout.childCount
+        val viewsToRemove = mutableListOf<View>()
 
-    private fun onFileClicked(file: File) {
-        val mainActivity = activity as? MainActivity ?: return
+        for (i in startIndex until endIndex) {
+            val v = containerLayout.getChildAt(i)
+            if ((v.tag as? File)?.parentFile == folder) {
+                viewsToRemove.add(v)
+            }
+        }
 
-        val isOutside = !mainActivity.checkFileWithinProject(file)
-        mainActivity.indicateOutsideProject(isOutside, listView)
-
-        if (file.isDirectory) {
-            loadFolder(file)
+        if (viewsToRemove.isNotEmpty()) {
+            viewsToRemove.forEach { containerLayout.removeView(it) }
         } else {
-            mainActivity.openFileInEditor(file)
+            folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))?.forEach {
+                it.tag = folder
+                addFileView(it, indentLevel)
+            }
         }
     }
 
-    // -----------------------------
-    // Adapter for ListView
-    // -----------------------------
-    private class FileAdapter(val clickCallback: (File) -> Unit) : BaseAdapter() {
-        private val items = mutableListOf<File>()
-
-        fun submitList(list: List<File>) {
-            items.clear()
-            items.addAll(list)
-            notifyDataSetChanged()
+    private fun highlightSelectedFile(selectedView: TextView) {
+        for (i in 1 until containerLayout.childCount) { // skip toggle checkbox
+            val child = containerLayout.getChildAt(i)
+            child.setBackgroundColor(Color.TRANSPARENT)
         }
-
-        override fun getCount(): Int = items.size
-        override fun getItem(position: Int): Any = items[position]
-        override fun getItemId(position: Int): Long = position.toLong()
-
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-            val file = items[position]
-            val view = convertView ?: LayoutInflater.from(parent?.context)
-                .inflate(android.R.layout.simple_list_item_1, parent, false)
-            val text = view.findViewById<TextView>(android.R.id.text1)
-            text.text = file.name
-            text.setTextColor(if (file.isDirectory) Color.BLUE else Color.BLACK)
-            view.setOnClickListener { clickCallback(file) }
-            return view
-        }
+        selectedView.setBackgroundColor(Color.parseColor("#8833AAFF")) // light blue highlight
     }
 }
