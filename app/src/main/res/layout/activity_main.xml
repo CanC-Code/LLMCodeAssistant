@@ -1,14 +1,17 @@
-<!-- File: LLMCodeAssistant/app/src/main/res/layout/activity_main.xml -->
-<!-- Author: CCVO -->
-<!-- Purpose: Main layout containing file browser, code editor, and LLM input/output panel -->
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: activity_main.xml
+    Purpose: Main layout containing file browser, code editor, and LLM input/output panel
+-->
 
 <androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Navigation menu / QOL -->
+    <!-- Navigation Drawer -->
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view"
         android:layout_width="wrap_content"
@@ -16,43 +19,44 @@
         android:layout_gravity="start"
         android:fitsSystemWindows="true"
         android:background="?attr/colorSurface"
-        android:paddingTop="16dp"/>
+        app:menu="@menu/drawer_menu" />
 
-    <!-- Main content -->
+    <!-- Main Content -->
     <LinearLayout
         android:orientation="vertical"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <!-- Top: File Browser + Editor -->
+        <!-- Top Section: File Browser + Code Editor -->
         <LinearLayout
             android:orientation="horizontal"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- File Browser -->
+            <!-- File Browser Container -->
             <FrameLayout
                 android:id="@+id/file_browser_container"
-                android:layout_width="250dp"
+                android:layout_width="240dp"
                 android:layout_height="match_parent"
-                android:background="@android:color/white"/>
+                android:background="?attr/colorSurface" />
 
-            <!-- Editor -->
+            <!-- Code Editor Container -->
             <FrameLayout
                 android:id="@+id/editor_container"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@android:color/white"/>
+                android:background="?attr/colorSurface" />
         </LinearLayout>
 
-        <!-- Bottom: LLM console + input -->
+        <!-- Bottom Section: LLM Output + Input -->
         <LinearLayout
             android:orientation="vertical"
             android:layout_width="match_parent"
-            android:layout_height="250dp"
-            android:background="@android:color/darker_gray">
+            android:layout_height="0dp"
+            android:layout_weight="0.4"
+            android:background="?attr/colorBackground">
 
             <!-- LLM Output Console -->
             <FrameLayout
@@ -60,28 +64,29 @@
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:background="@android:color/white"/>
+                android:background="?attr/colorSurface" />
 
-            <!-- LLM Input -->
+            <!-- LLM Input Row -->
             <LinearLayout
                 android:orientation="horizontal"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:padding="4dp"
-                android:background="@android:color/white">
+                android:padding="6dp"
+                android:background="?attr/colorSurface">
 
                 <EditText
                     android:id="@+id/llm_input_field"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:hint="Type your message..."
+                    android:hint="Type your message…"
                     android:inputType="textMultiLine"
-                    android:maxLines="5"
                     android:minLines="2"
+                    android:maxLines="5"
+                    android:imeOptions="actionSend"
                     android:scrollHorizontally="false"
                     android:background="@android:color/transparent"
-                    android:padding="8dp"/>
+                    android:padding="8dp" />
 
                 <ImageButton
                     android:id="@+id/fab_send"
@@ -90,8 +95,10 @@
                     android:src="@android:drawable/ic_menu_send"
                     android:contentDescription="Send"
                     android:background="?attr/selectableItemBackgroundBorderless"
-                    android:padding="8dp"/>
+                    android:padding="8dp" />
             </LinearLayout>
         </LinearLayout>
+
     </LinearLayout>
+
 </androidx.drawerlayout.widget.DrawerLayout>
