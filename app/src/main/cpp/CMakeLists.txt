@@ -5,23 +5,29 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # -----------------------------
+# Paths
+# -----------------------------
+# Path to the llama.cpp submodule
+set(LLAMA_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../external/llama.cpp)
+
+# -----------------------------
 # llama.cpp static library
 # -----------------------------
 add_library(
     llama
     STATIC
-    llama/llama.cpp
-    llama/ggml.c
-    llama/ggml-alloc.c
-    llama/ggml-backend.c
-    llama/ggml-cpu.c
-    llama/ggml-quants.c
+    ${LLAMA_PATH}/llama.cpp
+    ${LLAMA_PATH}/ggml.c
+    ${LLAMA_PATH}/ggml-alloc.c
+    ${LLAMA_PATH}/ggml-backend.c
+    ${LLAMA_PATH}/ggml-cpu.c
+    ${LLAMA_PATH}/ggml-quants.c
 )
 
 target_include_directories(
     llama
     PUBLIC
-    llama
+    ${LLAMA_PATH}
 )
 
 target_compile_definitions(
