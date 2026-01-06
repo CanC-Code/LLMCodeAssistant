@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: strings.xml
+    Purpose: All user-visible strings
+-->
+
+<resources>
+
+    <!-- App -->
+    <string name="app_name">LLM Code Assistant</string>
+
+    <!-- Navigation -->
+    <string name="nav_files">Files</string>
+    <string name="nav_editor">Editor</string>
+    <string name="nav_console">LLM Console</string>
+    <string name="nav_reload_model">Reload Model</string>
+    <string name="nav_clear_console">Clear Console</string>
+
+    <!-- Editor -->
+    <string name="editor_empty">No file opened</string>
+
+    <!-- LLM -->
+    <string name="llm_input_hint">Type your message…</string>
+    <string name="llm_send">Send</string>
+    <string name="llm_system">System</string>
+    <string name="llm_user">You</string>
+    <string name="llm_model">LLM</string>
+
+    <!-- Errors -->
+    <string name="error_generic">An error occurred</string>
+    <string name="error_model_load">Failed to load model</string>
+
+</resources>
