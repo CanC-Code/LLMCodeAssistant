@@ -8,16 +8,12 @@ import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.text.method.ScrollingMovementMethod
-import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
 import android.view.*
 import android.widget.*
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.commit
 import com.llmassistant.editor.ChunkManager
-import com.llmassistant.llm.LLMHandler
 import com.llmassistant.R
 import java.io.File
 import java.util.regex.Pattern
@@ -42,7 +38,8 @@ class CodeEditorFragment : Fragment() {
     // -----------------------------
     // Chunking state
     // -----------------------------
-    private var currentChunkIndex = 0
+    var currentChunkIndex = 0
+        private set
     private val chunkSize = 400 // lines per chunk
 
     companion object {
@@ -78,18 +75,14 @@ class CodeEditorFragment : Fragment() {
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val layout = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
+        val layout = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
 
-        // Line numbers view
         lineNumbersView = TextView(requireContext()).apply {
             setTextColor(0xFF888888.toInt())
             setPadding(8)
             gravity = Gravity.TOP or Gravity.END
         }
 
-        // Editor
         editorEditText = EditText(requireContext()).apply {
             setTextColor(0xFF000000.toInt())
             setPadding(8)
@@ -99,7 +92,6 @@ class CodeEditorFragment : Fragment() {
             setHorizontallyScrolling(!lineWrapEnabled)
         }
 
-        // Syntax highlighting
         editorEditText.addTextChangedListener(object : TextWatcher {
             private var lastText: String = ""
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -113,13 +105,11 @@ class CodeEditorFragment : Fragment() {
             }
         })
 
-        // ScrollViews
         verticalScrollView = ScrollView(requireContext())
         verticalScrollView.addView(editorEditText)
         scrollView = HorizontalScrollView(requireContext())
         scrollView.addView(verticalScrollView)
 
-        // Sync line numbers scroll
         verticalScrollView.viewTreeObserver.addOnScrollChangedListener {
             lineNumbersView.scrollTo(0, verticalScrollView.scrollY)
         }
@@ -127,7 +117,6 @@ class CodeEditorFragment : Fragment() {
         layout.addView(lineNumbersView, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
         layout.addView(scrollView, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
 
-        // Bottom control buttons
         wrapToggleButton = Button(requireContext()).apply { text = "Toggle Wrap" }
         nextChunkButton = Button(requireContext()).apply { text = "Next Chunk" }
         prevChunkButton = Button(requireContext()).apply { text = "Prev Chunk" }
@@ -148,19 +137,13 @@ class CodeEditorFragment : Fragment() {
         }
 
         setupButtonActions()
-
         loadFile()
-
         return containerLayout
     }
 
-    // -----------------------------
-    // Load file
-    // -----------------------------
     private fun loadFile() {
         val file = filePath?.let { File(it) } ?: return
         if (!file.exists()) return
-
         val text = chunkManager.loadFileChunks(file)
         editorEditText.setText(text)
         highlightSyntax(text)
@@ -168,46 +151,27 @@ class CodeEditorFragment : Fragment() {
         resetChunks()
     }
 
-    // -----------------------------
-    // Syntax highlighting
-    // -----------------------------
     private fun highlightSyntax(text: String) {
         val spannable = SpannableString(text)
 
-        // Keywords
         val matcherKeywords = KEYWORD_PATTERN.matcher(text)
         while (matcherKeywords.find()) {
-            spannable.setSpan(
-                ForegroundColorSpan(Color.parseColor("#0077CC")),
-                matcherKeywords.start(),
-                matcherKeywords.end(),
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
+            spannable.setSpan(ForegroundColorSpan(Color.parseColor("#0077CC")),
+                matcherKeywords.start(), matcherKeywords.end(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
-        // Strings
         val matcherStrings = STRING_PATTERN.matcher(text)
         while (matcherStrings.find()) {
-            spannable.setSpan(
-                ForegroundColorSpan(Color.parseColor("#AA5500")),
-                matcherStrings.start(),
-                matcherStrings.end(),
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
+            spannable.setSpan(ForegroundColorSpan(Color.parseColor("#AA5500")),
+                matcherStrings.start(), matcherStrings.end(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
-        // Comments
         val matcherComments = COMMENT_PATTERN.matcher(text)
         while (matcherComments.find()) {
-            spannable.setSpan(
-                ForegroundColorSpan(Color.parseColor("#888888")),
-                matcherComments.start(),
-                matcherComments.end(),
-                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
+            spannable.setSpan(ForegroundColorSpan(Color.parseColor("#888888")),
+                matcherComments.start(), matcherComments.end(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
-        // Preserve cursor position
         val cursor = editorEditText.selectionStart
         editorEditText.setText(spannable)
         editorEditText.setSelection(cursor.coerceIn(0, spannable.length))
@@ -215,13 +179,9 @@ class CodeEditorFragment : Fragment() {
 
     private fun updateLineNumbers(text: String) {
         val lines = text.split("\n")
-        val numbers = lines.indices.joinToString("\n") { (it + 1).toString() }
-        lineNumbersView.text = numbers
+        lineNumbersView.text = lines.indices.joinToString("\n") { (it + 1).toString() }
     }
 
-    // -----------------------------
-    // Button actions
-    // -----------------------------
     private fun setupButtonActions() {
         wrapToggleButton.setOnClickListener { toggleLineWrap() }
         nextChunkButton.setOnClickListener { nextChunk() }
@@ -270,9 +230,10 @@ class CodeEditorFragment : Fragment() {
         }
 
         val mainActivity = activity as? MainActivity ?: return
-        mainActivity.sendLLMInput(chunk) { response ->
+        mainActivity.sendLLMInput(chunk) { response, chunkIndex ->
             val console = mainActivity.supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
-            console?.appendOutput(response, OutputConsoleFragment.MessageType.LLM)
+            val output = "[Chunk ${currentChunkIndex + 1}]\n$response"
+            console?.appendOutput(output, OutputConsoleFragment.MessageType.LLM)
         }
     }
 
