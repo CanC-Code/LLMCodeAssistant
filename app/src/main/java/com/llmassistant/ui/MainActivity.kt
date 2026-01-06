@@ -1,6 +1,6 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/MainActivity.kt
 // Author: CCVO
-// Purpose: Main activity managing project folder, file browser, editor, and LLM interface
+// Purpose: Main activity managing project folder, file browser, editor, and LLM interface with LLM input integration
 
 package com.llmassistant.ui
 
@@ -8,14 +8,16 @@ import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.commit
-import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
 import com.llmassistant.R
 import com.llmassistant.editor.FileManager
@@ -33,6 +35,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fileManager: FileManager
     private lateinit var prefs: SharedPreferences
 
+    private lateinit var llmInputField: EditText
+    private lateinit var sendButton: ImageButton
+
     private var projectFolder: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +47,8 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
         editorContainer = findViewById(R.id.editor_container)
+        llmInputField = findViewById(R.id.llm_input_field)
+        sendButton = findViewById(R.id.fab_send)
 
         prefs = getSharedPreferences("LLMPreferences", MODE_PRIVATE)
         val lastFolderPath = prefs.getString("last_project_folder", null)
@@ -63,13 +70,13 @@ class MainActivity : AppCompatActivity() {
         threadPool = ThreadPoolManager()
 
         setupNavigationMenu()
+        setupLLMInput()
     }
 
     // -----------------------------
     // UI & Navigation
     // -----------------------------
     private fun setupNavigationMenu() {
-        // Example QOL items; add toggles/buttons here
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.menu_toggle_wrap -> {
@@ -86,13 +93,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleLineWrap() {
-        // Communicate to editor fragment
         val editor = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
         editor?.toggleLineWrap()
     }
 
     private fun setThemeDark() {
-        // Communicate to all fragments for theme change
         Toast.makeText(this, "Dark theme applied", Toast.LENGTH_SHORT).show()
     }
 
@@ -100,13 +105,11 @@ class MainActivity : AppCompatActivity() {
     // File Browser
     // -----------------------------
     private fun promptSelectProjectFolder() {
-        // TODO: Implement folder picker (Storage Access Framework or File Picker library)
         Toast.makeText(this, "Please select a project folder", Toast.LENGTH_LONG).show()
     }
 
     private fun openFileBrowser(folder: File) {
         projectFolder = folder
-        // Save folder for next session
         prefs.edit { putString("last_project_folder", folder.absolutePath) }
 
         supportFragmentManager.commit {
@@ -126,7 +129,7 @@ class MainActivity : AppCompatActivity() {
         supportFragmentManager.commit {
             replace(R.id.editor_container, editor, "editor")
         }
-        // Ensure LLM panel remains visible and live
+
         val llmPanel = supportFragmentManager.findFragmentByTag("llm") ?: OutputConsoleFragment.newInstance()
         supportFragmentManager.commit {
             if (!llmPanel.isAdded) replace(R.id.llm_container, llmPanel, "llm")
@@ -140,9 +143,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun indicateOutsideProject(isOutside: Boolean, view: View) {
-        // Red outline if outside project folder
         if (isOutside) {
-            view.setBackgroundColor(Color.parseColor("#33FF0000")) // semi-transparent red overlay
+            view.setBackgroundColor(Color.parseColor("#33FF0000"))
         } else {
             view.setBackgroundColor(Color.TRANSPARENT)
         }
@@ -151,24 +153,43 @@ class MainActivity : AppCompatActivity() {
     // -----------------------------
     // LLM Communication
     // -----------------------------
+    private fun setupLLMInput() {
+        val consoleFragment = supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
+            ?: OutputConsoleFragment.newInstance().also { fragment ->
+                supportFragmentManager.commit {
+                    replace(R.id.llm_container, fragment, "llm")
+                }
+            }
+
+        // Send button click
+        sendButton.setOnClickListener {
+            val inputText = llmInputField.text.toString().trim()
+            if (inputText.isNotEmpty()) {
+                consoleFragment.appendOutput(inputText, OutputConsoleFragment.MessageType.USER)
+                llmInputField.text.clear()
+
+                sendLLMInput(inputText) { response ->
+                    consoleFragment.appendOutput(response, OutputConsoleFragment.MessageType.LLM)
+                }
+            }
+        }
+
+        // Enter inserts newline (multi-line input)
+        llmInputField.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                llmInputField.append("\n")
+                return@setOnKeyListener true
+            }
+            false
+        }
+    }
+
     fun sendLLMInput(userInput: String, onResult: (String) -> Unit) {
         val currentFile = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
         val currentChunk = currentFile?.getCurrentChunk() ?: ""
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
             runOnUiThread { onResult(response) }
-        }
-    }
-
-    // Optional: Floating "Send" button for LLM
-    private fun setupSendButton() {
-        val sendButton = findViewById<FloatingActionButton>(R.id.fab_send)
-        sendButton.setOnClickListener {
-            val llmInput = "" // retrieve from LLM input field
-            sendLLMInput(llmInput) { output ->
-                val console = supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
-                console?.appendOutput(output)
-            }
         }
     }
 }
