@@ -1,13 +1,12 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/MainActivity.kt
 // Author: CCVO
-// Purpose: Main activity managing project folder, file browser, editor, and LLM interface with LLM input integration
+// Purpose: Main activity managing project folder, file browser, editor, and LLM interface with chunked LLM input integration
 
 package com.llmassistant.ui
 
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.widget.EditText
@@ -185,8 +184,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun sendLLMInput(userInput: String, onResult: (String) -> Unit) {
-        val currentFile = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
-        val currentChunk = currentFile?.getCurrentChunk() ?: ""
+        val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
+        val currentChunk = editorFragment?.getCurrentChunk() ?: ""
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
             runOnUiThread { onResult(response) }
