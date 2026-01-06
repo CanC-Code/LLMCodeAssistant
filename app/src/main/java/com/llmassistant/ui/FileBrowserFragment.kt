@@ -1,9 +1,10 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/FileBrowserFragment.kt
 // Author: CCVO
-// Purpose: Custom in-APK file browser with collapsible folders, hidden file toggle, and project boundary indicator
+// Purpose: Custom in-APK file browser with collapsible folders, hidden file toggle, project boundary indicator, and animated expand/collapse
 
 package com.llmassistant.ui
 
+import android.animation.ValueAnimator
 import android.graphics.Color
 import android.os.Bundle
 import android.view.*
@@ -64,7 +65,6 @@ class FileBrowserFragment : Fragment() {
     }
 
     private fun refreshFileList() {
-        // Keep the hidden toggle at top
         val toggleHidden = containerLayout.getChildAt(0)
         containerLayout.removeAllViews()
         containerLayout.addView(toggleHidden)
@@ -79,11 +79,11 @@ class FileBrowserFragment : Fragment() {
         if (!showHiddenFiles && file.name.startsWith(".")) return
 
         val textView = TextView(requireContext()).apply {
-            text = if (file.isDirectory) "[${file.name}]" else file.name
+            text = if (file.isDirectory) "+ [${file.name}]" else file.name
             setPadding(20 * indentLevel, 8, 8, 8)
             setOnClickListener {
                 if (file.isDirectory) {
-                    toggleDirectory(this, file, indentLevel + 1)
+                    toggleDirectoryAnimated(this, file, indentLevel + 1)
                 } else {
                     (activity as? MainActivity)?.openFileInEditor(file)
                 }
@@ -91,15 +91,13 @@ class FileBrowserFragment : Fragment() {
             }
         }
 
-        // Mark if outside project root
         val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(file)!!
         textView.setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
 
         containerLayout.addView(textView)
     }
 
-    private fun toggleDirectory(parentView: TextView, folder: File, indentLevel: Int) {
-        // Remove or add children
+    private fun toggleDirectoryAnimated(parentView: TextView, folder: File, indentLevel: Int) {
         val startIndex = containerLayout.indexOfChild(parentView) + 1
         val endIndex = containerLayout.childCount
         val childrenToRemove = mutableListOf<View>()
@@ -112,15 +110,64 @@ class FileBrowserFragment : Fragment() {
         }
 
         if (childrenToRemove.isNotEmpty()) {
-            // Collapse
-            childrenToRemove.forEach { containerLayout.removeView(it) }
+            // Collapse with animation
+            childrenToRemove.forEach { animateCollapse(it) }
+            parentView.text = "+ [${folder.name}]"
         } else {
-            // Expand
-            folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))?.forEach {
+            // Expand: add child views first with height = 0, then animate height
+            val childViews = folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+            childViews?.forEach {
+                if (!showHiddenFiles && it.name.startsWith(".")) return@forEach
                 it.tag = folder
-                addFileView(it, indentLevel)
+                val textView = TextView(requireContext()).apply {
+                    text = if (it.isDirectory) "+ [${it.name}]" else it.name
+                    setPadding(20 * indentLevel, 8, 8, 8)
+                    alpha = 0f
+                    setOnClickListener { v ->
+                        if (it.isDirectory) toggleDirectoryAnimated(this, it, indentLevel + 1)
+                        else (activity as? MainActivity)?.openFileInEditor(it)
+                        highlightSelectedFile(this)
+                    }
+                    val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(it)!!
+                    setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
+                }
+                containerLayout.addView(textView)
+                animateExpand(textView)
             }
+            parentView.text = "- [${folder.name}]"
         }
+    }
+
+    private fun animateExpand(view: View) {
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(containerLayout.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val targetHeight = view.measuredHeight
+        view.layoutParams.height = 0
+        view.alpha = 0f
+
+        val animator = ValueAnimator.ofInt(0, targetHeight)
+        animator.addUpdateListener { valueAnimator ->
+            view.layoutParams.height = valueAnimator.animatedValue as Int
+            view.requestLayout()
+            view.alpha = (view.layoutParams.height.toFloat() / targetHeight)
+        }
+        animator.duration = 150
+        animator.start()
+    }
+
+    private fun animateCollapse(view: View) {
+        val initialHeight = view.measuredHeight
+        val animator = ValueAnimator.ofInt(initialHeight, 0)
+        animator.addUpdateListener { valueAnimator ->
+            view.layoutParams.height = valueAnimator.animatedValue as Int
+            view.alpha = (view.layoutParams.height.toFloat() / initialHeight)
+            view.requestLayout()
+        }
+        animator.duration = 150
+        animator.start()
+        animator.doOnEnd { containerLayout.removeView(view) }
     }
 
     private fun highlightSelectedFile(selectedView: TextView) {
@@ -130,4 +177,14 @@ class FileBrowserFragment : Fragment() {
         }
         selectedView.setBackgroundColor(Color.parseColor("#8833AAFF")) // light blue highlight
     }
+}
+
+// Extension for ValueAnimator end callback
+private fun ValueAnimator.doOnEnd(action: () -> Unit) {
+    addListener(object : android.animation.Animator.AnimatorListener {
+        override fun onAnimationStart(animation: android.animation.Animator) {}
+        override fun onAnimationEnd(animation: android.animation.Animator) = action()
+        override fun onAnimationCancel(animation: android.animation.Animator) {}
+        override fun onAnimationRepeat(animation: android.animation.Animator) {}
+    })
 }
