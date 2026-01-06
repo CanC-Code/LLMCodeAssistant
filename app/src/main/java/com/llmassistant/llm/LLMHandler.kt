@@ -1,6 +1,6 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/llm/LLMHandler.kt
 // Author: CCVO
-// Purpose: Handles interaction with a local LLM, providing inference on file chunks or free-form input
+// Purpose: Kotlin interface to embedded native LLM (llama.cpp GGUF)
 
 package com.llmassistant.llm
 
@@ -12,53 +12,128 @@ class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
-    }
 
-    // Placeholder: path to local model in assets/models/
-    private val modelPath: String = "models/llm.tflite"  // Replace with actual model integration
-
-    // -----------------------------
-    // Initialize model
-    // -----------------------------
-    init {
-        initializeModel()
-    }
-
-    private fun initializeModel() {
-        // TODO: Load the model (e.g., TFLite, GGUF, Onnx, etc.)
-        Log.d(TAG, "Initializing local LLM from $modelPath")
-        // For example:
-        // model = LLMModelLoader.load(context.assets.open(modelPath))
+        init {
+            // Loads libllama_jni.so produced by CMake
+            System.loadLibrary("llama_jni")
+        }
     }
 
     // -----------------------------
-    // Perform inference on text input
+    // Native JNI bindings
     // -----------------------------
-    fun infer(input: String, maxTokens: Int = 256): String {
-        // TODO: Replace with actual model inference
-        // For now, echo input as a placeholder
-        Log.d(TAG, "LLM inference called with input length ${input.length} tokens max $maxTokens")
-        // Simulate processing delay
-        Thread.sleep(50)
-        return "LLM response for input:\n$input"
+    private external fun nativeInitModel(
+        modelPath: String,
+        threads: Int
+    ): Boolean
+
+    private external fun nativeInfer(
+        prompt: String,
+        maxTokens: Int
+    ): String
+
+    private external fun nativeClose()
+
+    // -----------------------------
+    // State
+    // -----------------------------
+    private var initialized = false
+    private var modelFile: File? = null
+
+    // -----------------------------
+    // Initialization
+    // -----------------------------
+    fun initialize(model: File? = null): Boolean {
+        if (initialized) return true
+
+        val resolvedModel = model ?: File(context.filesDir, "model.gguf")
+        if (!resolvedModel.exists()) {
+            Log.e(TAG, "Model file not found: ${resolvedModel.absolutePath}")
+            return false
+        }
+
+        modelFile = resolvedModel
+
+        val threads = Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
+        Log.i(TAG, "Initializing LLM with $threads threads")
+
+        initialized = nativeInitModel(
+            resolvedModel.absolutePath,
+            threads
+        )
+
+        Log.i(TAG, "LLM initialized = $initialized")
+        return initialized
     }
 
     // -----------------------------
-    // Optional: infer a file chunk
+    // Inference (free-form, always-on)
     // -----------------------------
-    fun inferFileChunk(file: File, chunkIndex: Int = 0, chunkSize: Int = 500): String {
+    fun infer(
+        userInput: String,
+        maxTokens: Int = 512,
+        contextPrefix: String? = null
+    ): String {
+        if (!initialized) {
+            val ok = initialize()
+            if (!ok) return "LLM not initialized"
+        }
+
+        val fullPrompt = buildString {
+            if (!contextPrefix.isNullOrBlank()) {
+                append(contextPrefix)
+                append("\n\n")
+            }
+            append(userInput)
+        }
+
+        Log.d(TAG, "Infer prompt length=${fullPrompt.length}")
+        return nativeInfer(fullPrompt, maxTokens)
+    }
+
+    // -----------------------------
+    // File-aware inference (chunked)
+    // -----------------------------
+    fun inferFileChunk(
+        file: File,
+        chunkIndex: Int,
+        chunkSize: Int = 400,
+        userInstruction: String = ""
+    ): String {
+        if (!file.exists()) {
+            return "File not found: ${file.absolutePath}"
+        }
+
         val lines = file.readLines()
-        val startLine = chunkIndex * chunkSize
-        val endLine = minOf(startLine + chunkSize, lines.size)
-        val chunkText = lines.subList(startLine, endLine).joinToString("\n")
-        return infer(chunkText)
+        val start = chunkIndex * chunkSize
+        val end = minOf(start + chunkSize, lines.size)
+
+        if (start >= lines.size) {
+            return "End of file reached"
+        }
+
+        val chunk = lines.subList(start, end).joinToString("\n")
+
+        val prompt = buildString {
+            append("You are analyzing the following source code:\n\n")
+            append(chunk)
+            append("\n\n")
+            if (userInstruction.isNotBlank()) {
+                append("Instruction:\n")
+                append(userInstruction)
+            }
+        }
+
+        return infer(prompt, maxTokens = 512)
     }
 
     // -----------------------------
-    // Placeholder for model unloading / cleanup
+    // Cleanup
     // -----------------------------
     fun close() {
-        // TODO: Release model resources if necessary
-        Log.d(TAG, "Closing LLM model")
+        if (!initialized) return
+        Log.i(TAG, "Shutting down LLM")
+        nativeClose()
+        initialized = false
     }
 }
