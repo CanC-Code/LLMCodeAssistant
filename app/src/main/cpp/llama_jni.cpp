@@ -88,7 +88,6 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
     std::string prompt_str(input);
     env->ReleaseStringUTFChars(prompt, input);
 
-    // ---- Tokenize ----
     std::vector<llama_token> tokens(prompt_str.size() + 16);
 
     int n_tokens = llama_tokenize(
@@ -107,21 +106,10 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
 
     tokens.resize(n_tokens);
 
-    // ---- Prefill ----
-    llama_batch batch = llama_batch_init(
-        512,   // max tokens
-        0,     // embd
-        1      // seqs
-    );
+    llama_batch batch = llama_batch_init(512, 0, 1);
 
     for (int i = 0; i < n_tokens; ++i) {
-        llama_batch_add(
-            batch,
-            tokens[i],
-            i,
-            {0},
-            i == n_tokens - 1
-        );
+        llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
     }
 
     if (llama_decode(g_ctx, batch) != 0) {
@@ -129,62 +117,32 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
         return env->NewStringUTF("Decode failed");
     }
 
-    // ---- Sampling ----
     llama_sampling_params sparams = llama_sampling_default_params();
     sparams.top_k = 40;
     sparams.top_p = 0.95f;
     sparams.temp  = 0.8f;
 
-    llama_sampling_context* sampler =
-        llama_sampling_init(sparams);
+    llama_sampling_context* sampler = llama_sampling_init(sparams);
 
     std::string output;
     output.reserve(4096);
 
     for (int i = 0; i < maxTokens; ++i) {
-        llama_token token = llama_sampling_sample(
-            sampler,
-            g_ctx,
-            nullptr
-        );
+        llama_token token = llama_sampling_sample(sampler, g_ctx, nullptr);
 
-        if (token == llama_token_eos(g_model)) {
-            break;
-        }
+        if (token == llama_token_eos(g_model)) break;
 
-        llama_sampling_accept(
-            sampler,
-            g_ctx,
-            token,
-            true
-        );
+        llama_sampling_accept(sampler, g_ctx, token, true);
 
         char piece[32];
-        int len = llama_token_to_piece(
-            g_model,
-            token,
-            piece,
-            sizeof(piece),
-            0,
-            true
-        );
+        int len = llama_token_to_piece(g_model, token, piece, sizeof(piece), 0, true);
 
-        if (len > 0) {
-            output.append(piece, len);
-        }
+        if (len > 0) output.append(piece, len);
 
         llama_batch_clear(batch);
-        llama_batch_add(
-            batch,
-            token,
-            n_tokens + i,
-            {0},
-            true
-        );
+        llama_batch_add(batch, token, n_tokens + i, {0}, true);
 
-        if (llama_decode(g_ctx, batch) != 0) {
-            break;
-        }
+        if (llama_decode(g_ctx, batch) != 0) break;
     }
 
     llama_sampling_free(sampler);
