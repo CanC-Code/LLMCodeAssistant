@@ -1,9 +1,9 @@
 # .github/workflows/android.yml
 # Author: CCVO
-# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
+# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp) with live output + parallel builds
 # Copyright: CanC-code -CCVO
 
-name: Android Build
+name: Android Build (Live + Parallel)
 
 on:
   push:
@@ -63,10 +63,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Build ----------
-      # Skip 'clean' to avoid hangs with externalNativeBuild
-      - name: Assemble Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      # ---------- Build (live output + parallel) ----------
+      - name: Assemble Debug APK (live + parallel)
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info -Porg.gradle.parallel=true
 
       # ---------- Artifacts ----------
       - name: Upload Debug APK
