@@ -20,7 +20,6 @@ import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
 import java.io.File
 
-// Import your editor and LLM fragments/classes
 import io.canccode.aca.ui.FileBrowserFragment
 import io.canccode.aca.ui.CodeEditorFragment
 import io.canccode.aca.ui.OutputConsoleFragment
@@ -67,12 +66,18 @@ class MainActivity : AppCompatActivity() {
             openFileBrowser(projectFolder!!)
         }
 
-        // Initialize LLM
+        // Initialize LLM and thread pool
         llmHandler = LLMHandler(this)
         threadPool = ThreadPoolManager()
 
         setupNavigationMenu()
         setupLLMInput()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        threadPool.shutdown()    // Stop all background threads
+        llmHandler.close()       // Close JNI LLM safely
     }
 
     // -----------------------------
@@ -193,8 +198,14 @@ class MainActivity : AppCompatActivity() {
      */
     fun sendLLMInput(userInput: String, onResult: (String, Int?) -> Unit) {
         val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
-        val currentChunk = editorFragment?.getCurrentChunk() ?: ""
-        val chunkIndex = editorFragment?.currentChunkIndex
+        if (editorFragment == null) {
+            Toast.makeText(this, "Open a file first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val currentChunk = editorFragment.getCurrentChunk()
+        val chunkIndex = editorFragment.currentChunkIndex
+
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
             runOnUiThread { onResult(response, chunkIndex) }
