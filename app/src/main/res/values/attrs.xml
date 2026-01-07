@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: attrs.xml
+    Purpose: Define custom theme attributes used in layouts
+-->
+<resources>
+    <!-- App-specific background color -->
+    <attr name="colorBackground" format="color" />
+</resources>
