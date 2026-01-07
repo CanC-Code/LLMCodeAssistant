@@ -1,3 +1,8 @@
+// File: app/build.gradle
+// Author: CCVO
+// Purpose: Android application build configuration for LLMCodeAssistant
+// Copyright: CanC-code -CCVO
+
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
@@ -24,7 +29,8 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
         }
         debug {
             debuggable true
@@ -43,11 +49,11 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            version "3.27.1"
             cppFlags "-O3"
         }
     }
 
+    // Explicit NDK pin (valid + published)
     ndkVersion "26.1.10909125"
 }
 
