@@ -1,4 +1,3 @@
-# File: app/src/main/cpp/CMakeLists.txt
 cmake_minimum_required(VERSION 3.18)
 project(llama_jni LANGUAGES C CXX)
 
@@ -8,10 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # -----------------------------
 # Include paths
 # -----------------------------
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../external/llama.cpp
-)
+set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../external/llama.cpp)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${LLAMA_DIR})
 
 # -----------------------------
 # llama static library
@@ -19,18 +16,17 @@ include_directories(
 add_library(
     llama
     STATIC
-    ../../external/llama.cpp/llama.cpp
-    ../../external/llama.cpp/ggml.c
-    ../../external/llama.cpp/ggml-alloc.c
-    ../../external/llama.cpp/ggml-backend.c
-    ../../external/llama.cpp/ggml-cpu.c
-    ../../external/llama.cpp/ggml-quants.c
+    ${LLAMA_DIR}/llama.cpp
+    ${LLAMA_DIR}/ggml.c
+    ${LLAMA_DIR}/ggml-alloc.c
+    ${LLAMA_DIR}/ggml-backend.c
+    ${LLAMA_DIR}/ggml-cpu.c
+    ${LLAMA_DIR}/ggml-quants.c
 )
 
 target_include_directories(
     llama
-    PUBLIC
-    ../../external/llama.cpp
+    PUBLIC ${LLAMA_DIR}
 )
 
 target_compile_definitions(
@@ -40,10 +36,8 @@ target_compile_definitions(
     GGML_USE_K_QUANTS
 )
 
-# Heavy optimization only in Release mode
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(llama PRIVATE -O3)
-endif()
+# Optimization handled by Gradle build type
+# Gradle passes -O0 for Debug and -O3 for Release automatically
 
 # -----------------------------
 # JNI shared library
