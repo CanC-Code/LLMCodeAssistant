@@ -1,8 +1,8 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/editor/FileManager.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/FileManager.kt
 // Author: CCVO
 // Purpose: Provides file reading, writing, and utility functions for project files
 
-package com.llmassistant.editor
+package io.canccode.aca
 
 import java.io.File
 import java.io.IOException
