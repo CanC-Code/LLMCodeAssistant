@@ -13,7 +13,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
-import io.canccode.aca.R
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
@@ -85,13 +84,13 @@ class FileBrowserFragment : Fragment() {
                 if (file.isDirectory) {
                     toggleDirectoryAnimated(this, file, indentLevel + 1)
                 } else {
-                    (activity as? io.canccode.aca.MainActivity)?.openFileInEditor(file)
+                    (activity as? MainActivity)?.openFileInEditor(file)
                 }
                 highlightSelectedFile(this)
             }
         }
 
-        val isOutside = !(activity as? io.canccode.aca.MainActivity)?.checkFileWithinProject(file)!!
+        val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(file)!!
         textView.setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
 
         containerLayout.addView(textView)
@@ -123,12 +122,12 @@ class FileBrowserFragment : Fragment() {
                     text = if (it.isDirectory) "+ [${it.name}]" else it.name
                     setPadding(20 * indentLevel, 8, 8, 8)
                     alpha = 0f
-                    setOnClickListener {
+                    setOnClickListener { v ->
                         if (it.isDirectory) toggleDirectoryAnimated(this, it, indentLevel + 1)
-                        else (activity as? io.canccode.aca.MainActivity)?.openFileInEditor(it)
+                        else (activity as? MainActivity)?.openFileInEditor(it)
                         highlightSelectedFile(this)
                     }
-                    val isOutside = !(activity as? io.canccode.aca.MainActivity)?.checkFileWithinProject(it)!!
+                    val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(it)!!
                     setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
                 }
                 containerLayout.addView(textView)
