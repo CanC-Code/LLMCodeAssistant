@@ -1,6 +1,7 @@
 // File: LLMCodeAssistant/app/src/main/java/com/llmassistant/editor/ChunkManager.kt
 // Author: CCVO
 // Purpose: Manages chunking of large files for LLM processing, tracking current chunk, and summaries
+// Copyright: CanC-code -CCVO
 
 package com.llmassistant.editor
 
@@ -27,6 +28,13 @@ class ChunkManager(private val fileManager: FileManager) {
         val lines = fileManager.readFile(file)
         val chunks = FileChunks(file, lines)
         fileChunksMap[file.absolutePath] = chunks
+    }
+
+    // -----------------------------
+    // SAFE accessor (read-only)
+    // -----------------------------
+    fun getFileChunks(file: File): FileChunks? {
+        return fileChunksMap[file.absolutePath]
     }
 
     // -----------------------------
@@ -65,7 +73,7 @@ class ChunkManager(private val fileManager: FileManager) {
     }
 
     // -----------------------------
-    // Optional: Summarize all chunks for LLM preloading
+    // Optional: Summarize all chunks
     // -----------------------------
     fun getAllChunks(file: File): List<String> {
         val chunks = fileChunksMap[file.absolutePath] ?: run {
@@ -79,7 +87,9 @@ class ChunkManager(private val fileManager: FileManager) {
             val startLine = index * chunkSizeLines
             if (startLine >= chunks.lines.size) break
             val endLine = minOf(startLine + chunkSizeLines, chunks.lines.size)
-            chunkList.add(chunks.lines.subList(startLine, endLine).joinToString("\n"))
+            chunkList.add(
+                chunks.lines.subList(startLine, endLine).joinToString("\n")
+            )
             index++
         }
         return chunkList
