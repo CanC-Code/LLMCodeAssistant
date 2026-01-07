@@ -47,8 +47,9 @@ jobs:
         run: |
           ICON_DIR=app/src/main/res
           BASE_ICON=/tmp/ic_launcher_base.png
+          ROUND_ICON=/tmp/ic_launcher_round.png
 
-          # Create base icon (simple, readable, deterministic)
+          # Base square icon
           convert -size 1024x1024 xc:"#1e1e1e" \
             -gravity center \
             -fill white \
@@ -56,6 +57,12 @@ jobs:
             -pointsize 160 \
             -annotate +0+0 "LLM" \
             "$BASE_ICON"
+
+          # Round icon (circular mask)
+          convert "$BASE_ICON" \
+            \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
+            -compose copyopacity -composite \
+            "$ROUND_ICON"
 
           # Ensure mipmap directories exist
           mkdir -p \
@@ -65,12 +72,19 @@ jobs:
             $ICON_DIR/mipmap-xxhdpi \
             $ICON_DIR/mipmap-xxxhdpi
 
-          # Generate scaled icons
+          # Square launcher icons
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
+
+          # Round launcher icons
+          convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
+          convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
+          convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
+          convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
+          convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
 
       # ---------- Gradle cache ----------
       - name: Cache Gradle
