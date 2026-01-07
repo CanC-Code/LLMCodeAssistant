@@ -1,5 +1,2 @@
-// Root project name
 rootProject.name = "LLMCodeAssistant"
-
-// Include the app module
 include(":app")
