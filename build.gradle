@@ -1,17 +1,17 @@
+// Top-level build file
 buildscript {
-    ext {
-        kotlin_version = "1.9.0"
-        gradle_version = "8.3"
+    repositories {
+        google()
+        mavenCentral()
     }
-    repositories { google(); mavenCentral() }
     dependencies {
-        classpath "com.android.tools.build:gradle:$gradle_version"
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath 'com.android.tools.build:gradle:8.3.0'
     }
 }
 
 allprojects {
-    repositories { google(); mavenCentral() }
+    repositories {
+        google()
+        mavenCentral()
+    }
 }
-
-task clean(type: Delete) { delete rootProject.buildDir }
