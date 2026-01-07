@@ -18,6 +18,7 @@ import androidx.core.content.edit
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,7 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llmInputField: EditText
     private lateinit var sendButton: ImageButton
 
-    private var projectFolder: java.io.File? = null
+    private var projectFolder: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,11 +48,11 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("LLMPreferences", MODE_PRIVATE)
         val lastFolderPath = prefs.getString("last_project_folder", null)
 
-        // Initialize FileManager
+        // Initialize FileManager from new package
         fileManager = FileManager()
 
         // Load last project folder if exists
-        projectFolder = lastFolderPath?.let { java.io.File(it) }?.takeIf { it.exists() }
+        projectFolder = lastFolderPath?.let { File(it) }?.takeIf { it.exists() }
 
         if (projectFolder == null) {
             promptSelectProjectFolder()
@@ -102,7 +103,7 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Please select a project folder", Toast.LENGTH_LONG).show()
     }
 
-    private fun openFileBrowser(folder: java.io.File) {
+    private fun openFileBrowser(folder: File) {
         projectFolder = folder
         prefs.edit { putString("last_project_folder", folder.absolutePath) }
 
@@ -118,7 +119,7 @@ class MainActivity : AppCompatActivity() {
     // -----------------------------
     // Editor & LLM integration
     // -----------------------------
-    fun openFileInEditor(file: java.io.File) {
+    fun openFileInEditor(file: File) {
         val editor = CodeEditorFragment.newInstance(file.absolutePath, projectFolder?.absolutePath)
         supportFragmentManager.commit {
             replace(R.id.editor_container, editor, "editor")
@@ -130,7 +131,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun checkFileWithinProject(file: java.io.File): Boolean {
+    fun checkFileWithinProject(file: File): Boolean {
         val projectPath = projectFolder?.canonicalPath ?: return false
         val filePath = file.canonicalPath
         return filePath.startsWith(projectPath)
@@ -186,7 +187,7 @@ class MainActivity : AppCompatActivity() {
     fun sendLLMInput(userInput: String, onResult: (String, Int?) -> Unit) {
         val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
         val currentChunk = editorFragment?.getCurrentChunk() ?: ""
-        val chunkIndex = editorFragment?.currentChunkIndex // Optional: you need to track this in CodeEditorFragment
+        val chunkIndex = editorFragment?.currentChunkIndex
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
             runOnUiThread { onResult(response, chunkIndex) }
