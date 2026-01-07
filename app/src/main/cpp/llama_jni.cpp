@@ -1,10 +1,17 @@
+// File: app/src/main/cpp/llama_jni.cpp
+// Author: CCVO
+// Purpose: JNI wrapper for llama.cpp LLM integration
+// Copyright: CanC-code -CCVO
+
 #include <jni.h>
 #include <string>
 #include <vector>
 #include <mutex>
 #include <android/log.h>
 
+extern "C" {
 #include "llama.h"
+}
 
 #define LOG_TAG "LLAMA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
