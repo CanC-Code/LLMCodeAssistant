@@ -41,6 +41,7 @@ class CodeEditorFragment : Fragment() {
     var currentChunkIndex = 0
         private set
     private val chunkSize = 400 // lines per chunk
+    private var fullText: String = "" // store full file text for chunk navigation
 
     companion object {
         private const val ARG_FILE_PATH = "file_path"
@@ -100,6 +101,7 @@ class CodeEditorFragment : Fragment() {
                 val currentText = s.toString()
                 if (currentText == lastText) return
                 lastText = currentText
+                fullText = currentText // update full text in case user edits
                 highlightSyntax(currentText)
                 updateLineNumbers(currentText)
             }
@@ -144,11 +146,16 @@ class CodeEditorFragment : Fragment() {
     private fun loadFile() {
         val file = filePath?.let { File(it) } ?: return
         if (!file.exists()) return
-        val text = chunkManager.loadFileChunks(file)
-        editorEditText.setText(text)
-        highlightSyntax(text)
-        updateLineNumbers(text)
+        fullText = chunkManager.loadFileChunks(file)
         resetChunks()
+        showCurrentChunk()
+    }
+
+    private fun showCurrentChunk() {
+        val chunkText = getChunk()
+        editorEditText.setText(chunkText)
+        highlightSyntax(chunkText)
+        updateLineNumbers(chunkText)
     }
 
     private fun highlightSyntax(text: String) {
@@ -199,20 +206,31 @@ class CodeEditorFragment : Fragment() {
     // Chunk management
     // -----------------------------
     fun getChunk(index: Int = currentChunkIndex): String {
-        val lines = editorEditText.text.toString().lines()
+        val lines = fullText.lines()
         val start = index * chunkSize
         val end = minOf(start + chunkSize, lines.size)
         return if (start >= lines.size) "" else lines.subList(start, end).joinToString("\n")
     }
 
     fun nextChunk() {
-        currentChunkIndex++
-        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+        val totalChunks = (fullText.lines().size + chunkSize - 1) / chunkSize
+        if (currentChunkIndex + 1 < totalChunks) {
+            currentChunkIndex++
+            showCurrentChunk()
+            Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(requireContext(), "Already at last chunk", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun previousChunk() {
-        currentChunkIndex = maxOf(0, currentChunkIndex - 1)
-        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+        if (currentChunkIndex > 0) {
+            currentChunkIndex--
+            showCurrentChunk()
+            Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(requireContext(), "Already at first chunk", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun resetChunks() {
