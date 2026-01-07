@@ -1,8 +1,7 @@
 # File: .github/workflows/android.yml
 # Author: CCVO
-# Purpose: Robust Android CI for LLMCodeAssistant (JNI + CMake + llama.cpp)
-# Notes: Handles fresh CMake build, Gradle caching, NDK setup, avoids silent Ninja hangs
-
+# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
+# Notes: Uses stable NDK 26.1.x to avoid sdkmanager errors/hangs
 name: Android Build
 
 on:
@@ -19,9 +18,8 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.137507
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
       JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17
-      JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17
 
     steps:
       # ---------- Checkout ----------
@@ -42,26 +40,21 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses
+
       - name: Install SDK / NDK / Build Tools
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "ndk;27.3.137507"
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
 
-      # ---------- Clean stale CMake / Ninja state ----------
-      - name: Remove stale CMake cache
-        run: rm -rf app/.cxx app/build
-
-      # ---------- Gradle Cache ----------
+      # ---------- Gradle cache ----------
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            app/build
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}
 
@@ -69,15 +62,12 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Gradle Clean ----------
-      - name: Gradle Clean
-        run: ./gradlew clean --no-daemon
-
-      # ---------- Assemble Debug APK ----------
+      # ---------- Assemble APK ----------
+      # Skipping clean to avoid long externalNativeBuild recompile
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
 
-      # ---------- Upload Artifact ----------
+      # ---------- Upload APK ----------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
