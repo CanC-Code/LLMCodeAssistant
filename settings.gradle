@@ -1,12 +1,8 @@
-// File: settings.gradle
-// Author: CCVO
-// Purpose: Configure plugin repositories for Gradle 8+ Android builds
-
 pluginManagement {
     repositories {
-        google()              // Required for Android Gradle Plugin
-        mavenCentral()        // General-purpose Maven repository
-        gradlePluginPortal()  // Fallback for other Gradle plugins
+        google()
+        mavenCentral()
+        gradlePluginPortal()
     }
     plugins {
         id "com.android.application" version "8.3.0"
