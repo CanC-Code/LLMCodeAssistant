@@ -1,7 +1,7 @@
 # File: .github/workflows/android.yml
 # Author: CCVO
-# Purpose: Optimized Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
-# Copyright: CanC-code -CCVO
+# Purpose: Robust Android CI for LLMCodeAssistant (JNI + CMake + llama.cpp)
+# Notes: Handles fresh CMake build, Gradle caching, NDK setup, avoids silent Ninja hangs
 
 name: Android Build
 
@@ -17,10 +17,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/26.1.10909125
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.137507
       JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17
+      JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17
 
     steps:
       # ---------- Checkout ----------
@@ -29,15 +30,6 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-
-      # ---------- Initialize submodules ----------
-      - name: Initialize Git submodules
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
-      - name: Verify submodule
-        run: ls -l external/llama.cpp
 
       # ---------- Java ----------
       - name: Set up JDK 17
@@ -50,14 +42,18 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK / NDK
+      - name: Install SDK / NDK / Build Tools
         run: |
           yes | sdkmanager --licenses
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0" \
-            "ndk;26.1.10909125"
+            "ndk;27.3.137507"
+
+      # ---------- Clean stale CMake / Ninja state ----------
+      - name: Remove stale CMake cache
+        run: rm -rf app/.cxx app/build
 
       # ---------- Gradle Cache ----------
       - name: Cache Gradle
@@ -66,7 +62,6 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-            app/build
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}
 
@@ -74,11 +69,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Build ----------
-      - name: Assemble Debug APK
+      # ---------- Gradle Clean ----------
+      - name: Gradle Clean
+        run: ./gradlew clean --no-daemon
+
+      # ---------- Assemble Debug APK ----------
+      - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
 
-      # ---------- Artifacts ----------
+      # ---------- Upload Artifact ----------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
