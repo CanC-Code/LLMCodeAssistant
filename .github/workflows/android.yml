@@ -1,7 +1,5 @@
 # File: .github/workflows/android.yml
-# Author: CCVO
 # Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
-# Notes: Uses stable NDK 26.1.x to avoid sdkmanager errors/hangs
 name: Android Build
 
 on:
@@ -29,8 +27,8 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # ---------- Java ----------
-      - name: Set up JDK 17
+      # ---------- Set up JDK 17 ----------
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,15 +37,15 @@ jobs:
       # ---------- Android SDK ----------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: "34.0.0"
+          ndk: "26.1.10909125"
 
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses
 
-      - name: Install SDK / NDK / Build Tools
-        run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
-
-      # ---------- Gradle cache ----------
+      # ---------- Cache Gradle ----------
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -63,7 +61,6 @@ jobs:
         run: chmod +x ./gradlew
 
       # ---------- Assemble APK ----------
-      # Skipping clean to avoid long externalNativeBuild recompile
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
 
