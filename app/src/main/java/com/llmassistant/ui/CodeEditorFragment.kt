@@ -1,9 +1,9 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/CodeEditorFragment.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/CodeEditorFragment.kt
 // Author: CCVO
 // Purpose: Displays and edits code chunks
-// Copyright: CanC-code -CCVO
+// Copyright: CanC-code - CCVO
 
-package com.llmassistant.ui
+package io.canccode.aca
 
 import android.os.Bundle
 import android.text.Spannable
@@ -14,9 +14,6 @@ import android.view.ViewGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import com.llmassistant.editor.ChunkManager
-import com.llmassistant.editor.FileManager
-import com.llmassistant.R
 import java.io.File
 
 class CodeEditorFragment : Fragment() {
@@ -27,9 +24,15 @@ class CodeEditorFragment : Fragment() {
     private lateinit var scrollView: ScrollView
     private lateinit var codeTextView: TextView
 
+    // Track current chunk index globally for MainActivity LLM integration
+    var currentChunkIndex: Int = 0
+        private set
+
+    private var currentFile: File? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        fileManager = FileManager(requireContext())
+        fileManager = FileManager()
         chunkManager = ChunkManager(fileManager)
     }
 
@@ -57,11 +60,14 @@ class CodeEditorFragment : Fragment() {
     }
 
     fun loadFile(file: File) {
+        currentFile = file
         chunkManager.loadFile(file)
-        renderCurrentChunk(file)
+        currentChunkIndex = 0
+        renderCurrentChunk()
     }
 
-    private fun renderCurrentChunk(file: File) {
+    private fun renderCurrentChunk() {
+        val file = currentFile ?: return
         val chunkText = chunkManager.getCurrentChunk(file)
         val spannable = SpannableString(chunkText)
         spannable.setSpan(
@@ -73,13 +79,25 @@ class CodeEditorFragment : Fragment() {
         codeTextView.text = spannable
     }
 
-    fun nextChunk(file: File) {
+    fun nextChunk() {
+        val file = currentFile ?: return
         chunkManager.moveToNextChunk(file)
-        renderCurrentChunk(file)
+        currentChunkIndex = chunkManager.currentChunkIndex(file)
+        renderCurrentChunk()
     }
 
-    fun previousChunk(file: File) {
+    fun previousChunk() {
+        val file = currentFile ?: return
         chunkManager.moveToPreviousChunk(file)
-        renderCurrentChunk(file)
+        currentChunkIndex = chunkManager.currentChunkIndex(file)
+        renderCurrentChunk()
+    }
+
+    /**
+     * Returns the current chunk text for LLM input integration.
+     */
+    fun getCurrentChunk(): String {
+        val file = currentFile ?: return ""
+        return chunkManager.getCurrentChunk(file)
     }
 }
