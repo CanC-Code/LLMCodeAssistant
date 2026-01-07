@@ -1,4 +1,4 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/llm/LLMHandler.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/LLMHandler.kt
 // Author: CCVO
 // Purpose: Kotlin interface to embedded native LLM (llama.cpp GGUF)
 // Notes:
@@ -7,7 +7,7 @@
 //  - Safe context trimming
 //  - JNI-backed inference (no network dependency)
 
-package com.llmassistant.llm
+package io.canccode.aca
 
 import android.content.Context
 import android.util.Log
