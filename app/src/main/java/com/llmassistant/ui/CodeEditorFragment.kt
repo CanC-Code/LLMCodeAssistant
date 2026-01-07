@@ -82,14 +82,14 @@ class CodeEditorFragment : Fragment() {
     fun nextChunk() {
         val file = currentFile ?: return
         chunkManager.moveToNextChunk(file)
-        currentChunkIndex = chunkManager.currentChunkIndex(file)
+        currentChunkIndex = chunkManager.getFileChunks(file)?.currentChunkIndex ?: 0
         renderCurrentChunk()
     }
 
     fun previousChunk() {
         val file = currentFile ?: return
         chunkManager.moveToPreviousChunk(file)
-        currentChunkIndex = chunkManager.currentChunkIndex(file)
+        currentChunkIndex = chunkManager.getFileChunks(file)?.currentChunkIndex ?: 0
         renderCurrentChunk()
     }
 
