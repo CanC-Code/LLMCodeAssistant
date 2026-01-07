@@ -14,6 +14,7 @@ import android.view.*
 import android.widget.*
 import androidx.fragment.app.Fragment
 import com.llmassistant.editor.ChunkManager
+import com.llmassistant.editor.FileManager
 import com.llmassistant.R
 import java.io.File
 import java.util.regex.Pattern
@@ -33,15 +34,13 @@ class CodeEditorFragment : Fragment() {
     private lateinit var sendChunkButton: Button
 
     private var lineWrapEnabled = true
-    private val chunkManager = ChunkManager()
+    private val chunkManager = ChunkManager(FileManager())
 
     // -----------------------------
     // Chunking state
     // -----------------------------
     var currentChunkIndex = 0
         private set
-    private val chunkSize = 400 // lines per chunk
-    private var fullText: String = "" // store full file text for chunk navigation
 
     companion object {
         private const val ARG_FILE_PATH = "file_path"
@@ -101,7 +100,6 @@ class CodeEditorFragment : Fragment() {
                 val currentText = s.toString()
                 if (currentText == lastText) return
                 lastText = currentText
-                fullText = currentText // update full text in case user edits
                 highlightSyntax(currentText)
                 updateLineNumbers(currentText)
             }
@@ -146,16 +144,12 @@ class CodeEditorFragment : Fragment() {
     private fun loadFile() {
         val file = filePath?.let { File(it) } ?: return
         if (!file.exists()) return
-        fullText = chunkManager.loadFileChunks(file)
+        chunkManager.loadFile(file) // loads chunks
+        val text = chunkManager.getCurrentChunk(file) // initial chunk
+        editorEditText.setText(text)
+        highlightSyntax(text)
+        updateLineNumbers(text)
         resetChunks()
-        showCurrentChunk()
-    }
-
-    private fun showCurrentChunk() {
-        val chunkText = getChunk()
-        editorEditText.setText(chunkText)
-        highlightSyntax(chunkText)
-        updateLineNumbers(chunkText)
     }
 
     private fun highlightSyntax(text: String) {
@@ -206,35 +200,44 @@ class CodeEditorFragment : Fragment() {
     // Chunk management
     // -----------------------------
     fun getChunk(index: Int = currentChunkIndex): String {
-        val lines = fullText.lines()
-        val start = index * chunkSize
-        val end = minOf(start + chunkSize, lines.size)
-        return if (start >= lines.size) "" else lines.subList(start, end).joinToString("\n")
+        val file = filePath?.let { File(it) } ?: return ""
+        val oldIndex = chunkManager.fileChunksMap[file.absolutePath]?.currentChunkIndex ?: 0
+        chunkManager.fileChunksMap[file.absolutePath]?.currentChunkIndex = index
+        val chunkText = chunkManager.getCurrentChunk(file)
+        chunkManager.fileChunksMap[file.absolutePath]?.currentChunkIndex = oldIndex
+        return chunkText
     }
 
     fun nextChunk() {
-        val totalChunks = (fullText.lines().size + chunkSize - 1) / chunkSize
-        if (currentChunkIndex + 1 < totalChunks) {
-            currentChunkIndex++
-            showCurrentChunk()
-            Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), "Already at last chunk", Toast.LENGTH_SHORT).show()
-        }
+        val file = filePath?.let { File(it) } ?: return
+        chunkManager.moveToNextChunk(file)
+        currentChunkIndex = chunkManager.fileChunksMap[file.absolutePath]?.currentChunkIndex ?: currentChunkIndex
+        val chunkText = chunkManager.getCurrentChunk(file)
+        editorEditText.setText(chunkText)
+        highlightSyntax(chunkText)
+        updateLineNumbers(chunkText)
+        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
     }
 
     fun previousChunk() {
-        if (currentChunkIndex > 0) {
-            currentChunkIndex--
-            showCurrentChunk()
-            Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), "Already at first chunk", Toast.LENGTH_SHORT).show()
-        }
+        val file = filePath?.let { File(it) } ?: return
+        chunkManager.moveToPreviousChunk(file)
+        currentChunkIndex = chunkManager.fileChunksMap[file.absolutePath]?.currentChunkIndex ?: currentChunkIndex
+        val chunkText = chunkManager.getCurrentChunk(file)
+        editorEditText.setText(chunkText)
+        highlightSyntax(chunkText)
+        updateLineNumbers(chunkText)
+        Toast.makeText(requireContext(), "Chunk ${currentChunkIndex + 1}", Toast.LENGTH_SHORT).show()
     }
 
     fun resetChunks() {
+        val file = filePath?.let { File(it) } ?: return
+        chunkManager.resetChunkIndex(file)
         currentChunkIndex = 0
+        val chunkText = chunkManager.getCurrentChunk(file)
+        editorEditText.setText(chunkText)
+        highlightSyntax(chunkText)
+        updateLineNumbers(chunkText)
     }
 
     // -----------------------------
