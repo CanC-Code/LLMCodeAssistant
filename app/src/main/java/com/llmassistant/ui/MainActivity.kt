@@ -1,8 +1,8 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/MainActivity.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/MainActivity.kt
 // Author: CCVO
 // Purpose: Main activity managing project folder, file browser, editor, and LLM interface with chunked LLM input integration
 
-package com.llmassistant.ui
+package io.canccode.aca
 
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -18,10 +18,9 @@ import androidx.core.content.edit
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
-import com.llmassistant.R
-import com.llmassistant.editor.FileManager
-import com.llmassistant.llm.LLMHandler
-import com.llmassistant.llm.ThreadPoolManager
+import io.canccode.aca.editor.FileManager
+import io.canccode.aca.llm.LLMHandler
+import io.canccode.aca.llm.ThreadPoolManager
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -184,14 +183,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Sends user input to the LLM.
-     * Includes current editor chunk and returns optional chunk index.
-     */
     fun sendLLMInput(userInput: String, onResult: (String, Int?) -> Unit) {
         val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
         val currentChunk = editorFragment?.getCurrentChunk() ?: ""
-        val chunkIndex = editorFragment?.currentChunkIndex // Optional: you need to track this in CodeEditorFragment
+        val chunkIndex = editorFragment?.currentChunkIndex
         threadPool.submit {
             val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
             runOnUiThread { onResult(response, chunkIndex) }
