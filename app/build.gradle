@@ -22,7 +22,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments "-DCMAKE_BUILD_TYPE=Release"
+                // Only CMake flags, no 'arguments()'
+                cppFlags "-DCMAKE_BUILD_TYPE=Release"
             }
         }
     }
@@ -49,7 +50,8 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            arguments "-G", "Ninja"
+            version "3.26.4" // Match your installed CMake
+            // Use cppFlags / cFlags instead of 'arguments()'
         }
     }
 
