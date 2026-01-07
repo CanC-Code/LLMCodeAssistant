@@ -68,8 +68,7 @@ jobs:
       # ---------- Build ----------
       # Skipping 'clean' to avoid hangs with externalNativeBuild
       - name: Assemble Debug APK
-      run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
-
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
 
       # ---------- Artifacts ----------
       - name: Upload Debug APK
