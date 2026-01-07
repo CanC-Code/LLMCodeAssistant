@@ -36,6 +36,42 @@ jobs:
           build-tools: "34.0.0"
           ndk: "26.1.10909125"
 
+      # ---------- ImageMagick ----------
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+      # ---------- Generate App Icons ----------
+      - name: Generate Android launcher icons
+        run: |
+          ICON_DIR=app/src/main/res
+          BASE_ICON=/tmp/ic_launcher_base.png
+
+          # Create base icon (simple, readable, deterministic)
+          convert -size 1024x1024 xc:"#1e1e1e" \
+            -gravity center \
+            -fill white \
+            -font DejaVu-Sans-Bold \
+            -pointsize 160 \
+            -annotate +0+0 "LLM" \
+            "$BASE_ICON"
+
+          # Ensure mipmap directories exist
+          mkdir -p \
+            $ICON_DIR/mipmap-mdpi \
+            $ICON_DIR/mipmap-hdpi \
+            $ICON_DIR/mipmap-xhdpi \
+            $ICON_DIR/mipmap-xxhdpi \
+            $ICON_DIR/mipmap-xxxhdpi
+
+          # Generate scaled icons
+          convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
+          convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
+          convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
+          convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
+          convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
+
       # ---------- Gradle cache ----------
       - name: Cache Gradle
         uses: actions/cache@v4
