@@ -3,7 +3,6 @@
     File: styles.xml
     Purpose: Application themes and widget styling
 -->
-
 <resources>
 
     <!-- Base application theme -->
@@ -14,7 +13,8 @@
         <item name="colorSecondary">@color/colorSecondary</item>
         <item name="colorOnSecondary">@color/colorOnSecondary</item>
 
-        <item name="android:colorBackground">@color/colorBackground</item>
+        <!-- Use our custom app attribute -->
+        <item name="colorBackground">@color/colorBackground</item>
         <item name="colorSurface">@color/colorSurface</item>
 
         <item name="android:statusBarColor">@color/colorPrimaryVariant</item>
