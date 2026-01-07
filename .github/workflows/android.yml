@@ -1,9 +1,9 @@
-# .github/workflows/android.yml
+# File: .github/workflows/android.yml
 # Author: CCVO
-# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp) with live output + parallel builds
+# Purpose: Optimized Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
 # Copyright: CanC-code -CCVO
 
-name: Android Build (Live + Parallel)
+name: Android Build
 
 on:
   push:
@@ -43,6 +43,7 @@ jobs:
 
       - name: Install SDK / NDK
         run: |
+          yes | sdkmanager --licenses
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-34" \
@@ -56,6 +57,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            app/build
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}
 
@@ -63,8 +65,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Build (live output + parallel) ----------
-      - name: Assemble Debug APK (live + parallel)
+      # ---------- Build ----------
+      # Skipping 'clean' to avoid hangs with externalNativeBuild
+      - name: Assemble Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace --info -Porg.gradle.parallel=true
 
       # ---------- Artifacts ----------
