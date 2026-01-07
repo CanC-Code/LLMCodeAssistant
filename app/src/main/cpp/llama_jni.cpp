@@ -1,6 +1,6 @@
 // File: app/src/main/cpp/llama_jni.cpp
 // Author: CCVO
-// Purpose: JNI wrapper for llama.cpp LLM integration
+// Purpose: JNI wrapper for llama.cpp LLM integration (improved safety + logging)
 // Copyright: CanC-code -CCVO
 
 #include <jni.h>
@@ -91,6 +91,10 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
         return env->NewStringUTF("LLM not initialized");
     }
 
+    if (maxTokens <= 0) {
+        return env->NewStringUTF("");
+    }
+
     const char* input = env->GetStringUTFChars(prompt, nullptr);
     std::string prompt_str(input);
     env->ReleaseStringUTFChars(prompt, input);
@@ -108,19 +112,22 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
     );
 
     if (n_tokens <= 0) {
+        LOGE("Tokenization failed");
         return env->NewStringUTF("Tokenization failed");
     }
 
     tokens.resize(n_tokens);
+    LOGI("Tokenized %d tokens", n_tokens);
 
     llama_batch batch = llama_batch_init(512, 0, 1);
 
     for (int i = 0; i < n_tokens; ++i) {
-        llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+        llama_batch_add(batch, tokens[i], i, nullptr, i == n_tokens - 1);
     }
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
+        LOGE("Initial decode failed");
         return env->NewStringUTF("Decode failed");
     }
 
@@ -143,11 +150,10 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
 
         char piece[32];
         int len = llama_token_to_piece(g_model, token, piece, sizeof(piece), 0, true);
-
         if (len > 0) output.append(piece, len);
 
         llama_batch_clear(batch);
-        llama_batch_add(batch, token, n_tokens + i, {0}, true);
+        llama_batch_add(batch, token, n_tokens + i, nullptr, true);
 
         if (llama_decode(g_ctx, batch) != 0) break;
     }
@@ -155,6 +161,7 @@ Java_com_llmassistant_llm_LLMHandler_nativeInfer(
     llama_sampling_free(sampler);
     llama_batch_free(batch);
 
+    LOGI("Generated output length: %zu", output.size());
     return env->NewStringUTF(output.c_str());
 }
 
