@@ -64,9 +64,7 @@ jobs:
         run: chmod +x ./gradlew
 
       # ---------- Build ----------
-      - name: Clean
-        run: ./gradlew clean --no-daemon
-
+      # Skip 'clean' to avoid hangs with externalNativeBuild
       - name: Assemble Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
