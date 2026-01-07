@@ -41,14 +41,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK / NDK / CMake
+      - name: Install SDK / NDK
         run: |
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0" \
-            "ndk;26.1.10909125" \
-            "cmake;3.27.1"
+            "ndk;26.1.10909125"
 
       # ---------- Gradle Cache ----------
       - name: Cache Gradle
@@ -65,10 +64,10 @@ jobs:
         run: chmod +x ./gradlew
 
       # ---------- Build ----------
-      - name: Gradle Clean
+      - name: Clean
         run: ./gradlew clean --no-daemon
 
-      - name: Assemble Debug APK (JNI + CMake)
+      - name: Assemble Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       # ---------- Artifacts ----------
