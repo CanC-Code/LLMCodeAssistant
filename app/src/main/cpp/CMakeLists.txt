@@ -1,8 +1,4 @@
 # File: app/src/main/cpp/CMakeLists.txt
-# Author: CCVO
-# Purpose: CMake build for llama_jni JNI + llama.cpp static library
-# Copyright: CanC-code -CCVO
-
 cmake_minimum_required(VERSION 3.18)
 project(llama_jni LANGUAGES C CXX)
 
@@ -44,7 +40,7 @@ target_compile_definitions(
     GGML_USE_K_QUANTS
 )
 
-# Apply heavy optimization ONLY in Release mode
+# Heavy optimization only in Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(llama PRIVATE -O3)
 endif()
@@ -58,7 +54,7 @@ add_library(
     llama_jni.cpp
 )
 
-# Android system libraries
+# Android log library
 find_library(log-lib log)
 
 target_link_libraries(
