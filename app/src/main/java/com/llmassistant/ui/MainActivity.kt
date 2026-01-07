@@ -20,6 +20,13 @@ import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
 import java.io.File
 
+// Import your editor and LLM fragments/classes
+import io.canccode.aca.ui.FileBrowserFragment
+import io.canccode.aca.ui.CodeEditorFragment
+import io.canccode.aca.ui.OutputConsoleFragment
+import io.canccode.aca.llm.LLMHandler
+import io.canccode.aca.llm.ThreadPoolManager
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var drawerLayout: DrawerLayout
@@ -48,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("LLMPreferences", MODE_PRIVATE)
         val lastFolderPath = prefs.getString("last_project_folder", null)
 
-        // Initialize FileManager from new package
+        // Initialize FileManager
         fileManager = FileManager()
 
         // Load last project folder if exists
