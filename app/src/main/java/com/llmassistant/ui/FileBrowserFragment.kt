@@ -122,7 +122,7 @@ class FileBrowserFragment : Fragment() {
                     text = if (it.isDirectory) "+ [${it.name}]" else it.name
                     setPadding(20 * indentLevel, 8, 8, 8)
                     alpha = 0f
-                    setOnClickListener { v ->
+                    setOnClickListener {
                         if (it.isDirectory) toggleDirectoryAnimated(this, it, indentLevel + 1)
                         else (activity as? MainActivity)?.openFileInEditor(it)
                         highlightSelectedFile(this)
