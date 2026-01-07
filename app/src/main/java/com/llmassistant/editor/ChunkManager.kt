@@ -1,9 +1,9 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/editor/ChunkManager.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/ChunkManager.kt
 // Author: CCVO
 // Purpose: Manages chunking of large files for LLM processing, tracking current chunk, and summaries
-// Copyright: CanC-code -CCVO
+// Copyright: CanC-code - CCVO
 
-package com.llmassistant.editor
+package io.canccode.aca
 
 import java.io.File
 
@@ -66,6 +66,13 @@ class ChunkManager(private val fileManager: FileManager) {
     }
 
     // -----------------------------
+    // Get current chunk index
+    // -----------------------------
+    fun currentChunkIndex(file: File): Int {
+        return fileChunksMap[file.absolutePath]?.currentChunkIndex ?: 0
+    }
+
+    // -----------------------------
     // Reset chunk index to beginning
     // -----------------------------
     fun resetChunkIndex(file: File) {
@@ -73,7 +80,7 @@ class ChunkManager(private val fileManager: FileManager) {
     }
 
     // -----------------------------
-    // Optional: Summarize all chunks
+    // Optional: Get all chunks as a list
     // -----------------------------
     fun getAllChunks(file: File): List<String> {
         val chunks = fileChunksMap[file.absolutePath] ?: run {
