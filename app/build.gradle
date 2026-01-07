@@ -50,6 +50,12 @@ android {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
             cppFlags "-O3"
+
+            // Use Ninja for live output
+            arguments "-G", "Ninja"
+
+            // Parallel native build: use all available cores
+            arguments "-j", "${Runtime.runtime.availableProcessors()}"
         }
     }
 
