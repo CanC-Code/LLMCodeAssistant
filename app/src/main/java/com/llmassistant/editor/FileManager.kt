@@ -1,8 +1,8 @@
-// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/FileManager.kt
+// File: app/src/main/java/com/llmassistant/editor/FileManager.kt
 // Author: CCVO
 // Purpose: Provides file reading, writing, and utility functions for project files
 
-package io.canccode.aca
+package com.llmassistant.editor
 
 import java.io.File
 import java.io.IOException
@@ -53,7 +53,7 @@ class FileManager {
     }
 
     // -----------------------------
-    // List all files in a folder, including hidden
+    // List all files in a folder
     // -----------------------------
     fun listAllFiles(folder: File): List<File> {
         if (!folder.exists() || !folder.isDirectory) return emptyList()
