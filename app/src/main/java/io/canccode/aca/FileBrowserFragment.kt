@@ -1,55 +1,43 @@
 package io.canccode.aca
 
-import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
-import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import androidx.recyclerview.widget.RecyclerView
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private var _binding: FragmentFileBrowserBinding? = null
-    private val binding get() = _binding!!
-    private val viewModel: AppViewModel by activityViewModels()
+    private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: FileListAdapter
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+        recyclerView = view.findViewById(R.id.fileRecyclerView)
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        adapter = FileListAdapter(requireContext()) { file ->
-            viewModel.selectFile(file)
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.top_container, EditorFragment())
-                .addToBackStack(null)
-                .commit()
+        val rootDir = requireContext().filesDir
+        val files = rootDir.listFiles()?.toList() ?: emptyList()
+
+        adapter = FileListAdapter(files) { file ->
+            openFile(file)
         }
 
-        binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerView.adapter = adapter
+        recyclerView.adapter = adapter
 
-        loadFiles()
+        return view
     }
 
-    private fun loadFiles() {
-        val root = requireContext().filesDir
-        adapter.submitList(root.listFiles()?.toList() ?: emptyList())
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    private fun openFile(file: File) {
+        // placeholder hook
+        // later this will route into EditorFragment
     }
 }
