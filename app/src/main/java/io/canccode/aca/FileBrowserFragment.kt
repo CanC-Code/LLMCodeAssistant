@@ -6,45 +6,54 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.databinding.FragmentFileBrowserBinding
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private lateinit var recyclerView: RecyclerView
+    private var _binding: FragmentFileBrowserBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var adapter: FileListAdapter
+    private var currentDir: File = File("/sdcard")
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-
-        recyclerView = view.findViewById(R.id.file_list)
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-
-        val files = requireContext().filesDir
-            .listFiles()
-            ?.toList()
-            ?: emptyList()
-
-        adapter = FileListAdapter(
-            context = requireContext(),
-            files = files
-        ) { file ->
-            openFileInEditor(file)
-        }
-
-        recyclerView.adapter = adapter
-
-        return view
+        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
-    private fun openFileInEditor(file: File) {
-        val editorFragment = parentFragmentManager
-            .findFragmentByTag("EDITOR") as? EditorFragment
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-        editorFragment?.loadFile(file)
+        adapter = FileListAdapter(
+            requireContext(),
+            onClick = { file ->
+                if (file.isDirectory) {
+                    loadDirectory(file)
+                } else {
+                    (activity as? MainActivity)?.openFile(file)
+                }
+            }
+        )
+
+        binding.fileList.layoutManager = LinearLayoutManager(requireContext())
+        binding.fileList.adapter = adapter
+
+        loadDirectory(currentDir)
+    }
+
+    private fun loadDirectory(dir: File) {
+        currentDir = dir
+        val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        adapter.submitList(files)
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
