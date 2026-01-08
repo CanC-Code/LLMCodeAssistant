@@ -32,7 +32,6 @@ class LLMFragment : Fragment() {
         }
 
         viewModel.llmInput.observe(viewLifecycleOwner) { input ->
-            // This is where we would send to embedded LLM backend
             binding.outputField.append("\n> $input")
         }
     }
