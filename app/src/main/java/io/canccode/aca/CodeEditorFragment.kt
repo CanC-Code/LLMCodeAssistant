@@ -1,7 +1,4 @@
 // File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/CodeEditorFragment.kt
-// Author: CCVO
-// Purpose: Displays and edits code chunks
-
 package io.canccode.aca
 
 import android.os.Bundle
@@ -12,8 +9,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import java.io.File
-
-// ---- Custom classes ----
 import com.llmassistant.editor.FileManager
 import com.llmassistant.editor.ChunkManager
 
@@ -24,9 +19,7 @@ class CodeEditorFragment : Fragment() {
 
         fun newInstance(filePath: String): CodeEditorFragment =
             CodeEditorFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_FILE_PATH, filePath)
-                }
+                arguments = Bundle().apply { putString(ARG_FILE_PATH, filePath) }
             }
     }
 
@@ -44,13 +37,9 @@ class CodeEditorFragment : Fragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         fileManager = FileManager()
         chunkManager = ChunkManager(fileManager)
-
-        arguments?.getString(ARG_FILE_PATH)?.let {
-            currentFile = File(it)
-        }
+        arguments?.getString(ARG_FILE_PATH)?.let { currentFile = File(it) }
     }
 
     override fun onCreateView(
@@ -59,10 +48,8 @@ class CodeEditorFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         val view = inflater.inflate(R.layout.fragment_code_editor, container, false)
-
         scrollView = view.findViewById(R.id.codeScrollView)
         codeTextView = view.findViewById(R.id.codeTextView)
-
         codeTextView.isHorizontallyScrolling = !lineWrapEnabled
 
         currentFile?.let { loadFile(it) }
