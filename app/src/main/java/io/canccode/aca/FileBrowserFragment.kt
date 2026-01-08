@@ -21,17 +21,19 @@ class FileBrowserFragment : Fragment() {
     ): View {
         val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
 
-        recyclerView = view.findViewById(R.id.fileRecyclerView)
+        recyclerView = view.findViewById(R.id.file_list)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        val rootDir: File = requireContext().filesDir
-        val files: List<File> = rootDir.listFiles()?.toList() ?: emptyList()
+        val files = requireContext().filesDir
+            .listFiles()
+            ?.toList()
+            ?: emptyList()
 
         adapter = FileListAdapter(
             context = requireContext(),
             files = files
         ) { file ->
-            openFile(file)
+            openFileInEditor(file)
         }
 
         recyclerView.adapter = adapter
@@ -39,7 +41,10 @@ class FileBrowserFragment : Fragment() {
         return view
     }
 
-    private fun openFile(file: File) {
-        // next step: route this to EditorFragment
+    private fun openFileInEditor(file: File) {
+        val editorFragment = parentFragmentManager
+            .findFragmentByTag("EDITOR") as? EditorFragment
+
+        editorFragment?.loadFile(file)
     }
 }
