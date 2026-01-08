@@ -1,6 +1,6 @@
 // File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/MainActivity.kt
 // Author: CCVO
-// Purpose: Main activity managing project folder, file browser, editor, and LLM interface with chunked LLM input integration
+// Purpose: Main activity managing project folder, file browser, editor, and LLM interface
 
 package io.canccode.aca
 
@@ -19,10 +19,6 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
 import java.io.File
-
-import com.llmassistant.editor.FileManager
-import com.llmassistant.llm.LLMHandler
-import com.llmassistant.llm.ThreadPoolManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -54,7 +50,9 @@ class MainActivity : AppCompatActivity() {
 
         fileManager = FileManager()
 
-        projectFolder = lastFolderPath?.let { File(it) }?.takeIf { it.exists() }
+        projectFolder = lastFolderPath
+            ?.let { File(it) }
+            ?.takeIf { it.exists() }
 
         if (projectFolder == null) {
             promptSelectProjectFolder()
@@ -82,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.menu_toggle_wrap -> {
-                    toggleLineWrap()
+                    Toast.makeText(this, "Line wrap not implemented yet", Toast.LENGTH_SHORT).show()
                     true
                 }
                 R.id.menu_theme_dark -> {
@@ -92,11 +90,6 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
-    }
-
-    private fun toggleLineWrap() {
-        val editor = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
-        editor?.toggleLineWrap()
     }
 
     private fun setThemeDark() {
@@ -127,10 +120,7 @@ class MainActivity : AppCompatActivity() {
     // Editor & LLM integration
     // -----------------------------
     fun openFileInEditor(file: File) {
-        val editor = CodeEditorFragment.newInstance(
-            file.absolutePath,
-            projectFolder?.absolutePath
-        )
+        val editor = CodeEditorFragment.newInstance(file.absolutePath)
 
         supportFragmentManager.commit {
             replace(R.id.editor_container, editor, "editor")
@@ -195,14 +185,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         llmInputField.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_ENTER &&
-                event.action == KeyEvent.ACTION_DOWN
-            ) {
-                llmInputField.append("\n")
-                true
-            } else {
-                false
-            }
+            keyCode == KeyEvent.KEYCODE_ENTER &&
+                event.action == KeyEvent.ACTION_DOWN &&
+                llmInputField.append("\n").let { true }
         }
     }
 
