@@ -1,32 +1,38 @@
 package io.canccode.aca
 
-import android.content.Context
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
-import android.widget.ListView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
-import java.io.File
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import androidx.documentfile.provider.DocumentFile
+import android.widget.Toast
+import io.canccode.aca.databinding.FragmentFileBrowserBinding
 
 class FileBrowserFragment : Fragment() {
 
-    private var listener: FileSelectionListener? = null
-    private lateinit var listView: ListView
-    private var currentPath: File = File("/")
+    private var _binding: FragmentFileBrowserBinding? = null
+    private val binding get() = _binding!!
 
-    interface FileSelectionListener {
-        fun openFileInEditor(file: File)
+    private val fileListAdapter = FileListAdapter { documentFile ->
+        if (documentFile.isDirectory) {
+            openDirectory(documentFile.uri)
+        } else {
+            openFile(documentFile.uri)
+        }
     }
 
-    override fun onAttach(context: Context) {
-        super.onAttach(context)
-        if (context is FileSelectionListener) {
-            listener = context
-        } else {
-            throw RuntimeException("$context must implement FileSelectionListener")
-        }
+    // SAF picker result launcher
+    private val openDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let { loadFilesFromUri(it) }
     }
 
     override fun onCreateView(
@@ -34,30 +40,45 @@ class FileBrowserFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        listView = view.findViewById(R.id.file_list)
-        listView.setOnItemClickListener { _, _, position, _ ->
-            val selectedFile = listView.adapter.getItem(position) as File
-            if (selectedFile.isDirectory) {
-                showDirectory(selectedFile)
-            } else {
-                listener?.openFileInEditor(selectedFile)
-            }
+        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        binding.fileList.apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = fileListAdapter
         }
-        showDirectory(currentPath)
-        return view
+
+        binding.btnPickDirectory.setOnClickListener {
+            openDocumentLauncher.launch(null)
+        }
     }
 
-    private fun showDirectory(dir: File) {
-        currentPath = dir
-        val files = dir.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
-            ?: emptyList()
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, files.map { it.name })
-        listView.adapter = adapter
+    private fun loadFilesFromUri(uri: Uri) {
+        val pickedDir = DocumentFile.fromTreeUri(requireContext(), uri)
+        if (pickedDir == null || !pickedDir.isDirectory) {
+            Toast.makeText(requireContext(), "Invalid directory", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val files = pickedDir.listFiles()
+        fileListAdapter.submitList(files.toList())
     }
 
-    override fun onDetach() {
-        super.onDetach()
-        listener = null
+    private fun openDirectory(uri: Uri) {
+        loadFilesFromUri(uri)
+    }
+
+    private fun openFile(uri: Uri) {
+        Toast.makeText(requireContext(), "File selected: $uri", Toast.LENGTH_SHORT).show()
+        // TODO: send file Uri to your editor/input panel
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
