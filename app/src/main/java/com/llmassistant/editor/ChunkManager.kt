@@ -1,9 +1,9 @@
-// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/ChunkManager.kt
+// File: app/src/main/java/com/llmassistant/editor/ChunkManager.kt
 // Author: CCVO
 // Purpose: Manages chunking of large files for LLM processing, tracking current chunk, and summaries
 // Copyright: CanC-code - CCVO
 
-package io.canccode.aca
+package com.llmassistant.editor
 
 import java.io.File
 
@@ -19,22 +19,15 @@ class ChunkManager(private val fileManager: FileManager) {
     )
 
     private val fileChunksMap = mutableMapOf<String, FileChunks>()
-    private val chunkSizeLines: Int = 500  // lines per chunk, configurable
+    private val chunkSizeLines: Int = 500  // lines per chunk
 
     // -----------------------------
     // Load file and prepare chunks
     // -----------------------------
     fun loadFile(file: File) {
         val lines = fileManager.readFile(file)
-        val chunks = FileChunks(file, lines)
-        fileChunksMap[file.absolutePath] = chunks
-    }
-
-    // -----------------------------
-    // SAFE accessor (read-only)
-    // -----------------------------
-    fun getFileChunks(file: File): FileChunks? {
-        return fileChunksMap[file.absolutePath]
+        fileChunksMap[file.absolutePath] =
+            FileChunks(file = file, lines = lines)
     }
 
     // -----------------------------
@@ -48,39 +41,43 @@ class ChunkManager(private val fileManager: FileManager) {
 
         val startLine = chunks.currentChunkIndex * chunkSizeLines
         val endLine = minOf(startLine + chunkSizeLines, chunks.lines.size)
-        return chunks.lines.subList(startLine, endLine).joinToString("\n")
+
+        return chunks.lines
+            .subList(startLine, endLine)
+            .joinToString("\n")
     }
 
     // -----------------------------
-    // Move to next / previous chunk
+    // Move between chunks
     // -----------------------------
     fun moveToNextChunk(file: File) {
         val chunks = fileChunksMap[file.absolutePath] ?: return
         val maxIndex = (chunks.lines.size - 1) / chunkSizeLines
-        if (chunks.currentChunkIndex < maxIndex) chunks.currentChunkIndex++
+        if (chunks.currentChunkIndex < maxIndex) {
+            chunks.currentChunkIndex++
+        }
     }
 
     fun moveToPreviousChunk(file: File) {
         val chunks = fileChunksMap[file.absolutePath] ?: return
-        if (chunks.currentChunkIndex > 0) chunks.currentChunkIndex--
+        if (chunks.currentChunkIndex > 0) {
+            chunks.currentChunkIndex--
+        }
     }
 
     // -----------------------------
-    // Get current chunk index
+    // Query state
     // -----------------------------
     fun currentChunkIndex(file: File): Int {
         return fileChunksMap[file.absolutePath]?.currentChunkIndex ?: 0
     }
 
-    // -----------------------------
-    // Reset chunk index to beginning
-    // -----------------------------
     fun resetChunkIndex(file: File) {
         fileChunksMap[file.absolutePath]?.currentChunkIndex = 0
     }
 
     // -----------------------------
-    // Optional: Get all chunks as a list
+    // Optional: materialize all chunks
     // -----------------------------
     fun getAllChunks(file: File): List<String> {
         val chunks = fileChunksMap[file.absolutePath] ?: run {
@@ -88,17 +85,20 @@ class ChunkManager(private val fileManager: FileManager) {
             fileChunksMap[file.absolutePath]!!
         }
 
-        val chunkList = mutableListOf<String>()
+        val result = mutableListOf<String>()
         var index = 0
+
         while (true) {
-            val startLine = index * chunkSizeLines
-            if (startLine >= chunks.lines.size) break
-            val endLine = minOf(startLine + chunkSizeLines, chunks.lines.size)
-            chunkList.add(
-                chunks.lines.subList(startLine, endLine).joinToString("\n")
+            val start = index * chunkSizeLines
+            if (start >= chunks.lines.size) break
+
+            val end = minOf(start + chunkSizeLines, chunks.lines.size)
+            result.add(
+                chunks.lines.subList(start, end).joinToString("\n")
             )
             index++
         }
-        return chunkList
+
+        return result
     }
 }
