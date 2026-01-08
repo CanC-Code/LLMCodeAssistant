@@ -1,49 +1,59 @@
 package io.canccode.aca
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
-import io.canccode.aca.databinding.FragmentEditorBinding
 
 class EditorFragment : Fragment() {
 
-    private var _binding: FragmentEditorBinding? = null
-    private val binding get() = _binding!!
-    private val viewModel: AppViewModel by activityViewModels()
+    private lateinit var editor: EditText
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentEditorBinding.inflate(inflater, container, false)
-        return binding.root
+        val view = inflater.inflate(R.layout.fragment_editor, container, false)
+
+        editor = view.findViewById(R.id.editorText)
+
+        editor.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(
+                s: CharSequence?,
+                start: Int,
+                count: Int,
+                after: Int
+            ) {
+                // no-op
+            }
+
+            override fun onTextChanged(
+                s: CharSequence?,
+                start: Int,
+                before: Int,
+                count: Int
+            ) {
+                // this is where future live-edit hooks go
+            }
+
+            override fun afterTextChanged(s: Editable?) {
+                // no-op for now
+            }
+        })
+
+        return view
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        viewModel.editorContent.observe(viewLifecycleOwner) { content ->
-            if (binding.editor.text.toString() != content) {
-                binding.editor.setText(content)
-            }
-        }
-
-        binding.editor.addTextChangedListener {
-            viewModel.updateEditorContent(it.toString())
-        }
-
-        binding.saveButton.setOnClickListener {
-            viewModel.selectedFile.value?.let { file ->
-                requireContext().openFileOutput(file.name, 0).use { it.write(binding.editor.text.toString().toByteArray()) }
-            }
-        }
+    fun setText(content: String) {
+        editor.setText(content)
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    fun getText(): String {
+        return editor.text.toString()
     }
 }
