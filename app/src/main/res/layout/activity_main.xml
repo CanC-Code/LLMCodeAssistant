@@ -1,73 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Main content -->
+    <!-- Main content container -->
     <LinearLayout
+        android:id="@+id/main_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- File browser -->
         <FrameLayout
-            android:id="@+id/file_browser_container"
-            android:layout_width="match_parent"
-            android:layout_height="150dp" />
-
-        <!-- Editor -->
-        <FrameLayout
-            android:id="@+id/editor_container"
+            android:id="@+id/code_editor_container"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_weight="1"/>
 
-        <!-- LLM console -->
         <FrameLayout
-            android:id="@+id/llm_container"
+            android:id="@+id/output_console_container"
             android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:background="#EEEEEE" />
-
-        <!-- LLM input area -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="8dp">
-
-            <EditText
-                android:id="@+id/llm_input_field"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Type your message"
-                android:inputType="textMultiLine"
-                android:minLines="1"
-                android:maxLines="4" />
-
-            <ImageButton
-                android:id="@+id/fab_send"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@android:drawable/ic_menu_send"
-                android:contentDescription="Send"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:tint="#0077CC"
-                android:padding="8dp" />
-        </LinearLayout>
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
 
     </LinearLayout>
 
-    <!-- Navigation drawer -->
-    <com.google.android.material.navigation.NavigationView
-        android:id="@+id/nav_view"
-        android:layout_width="wrap_content"
+    <!-- Drawer content -->
+    <FrameLayout
+        android:id="@+id/file_browser_container"
+        android:layout_width="280dp"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
-        app:menu="@menu/drawer_menu" />
-
+        android:layout_gravity="start"/>
 </androidx.drawerlayout.widget.DrawerLayout>
