@@ -31,7 +31,6 @@ class FileBrowserFragment : Fragment() {
     }
 
     private fun loadFiles() {
-        // Example: list files from app's internal storage directory
         val filesDir = requireContext().filesDir
         val files = filesDir.listFiles()?.toList() ?: emptyList()
         adapter.submitList(files)
@@ -39,7 +38,6 @@ class FileBrowserFragment : Fragment() {
 }
 
 class FileAdapter : ListAdapter<File, FileViewHolder>(FileDiffCallback()) {
-
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(android.R.layout.simple_list_item_1, parent, false)
@@ -47,26 +45,18 @@ class FileAdapter : ListAdapter<File, FileViewHolder>(FileDiffCallback()) {
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        val file = getItem(position)
-        holder.bind(file)
+        holder.bind(getItem(position))
     }
 }
 
 class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-
     private val textView: TextView = itemView.findViewById(android.R.id.text1)
-
     fun bind(file: File) {
         textView.text = file.name
     }
 }
 
 class FileDiffCallback : DiffUtil.ItemCallback<File>() {
-    override fun areItemsTheSame(oldItem: File, newItem: File): Boolean {
-        return oldItem.absolutePath == newItem.absolutePath
-    }
-
-    override fun areContentsTheSame(oldItem: File, newItem: File): Boolean {
-        return oldItem == newItem
-    }
+    override fun areItemsTheSame(oldItem: File, newItem: File) = oldItem.absolutePath == newItem.absolutePath
+    override fun areContentsTheSame(oldItem: File, newItem: File) = oldItem == newItem
 }
