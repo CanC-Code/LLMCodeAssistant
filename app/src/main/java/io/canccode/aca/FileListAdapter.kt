@@ -1,42 +1,32 @@
 package io.canccode.aca
 
+import android.net.Uri
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import androidx.documentfile.provider.DocumentFile
-import io.canccode.aca.databinding.ItemFileBinding
 
 class FileListAdapter(
-    private val onClick: (DocumentFile) -> Unit
-) : ListAdapter<DocumentFile, FileListAdapter.FileViewHolder>(DIFF_CALLBACK) {
+    private val files: List<Uri>,
+    private val clickListener: (Uri) -> Unit
+) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    companion object {
-        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<DocumentFile>() {
-            override fun areItemsTheSame(oldItem: DocumentFile, newItem: DocumentFile) =
-                oldItem.uri == newItem.uri
-
-            override fun areContentsTheSame(oldItem: DocumentFile, newItem: DocumentFile) =
-                oldItem.name == newItem.name
-        }
+    class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val nameText: TextView = itemView.findViewById(R.id.file_name)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val binding = ItemFileBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return FileViewHolder(binding)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return FileViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        val uri = files[position]
+        holder.nameText.text = uri.lastPathSegment
+        holder.itemView.setOnClickListener { clickListener(uri) }
     }
 
-    inner class FileViewHolder(private val binding: ItemFileBinding) :
-        RecyclerView.ViewHolder(binding.root) {
-
-        fun bind(file: DocumentFile) {
-            binding.tvFileName.text = file.name
-            binding.root.setOnClickListener { onClick(file) }
-        }
-    }
+    override fun getItemCount(): Int = files.size
 }
