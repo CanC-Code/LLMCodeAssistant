@@ -1,8 +1,5 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/ui/OutputConsoleFragment.kt
-// Author: CCVO
-// Purpose: Scrollable console fragment for displaying LLM responses and messages, with optional chunk numbering
-
-package com.llmassistant.ui
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/OutputConsoleFragment.kt
+package io.canccode.aca
 
 import android.graphics.Color
 import android.os.Bundle
@@ -14,7 +11,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import com.llmassistant.R
 
 class OutputConsoleFragment : Fragment() {
 
@@ -32,19 +28,11 @@ class OutputConsoleFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         scrollView = ScrollView(requireContext())
-        consoleLayout = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        consoleLayout = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
         scrollView.addView(consoleLayout)
         return scrollView
     }
 
-    /**
-     * Append text to the console
-     * @param text The message to display
-     * @param type Optional: differentiate message types (e.g., user/LLM/system)
-     * @param chunkIndex Optional: show chunk number for file-based input
-     */
     fun appendOutput(text: String, type: MessageType = MessageType.LLM, chunkIndex: Int? = null) {
         val textView = TextView(requireContext()).apply {
             val prefix = chunkIndex?.let { "[Chunk $it] " } ?: ""
@@ -59,14 +47,8 @@ class OutputConsoleFragment : Fragment() {
             setPadding(8, 4, 8, 4)
         }
         consoleLayout.addView(textView)
-
-        // Auto-scroll to bottom
         scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
     }
 
-    enum class MessageType {
-        USER,
-        LLM,
-        SYSTEM
-    }
+    enum class MessageType { USER, LLM, SYSTEM }
 }
