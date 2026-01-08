@@ -14,10 +14,8 @@ class FileBrowserFragment : Fragment() {
     private var _binding: FragmentFileBrowserBinding? = null
     private val binding get() = _binding!!
 
-    // IMPORTANT: concrete type, not RecyclerView.Adapter
     private lateinit var adapter: FileListAdapter
-
-    private var currentDir = File("/sdcard")
+    private var currentDir: File = File("/sdcard") // safe default
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -33,22 +31,32 @@ class FileBrowserFragment : Fragment() {
 
         adapter = FileListAdapter(requireContext()) { file ->
             if (file.isDirectory) {
-                loadDirectory(file)
+                openDirectory(file)
             } else {
-                (activity as? MainActivity)?.openFile(file)
+                openFile(file)
             }
         }
 
-        binding.fileList.layoutManager = LinearLayoutManager(requireContext())
-        binding.fileList.adapter = adapter
+        binding.recyclerView.apply {
+            layoutManager = LinearLayoutManager(requireContext())
+            adapter = this@FileBrowserFragment.adapter
+        }
 
-        loadDirectory(currentDir)
+        openDirectory(currentDir)
     }
 
-    private fun loadDirectory(dir: File) {
+    private fun openDirectory(dir: File) {
         currentDir = dir
-        val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        val files = dir.listFiles()
+            ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+            ?: emptyList()
+
         adapter.submitList(files)
+    }
+
+    private fun openFile(file: File) {
+        // Stub for now — editor wiring comes next
+        // This is intentionally empty but VALID
     }
 
     override fun onDestroyView() {
