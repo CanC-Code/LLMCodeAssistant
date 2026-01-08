@@ -1,7 +1,3 @@
-// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/FileBrowserFragment.kt
-// Author: CCVO
-// Purpose: Custom in-APK file browser with collapsible folders, hidden file toggle, project boundary indicator, and animated expand/collapse
-
 package io.canccode.aca
 
 import android.animation.ValueAnimator
@@ -24,11 +20,11 @@ class FileBrowserFragment : Fragment() {
         private const val ARG_PROJECT_PATH = "project_path"
 
         fun newInstance(projectPath: String): FileBrowserFragment {
-            val fragment = FileBrowserFragment()
-            val args = Bundle()
-            args.putString(ARG_PROJECT_PATH, projectPath)
-            fragment.arguments = args
-            return fragment
+            return FileBrowserFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_PROJECT_PATH, projectPath)
+                }
+            }
         }
     }
 
@@ -40,7 +36,8 @@ class FileBrowserFragment : Fragment() {
     }
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         containerLayout = LinearLayout(requireContext()).apply {
@@ -48,7 +45,6 @@ class FileBrowserFragment : Fragment() {
             setPadding(8)
         }
 
-        // Hidden files toggle
         val toggleHidden = CheckBox(requireContext()).apply {
             text = "Show Hidden Files"
             isChecked = showHiddenFiles
@@ -57,32 +53,34 @@ class FileBrowserFragment : Fragment() {
                 refreshFileList()
             }
         }
-        containerLayout.addView(toggleHidden)
 
+        containerLayout.addView(toggleHidden)
         refreshFileList()
         return containerLayout
     }
 
     private fun refreshFileList() {
-        val toggleHidden = containerLayout.getChildAt(0)
+        val toggle = containerLayout.getChildAt(0)
         containerLayout.removeAllViews()
-        containerLayout.addView(toggleHidden)
+        containerLayout.addView(toggle)
 
-        val rootFolder = projectRootPath?.let { File(it) } ?: return
-        if (!rootFolder.exists()) return
+        val root = projectRootPath?.let { File(it) } ?: return
+        if (!root.exists()) return
 
-        addFileView(rootFolder, 0)
+        addFileView(root, 0)
     }
 
-    private fun addFileView(file: File, indentLevel: Int) {
+    private fun addFileView(file: File, indent: Int) {
         if (!showHiddenFiles && file.name.startsWith(".")) return
 
-        val textView = TextView(requireContext()).apply {
+        val view = TextView(requireContext()).apply {
             text = if (file.isDirectory) "+ [${file.name}]" else file.name
-            setPadding(20 * indentLevel, 8, 8, 8)
+            setPadding(20 * indent, 8, 8, 8)
+            tag = file   // ✅ CORRECT: View carries File
+
             setOnClickListener {
                 if (file.isDirectory) {
-                    toggleDirectoryAnimated(this, file, indentLevel + 1)
+                    toggleDirectoryAnimated(this, file, indent + 1)
                 } else {
                     (activity as? MainActivity)?.openFileInEditor(file)
                 }
@@ -90,95 +88,115 @@ class FileBrowserFragment : Fragment() {
             }
         }
 
-        val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(file)!!
-        textView.setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
+        val isOutside =
+            !(activity as? MainActivity)?.checkFileWithinProject(file)!!
 
-        containerLayout.addView(textView)
+        view.setBackgroundColor(
+            if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT
+        )
+
+        containerLayout.addView(view)
     }
 
-    private fun toggleDirectoryAnimated(parentView: TextView, folder: File, indentLevel: Int) {
-        val startIndex = containerLayout.indexOfChild(parentView) + 1
-        val endIndex = containerLayout.childCount
-        val childrenToRemove = mutableListOf<View>()
+    private fun toggleDirectoryAnimated(
+        parentView: TextView,
+        folder: File,
+        indent: Int
+    ) {
+        val start = containerLayout.indexOfChild(parentView) + 1
+        val toRemove = mutableListOf<View>()
 
-        for (i in startIndex until endIndex) {
+        for (i in start until containerLayout.childCount) {
             val v = containerLayout.getChildAt(i)
-            if ((v.tag as? File)?.parentFile == folder) {
-                childrenToRemove.add(v)
+            val taggedFile = v.tag as? File ?: continue
+            if (taggedFile.parentFile == folder) {
+                toRemove.add(v)
             }
         }
 
-        if (childrenToRemove.isNotEmpty()) {
-            // Collapse with animation
-            childrenToRemove.forEach { animateCollapse(it) }
+        if (toRemove.isNotEmpty()) {
+            toRemove.forEach { animateCollapse(it) }
             parentView.text = "+ [${folder.name}]"
         } else {
-            // Expand: add child views first with height = 0, then animate height
-            val childViews = folder.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
-            childViews?.forEach {
-                if (!showHiddenFiles && it.name.startsWith(".")) return@forEach
-                it.tag = folder
-                val textView = TextView(requireContext()).apply {
-                    text = if (it.isDirectory) "+ [${it.name}]" else it.name
-                    setPadding(20 * indentLevel, 8, 8, 8)
-                    alpha = 0f
-                    setOnClickListener {
-                        if (it.isDirectory) toggleDirectoryAnimated(this, it, indentLevel + 1)
-                        else (activity as? MainActivity)?.openFileInEditor(it)
-                        highlightSelectedFile(this)
-                    }
-                    val isOutside = !(activity as? MainActivity)?.checkFileWithinProject(it)!!
-                    setBackgroundColor(if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT)
+            folder.listFiles()
+                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                ?.forEach { child ->
+                    if (!showHiddenFiles && child.name.startsWith(".")) return@forEach
+                    addAnimatedChild(parentView, child, indent)
                 }
-                containerLayout.addView(textView)
-                animateExpand(textView)
-            }
             parentView.text = "- [${folder.name}]"
         }
+    }
+
+    private fun addAnimatedChild(parent: TextView, file: File, indent: Int) {
+        val view = TextView(requireContext()).apply {
+            text = if (file.isDirectory) "+ [${file.name}]" else file.name
+            setPadding(20 * indent, 8, 8, 8)
+            tag = file
+            alpha = 0f
+
+            setOnClickListener {
+                if (file.isDirectory) toggleDirectoryAnimated(this, file, indent + 1)
+                else (activity as? MainActivity)?.openFileInEditor(file)
+                highlightSelectedFile(this)
+            }
+        }
+
+        val isOutside =
+            !(activity as? MainActivity)?.checkFileWithinProject(file)!!
+
+        view.setBackgroundColor(
+            if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT
+        )
+
+        containerLayout.addView(view)
+        animateExpand(view)
     }
 
     private fun animateExpand(view: View) {
         view.measure(
             View.MeasureSpec.makeMeasureSpec(containerLayout.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            View.MeasureSpec.UNSPECIFIED
         )
-        val targetHeight = view.measuredHeight
-        view.layoutParams.height = 0
-        view.alpha = 0f
 
-        val animator = ValueAnimator.ofInt(0, targetHeight)
-        animator.addUpdateListener { valueAnimator ->
-            view.layoutParams.height = valueAnimator.animatedValue as Int
-            view.requestLayout()
-            view.alpha = (view.layoutParams.height.toFloat() / targetHeight)
+        val target = view.measuredHeight
+        view.layoutParams.height = 0
+
+        ValueAnimator.ofInt(0, target).apply {
+            duration = 150
+            addUpdateListener {
+                view.layoutParams.height = it.animatedValue as Int
+                view.alpha = view.layoutParams.height.toFloat() / target
+                view.requestLayout()
+            }
+            start()
         }
-        animator.duration = 150
-        animator.start()
     }
 
     private fun animateCollapse(view: View) {
-        val initialHeight = view.measuredHeight
-        val animator = ValueAnimator.ofInt(initialHeight, 0)
-        animator.addUpdateListener { valueAnimator ->
-            view.layoutParams.height = valueAnimator.animatedValue as Int
-            view.alpha = (view.layoutParams.height.toFloat() / initialHeight)
-            view.requestLayout()
+        val start = view.measuredHeight
+
+        ValueAnimator.ofInt(start, 0).apply {
+            duration = 150
+            addUpdateListener {
+                view.layoutParams.height = it.animatedValue as Int
+                view.alpha = view.layoutParams.height.toFloat() / start
+                view.requestLayout()
+            }
+            doOnEnd { containerLayout.removeView(view) }
+            start()
         }
-        animator.duration = 150
-        animator.start()
-        animator.doOnEnd { containerLayout.removeView(view) }
     }
 
-    private fun highlightSelectedFile(selectedView: TextView) {
-        for (i in 1 until containerLayout.childCount) { // skip toggle checkbox
-            val child = containerLayout.getChildAt(i)
-            child.setBackgroundColor(Color.TRANSPARENT)
+    private fun highlightSelectedFile(selected: TextView) {
+        for (i in 1 until containerLayout.childCount) {
+            containerLayout.getChildAt(i)
+                .setBackgroundColor(Color.TRANSPARENT)
         }
-        selectedView.setBackgroundColor(Color.parseColor("#8833AAFF")) // light blue highlight
+        selected.setBackgroundColor(Color.parseColor("#8833AAFF"))
     }
 }
 
-// Extension for ValueAnimator end callback
 private fun ValueAnimator.doOnEnd(action: () -> Unit) {
     addListener(object : android.animation.Animator.AnimatorListener {
         override fun onAnimationStart(animation: android.animation.Animator) {}
