@@ -1,28 +1,58 @@
 package io.canccode.aca
 
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
-import io.canccode.aca.databinding.ActivityMainBinding
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import java.io.File
 
-class MainActivity : AppCompatActivity() {
-    private lateinit var binding: ActivityMainBinding
+class FileBrowserFragment : Fragment() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    private var _binding: FragmentFileBrowserBinding? = null
+    private val binding get() = _binding!!
 
-        // Load FileBrowserFragment by default
-        if (savedInstanceState == null) {
-            supportFragmentManager.commit {
-                replace(binding.topContainer.id, FileBrowserFragment())
+    // IMPORTANT: concrete type, not RecyclerView.Adapter
+    private lateinit var adapter: FileListAdapter
+
+    private var currentDir = File("/sdcard")
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        adapter = FileListAdapter(requireContext()) { file ->
+            if (file.isDirectory) {
+                loadDirectory(file)
+            } else {
+                (activity as? MainActivity)?.openFile(file)
             }
         }
 
-        // LLM Fragment is always mounted
-        supportFragmentManager.commit {
-            replace(binding.llmContainer.id, LLMFragment())
-        }
+        binding.fileList.layoutManager = LinearLayoutManager(requireContext())
+        binding.fileList.adapter = adapter
+
+        loadDirectory(currentDir)
+    }
+
+    private fun loadDirectory(dir: File) {
+        currentDir = dir
+        val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        adapter.submitList(files)
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
