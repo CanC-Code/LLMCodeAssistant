@@ -14,18 +14,17 @@ import java.io.File
 class FileBrowserFragment : Fragment() {
 
     private var projectRootPath: String? = null
-    private var showHiddenFiles: Boolean = false
+    private var showHiddenFiles = false
 
     companion object {
         private const val ARG_PROJECT_PATH = "project_path"
 
-        fun newInstance(projectPath: String): FileBrowserFragment {
-            return FileBrowserFragment().apply {
+        fun newInstance(projectPath: String): FileBrowserFragment =
+            FileBrowserFragment().apply {
                 arguments = Bundle().apply {
                     putString(ARG_PROJECT_PATH, projectPath)
                 }
             }
-        }
     }
 
     private lateinit var containerLayout: LinearLayout
@@ -48,8 +47,8 @@ class FileBrowserFragment : Fragment() {
         val toggleHidden = CheckBox(requireContext()).apply {
             text = "Show Hidden Files"
             isChecked = showHiddenFiles
-            setOnCheckedChangeListener { _, isChecked ->
-                showHiddenFiles = isChecked
+            setOnCheckedChangeListener { _, checked ->
+                showHiddenFiles = checked
                 refreshFileList()
             }
         }
@@ -64,7 +63,7 @@ class FileBrowserFragment : Fragment() {
         containerLayout.removeAllViews()
         containerLayout.addView(toggle)
 
-        val root = projectRootPath?.let { File(it) } ?: return
+        val root = projectRootPath?.let(::File) ?: return
         if (!root.exists()) return
 
         addFileView(root, 0)
@@ -76,7 +75,7 @@ class FileBrowserFragment : Fragment() {
         val view = TextView(requireContext()).apply {
             text = if (file.isDirectory) "+ [${file.name}]" else file.name
             setPadding(20 * indent, 8, 8, 8)
-            tag = file   // ✅ CORRECT: View carries File
+            tag = file
 
             setOnClickListener {
                 if (file.isDirectory) {
@@ -89,7 +88,7 @@ class FileBrowserFragment : Fragment() {
         }
 
         val isOutside =
-            !(activity as? MainActivity)?.checkFileWithinProject(file)!!
+            (activity as? MainActivity)?.checkFileWithinProject(file) == false
 
         view.setBackgroundColor(
             if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT
@@ -103,32 +102,33 @@ class FileBrowserFragment : Fragment() {
         folder: File,
         indent: Int
     ) {
-        val start = containerLayout.indexOfChild(parentView) + 1
-        val toRemove = mutableListOf<View>()
+        val parentIndex = containerLayout.indexOfChild(parentView)
+        val descendants = mutableListOf<View>()
 
-        for (i in start until containerLayout.childCount) {
-            val v = containerLayout.getChildAt(i)
-            val taggedFile = v.tag as? File ?: continue
-            if (taggedFile.parentFile == folder) {
-                toRemove.add(v)
-            }
+        for (i in parentIndex + 1 until containerLayout.childCount) {
+            val tagged = containerLayout.getChildAt(i).tag as? File ?: break
+            if (!tagged.canonicalPath.startsWith(folder.canonicalPath)) break
+            descendants.add(containerLayout.getChildAt(i))
         }
 
-        if (toRemove.isNotEmpty()) {
-            toRemove.forEach { animateCollapse(it) }
+        if (descendants.isNotEmpty()) {
+            descendants.forEach { animateCollapse(it) }
             parentView.text = "+ [${folder.name}]"
         } else {
+            var insertIndex = parentIndex + 1
+
             folder.listFiles()
                 ?.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
                 ?.forEach { child ->
                     if (!showHiddenFiles && child.name.startsWith(".")) return@forEach
-                    addAnimatedChild(parentView, child, indent)
+                    insertIndex = addAnimatedChildAt(insertIndex, child, indent)
                 }
+
             parentView.text = "- [${folder.name}]"
         }
     }
 
-    private fun addAnimatedChild(parent: TextView, file: File, indent: Int) {
+    private fun addAnimatedChildAt(index: Int, file: File, indent: Int): Int {
         val view = TextView(requireContext()).apply {
             text = if (file.isDirectory) "+ [${file.name}]" else file.name
             setPadding(20 * indent, 8, 8, 8)
@@ -143,14 +143,15 @@ class FileBrowserFragment : Fragment() {
         }
 
         val isOutside =
-            !(activity as? MainActivity)?.checkFileWithinProject(file)!!
+            (activity as? MainActivity)?.checkFileWithinProject(file) == false
 
         view.setBackgroundColor(
             if (isOutside) Color.parseColor("#33FF0000") else Color.TRANSPARENT
         )
 
-        containerLayout.addView(view)
+        containerLayout.addView(view, index)
         animateExpand(view)
+        return index + 1
     }
 
     private fun animateExpand(view: View) {
@@ -159,14 +160,15 @@ class FileBrowserFragment : Fragment() {
             View.MeasureSpec.UNSPECIFIED
         )
 
-        val target = view.measuredHeight
+        val target = view.measuredHeight.coerceAtLeast(1)
         view.layoutParams.height = 0
 
         ValueAnimator.ofInt(0, target).apply {
             duration = 150
             addUpdateListener {
-                view.layoutParams.height = it.animatedValue as Int
-                view.alpha = view.layoutParams.height.toFloat() / target
+                val h = it.animatedValue as Int
+                view.layoutParams.height = h
+                view.alpha = h.toFloat() / target
                 view.requestLayout()
             }
             start()
@@ -174,13 +176,14 @@ class FileBrowserFragment : Fragment() {
     }
 
     private fun animateCollapse(view: View) {
-        val start = view.measuredHeight
+        val start = view.measuredHeight.coerceAtLeast(1)
 
         ValueAnimator.ofInt(start, 0).apply {
             duration = 150
             addUpdateListener {
-                view.layoutParams.height = it.animatedValue as Int
-                view.alpha = view.layoutParams.height.toFloat() / start
+                val h = it.animatedValue as Int
+                view.layoutParams.height = h
+                view.alpha = h.toFloat() / start
                 view.requestLayout()
             }
             doOnEnd { containerLayout.removeView(view) }
