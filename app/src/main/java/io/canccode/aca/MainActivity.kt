@@ -2,9 +2,9 @@ package io.canccode.aca
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
 import io.canccode.aca.databinding.ActivityMainBinding
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -15,32 +15,27 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Initialize fragments
-        setupFragments()
-    }
-
-    private fun setupFragments() {
-        // Add file browser fragment
-        replaceFragment(R.id.file_browser_container, FileBrowserFragment())
-
         // Add code editor fragment
-        replaceFragment(R.id.code_editor_container, CodeEditorFragment())
+        supportFragmentManager.commit {
+            replace(binding.codeEditorContainer.id, CodeEditorFragment())
+        }
 
         // Add output console fragment
-        replaceFragment(R.id.output_console_container, OutputConsoleFragment())
-    }
-
-    private fun replaceFragment(containerId: Int, fragment: Fragment) {
         supportFragmentManager.commit {
-            replace(containerId, fragment)
+            replace(binding.outputConsoleContainer.id, OutputConsoleFragment())
+        }
+
+        // Add file browser fragment
+        supportFragmentManager.commit {
+            replace(R.id.file_browser_container, FileBrowserFragment())
         }
     }
 
-    // Example method to update output console
-    fun appendOutput(text: String) {
-        val fragment = supportFragmentManager.findFragmentById(R.id.output_console_container)
-        if (fragment is OutputConsoleFragment) {
-            fragment.appendText(text)
+    // Open file in editor
+    fun openFileInEditor(file: File) {
+        val fragment = supportFragmentManager.findFragmentById(binding.codeEditorContainer.id)
+        if (fragment is CodeEditorFragment) {
+            fragment.loadFile(file)
         }
     }
 }
