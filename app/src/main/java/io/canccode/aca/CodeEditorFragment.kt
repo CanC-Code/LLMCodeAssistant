@@ -1,4 +1,4 @@
-// File: CodeEditorFragment.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/CodeEditorFragment.kt
 // Author: CCVO
 // Purpose: Displays and edits code chunks
 
@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import java.io.File
 
+// ---- Custom classes ----
 import com.llmassistant.editor.FileManager
 import com.llmassistant.editor.ChunkManager
 
