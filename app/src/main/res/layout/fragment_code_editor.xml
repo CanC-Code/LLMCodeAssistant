@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/code_editor_fragment_container"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/codeScrollView"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" />
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <TextView
+        android:id="@+id/codeTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="14sp"
+        android:typeface="monospace"
+        android:scrollHorizontally="false"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
+</ScrollView>
