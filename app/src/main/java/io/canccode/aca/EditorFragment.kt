@@ -1,17 +1,20 @@
 package io.canccode.aca
 
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import androidx.fragment.app.Fragment
+import java.io.File
 
 class EditorFragment : Fragment() {
 
     private lateinit var editor: EditText
+    private lateinit var saveButton: Button
+
+    private var currentFile: File? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -20,40 +23,22 @@ class EditorFragment : Fragment() {
     ): View {
         val view = inflater.inflate(R.layout.fragment_editor, container, false)
 
-        editor = view.findViewById(R.id.editorText)
+        editor = view.findViewById(R.id.editor)
+        saveButton = view.findViewById(R.id.save_button)
 
-        editor.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(
-                s: CharSequence?,
-                start: Int,
-                count: Int,
-                after: Int
-            ) {
-                // no-op
-            }
-
-            override fun onTextChanged(
-                s: CharSequence?,
-                start: Int,
-                before: Int,
-                count: Int
-            ) {
-                // this is where future live-edit hooks go
-            }
-
-            override fun afterTextChanged(s: Editable?) {
-                // no-op for now
-            }
-        })
+        saveButton.setOnClickListener {
+            saveFile()
+        }
 
         return view
     }
 
-    fun setText(content: String) {
-        editor.setText(content)
+    fun loadFile(file: File) {
+        currentFile = file
+        editor.setText(file.readText())
     }
 
-    fun getText(): String {
-        return editor.text.toString()
+    private fun saveFile() {
+        currentFile?.writeText(editor.text.toString())
     }
 }
