@@ -4,35 +4,62 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
+import android.widget.Toast
 import androidx.fragment.app.Fragment
-import io.canccode.aca.databinding.FragmentCodeEditorBinding
 import java.io.File
 
 class CodeEditorFragment : Fragment() {
 
-    private var _binding: FragmentCodeEditorBinding? = null
-    private val binding get() = _binding!!
+    private lateinit var filePath: String
+    private lateinit var editor: EditText
 
-    // Track horizontal scroll
-    val isHorizontallyScrolling: Boolean
-        get() = binding.editor.scrollX > 0
+    companion object {
+        private const val ARG_FILE_PATH = "file_path"
+
+        fun newInstance(filePath: String): CodeEditorFragment {
+            val fragment = CodeEditorFragment()
+            val args = Bundle()
+            args.putString(ARG_FILE_PATH, filePath)
+            fragment.arguments = args
+            return fragment
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        arguments?.let {
+            filePath = it.getString(ARG_FILE_PATH, "")
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentCodeEditorBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        val view = inflater.inflate(R.layout.fragment_code_editor, container, false)
+        editor = view.findViewById(R.id.code_editor)
+        val saveButton: Button = view.findViewById(R.id.save_button)
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
+        // Load file content
+        val file = File(filePath)
+        if (file.exists() && file.isFile) {
+            editor.setText(file.readText())
+        } else {
+            Toast.makeText(requireContext(), "File not found: $filePath", Toast.LENGTH_SHORT).show()
+        }
 
-    fun loadFile(file: File) {
-        binding.editor.setText(file.readText())
+        saveButton.setOnClickListener {
+            try {
+                file.writeText(editor.text.toString())
+                Toast.makeText(requireContext(), "Saved successfully", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Error saving file: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        return view
     }
 }
