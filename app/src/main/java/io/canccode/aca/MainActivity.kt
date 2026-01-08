@@ -80,7 +80,9 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.menu_toggle_wrap -> {
-                    Toast.makeText(this, "Line wrap not implemented yet", Toast.LENGTH_SHORT).show()
+                    val editor = supportFragmentManager
+                        .findFragmentByTag("editor") as? CodeEditorFragment
+                    editor?.toggleLineWrap()
                     true
                 }
                 R.id.menu_theme_dark -> {
