@@ -1,15 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <EditText
-        android:id="@+id/editor"
+        android:id="@+id/code_editor"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scrollHorizontally="true"
-        android:inputType="textMultiLine|textNoSuggestions"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="top|start"
-        android:overScrollMode="always"
-        android:scrollbars="vertical|horizontal"/>
-</FrameLayout>
+        android:inputType="textMultiLine"
+        android:scrollbars="vertical"
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/save_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Save" />
+
+</LinearLayout>
