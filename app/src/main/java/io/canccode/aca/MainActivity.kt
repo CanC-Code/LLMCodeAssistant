@@ -1,107 +1,219 @@
-// File: CodeEditorFragment.kt
+// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/MainActivity.kt
 // Author: CCVO
-// Purpose: Displays and edits code chunks
+// Purpose: Main activity managing project folder, file browser, editor, and LLM interface
 
 package io.canccode.aca
 
+import android.content.SharedPreferences
+import android.graphics.Color
 import android.os.Bundle
-import android.view.LayoutInflater
+import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.fragment.app.Fragment
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.commit
+import com.google.android.material.navigation.NavigationView
 import java.io.File
 
-import com.llmassistant.editor.FileManager
-import com.llmassistant.editor.ChunkManager
+class MainActivity : AppCompatActivity() {
 
-class CodeEditorFragment : Fragment() {
-
-    companion object {
-        private const val ARG_FILE_PATH = "file_path"
-
-        fun newInstance(filePath: String): CodeEditorFragment =
-            CodeEditorFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_FILE_PATH, filePath)
-                }
-            }
-    }
-
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var navView: NavigationView
+    private lateinit var editorContainer: FrameLayout
+    private lateinit var llmHandler: LLMHandler
+    private lateinit var threadPool: ThreadPoolManager
     private lateinit var fileManager: FileManager
-    private lateinit var chunkManager: ChunkManager
+    private lateinit var prefs: SharedPreferences
 
-    private lateinit var scrollView: ScrollView
-    private lateinit var codeTextView: TextView
+    private lateinit var llmInputField: EditText
+    private lateinit var sendButton: ImageButton
 
-    var currentChunkIndex: Int = 0
-        private set
-
-    private var currentFile: File? = null
-    private var lineWrapEnabled: Boolean = true
+    private var projectFolder: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navView = findViewById(R.id.nav_view)
+        editorContainer = findViewById(R.id.editor_container)
+        llmInputField = findViewById(R.id.llm_input_field)
+        sendButton = findViewById(R.id.fab_send)
+
+        prefs = getSharedPreferences("LLMPreferences", MODE_PRIVATE)
+        val lastFolderPath = prefs.getString("last_project_folder", null)
 
         fileManager = FileManager()
-        chunkManager = ChunkManager(fileManager)
 
-        arguments?.getString(ARG_FILE_PATH)?.let {
-            currentFile = File(it)
+        projectFolder = lastFolderPath
+            ?.let { File(it) }
+            ?.takeIf { it.exists() }
+
+        if (projectFolder == null) {
+            promptSelectProjectFolder()
+        } else {
+            openFileBrowser(projectFolder!!)
+        }
+
+        llmHandler = LLMHandler(this)
+        threadPool = ThreadPoolManager()
+
+        setupNavigationMenu()
+        setupLLMInput()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        threadPool.shutdown()
+        llmHandler.close()
+    }
+
+    // -----------------------------
+    // UI & Navigation
+    // -----------------------------
+    private fun setupNavigationMenu() {
+        navView.setNavigationItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.menu_toggle_wrap -> {
+                    val editor = supportFragmentManager
+                        .findFragmentByTag("editor") as? CodeEditorFragment
+                    editor?.toggleLineWrap()
+                    true
+                }
+                R.id.menu_theme_dark -> {
+                    setThemeDark()
+                    true
+                }
+                else -> false
+            }
         }
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        val view = inflater.inflate(R.layout.fragment_code_editor, container, false)
-
-        scrollView = view.findViewById(R.id.codeScrollView)
-        codeTextView = view.findViewById(R.id.codeTextView)
-
-        codeTextView.isHorizontallyScrolling = !lineWrapEnabled
-
-        currentFile?.let { loadFile(it) }
-
-        return view
+    private fun setThemeDark() {
+        Toast.makeText(this, "Dark theme applied", Toast.LENGTH_SHORT).show()
     }
 
-    fun loadFile(file: File) {
-        currentFile = file
-        chunkManager.loadFile(file)
-        currentChunkIndex = 0
-        renderCurrentChunk()
+    // -----------------------------
+    // File Browser
+    // -----------------------------
+    private fun promptSelectProjectFolder() {
+        Toast.makeText(this, "Please select a project folder", Toast.LENGTH_LONG).show()
     }
 
-    private fun renderCurrentChunk() {
-        val file = currentFile ?: return
-        codeTextView.text = chunkManager.getCurrentChunk(file)
+    private fun openFileBrowser(folder: File) {
+        projectFolder = folder
+        prefs.edit { putString("last_project_folder", folder.absolutePath) }
+
+        supportFragmentManager.commit {
+            replace(
+                R.id.file_browser_container,
+                FileBrowserFragment.newInstance(folder.absolutePath),
+                "file_browser"
+            )
+        }
     }
 
-    fun nextChunk() {
-        val file = currentFile ?: return
-        chunkManager.moveToNextChunk(file)
-        currentChunkIndex = chunkManager.currentChunkIndex(file)
-        renderCurrentChunk()
+    // -----------------------------
+    // Editor & LLM integration
+    // -----------------------------
+    fun openFileInEditor(file: File) {
+        val editor = CodeEditorFragment.newInstance(file.absolutePath)
+
+        supportFragmentManager.commit {
+            replace(R.id.editor_container, editor, "editor")
+        }
+
+        val llmPanel =
+            supportFragmentManager.findFragmentByTag("llm")
+                ?: OutputConsoleFragment.newInstance()
+
+        supportFragmentManager.commit {
+            if (!llmPanel.isAdded) {
+                replace(R.id.llm_container, llmPanel, "llm")
+            }
+        }
     }
 
-    fun previousChunk() {
-        val file = currentFile ?: return
-        chunkManager.moveToPreviousChunk(file)
-        currentChunkIndex = chunkManager.currentChunkIndex(file)
-        renderCurrentChunk()
+    fun checkFileWithinProject(file: File): Boolean {
+        val projectPath = projectFolder?.canonicalPath ?: return false
+        val filePath = file.canonicalPath
+        return filePath.startsWith(projectPath)
     }
 
-    fun getCurrentChunk(): String {
-        val file = currentFile ?: return ""
-        return chunkManager.getCurrentChunk(file)
+    fun indicateOutsideProject(isOutside: Boolean, view: View) {
+        view.setBackgroundColor(
+            if (isOutside) Color.parseColor("#33FF0000")
+            else Color.TRANSPARENT
+        )
     }
 
-    fun toggleLineWrap() {
-        lineWrapEnabled = !lineWrapEnabled
-        codeTextView.isHorizontallyScrolling = !lineWrapEnabled
+    // -----------------------------
+    // LLM Communication
+    // -----------------------------
+    private fun setupLLMInput() {
+        val consoleFragment =
+            supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
+                ?: OutputConsoleFragment.newInstance().also { fragment ->
+                    supportFragmentManager.commit {
+                        replace(R.id.llm_container, fragment, "llm")
+                    }
+                }
+
+        sendButton.setOnClickListener {
+            val inputText = llmInputField.text.toString().trim()
+            if (inputText.isNotEmpty()) {
+                consoleFragment.appendOutput(
+                    inputText,
+                    OutputConsoleFragment.MessageType.USER
+                )
+                llmInputField.text.clear()
+
+                sendLLMInput(inputText) { response, chunkIndex ->
+                    val outputText =
+                        if (chunkIndex != null) "[Chunk $chunkIndex]\n$response"
+                        else response
+
+                    consoleFragment.appendOutput(
+                        outputText,
+                        OutputConsoleFragment.MessageType.LLM
+                    )
+                }
+            }
+        }
+
+        llmInputField.setOnKeyListener { _, keyCode, event ->
+            keyCode == KeyEvent.KEYCODE_ENTER &&
+                event.action == KeyEvent.ACTION_DOWN &&
+                llmInputField.append("\n").let { true }
+        }
+    }
+
+    fun sendLLMInput(
+        userInput: String,
+        onResult: (String, Int?) -> Unit
+    ) {
+        val editorFragment =
+            supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
+
+        if (editorFragment == null) {
+            Toast.makeText(this, "Open a file first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val currentChunk = editorFragment.getCurrentChunk()
+        val chunkIndex = editorFragment.currentChunkIndex
+
+        threadPool.submit {
+            val response = llmHandler.infer(
+                "$currentChunk\n$userInput",
+                maxTokens = 512
+            )
+            runOnUiThread { onResult(response, chunkIndex) }
+        }
     }
 }
