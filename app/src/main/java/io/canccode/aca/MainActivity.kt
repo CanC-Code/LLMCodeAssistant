@@ -2,40 +2,37 @@ package io.canccode.aca
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
 import io.canccode.aca.databinding.ActivityMainBinding
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
 
+    private val codeEditorFragment = CodeEditorFragment()
+    private val fileBrowserFragment = FileBrowserFragment()
+    private val outputConsoleFragment = OutputConsoleFragment()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Setup ViewBinding
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Add code editor fragment
-        supportFragmentManager.commit {
-            replace(binding.codeEditorContainer.id, CodeEditorFragment())
-        }
-
-        // Add output console fragment
-        supportFragmentManager.commit {
-            replace(binding.outputConsoleContainer.id, OutputConsoleFragment())
-        }
-
-        // Add file browser fragment
-        supportFragmentManager.commit {
-            replace(R.id.file_browser_container, FileBrowserFragment())
-        }
+        // Load fragments
+        supportFragmentManager.beginTransaction()
+            .replace(binding.codeEditorContainer.id, codeEditorFragment)
+            .replace(binding.fileBrowserContainer.id, fileBrowserFragment)
+            .replace(binding.outputConsoleContainer.id, outputConsoleFragment)
+            .commit()
     }
 
-    // Open file in editor
-    fun openFileInEditor(file: File) {
-        val fragment = supportFragmentManager.findFragmentById(binding.codeEditorContainer.id)
-        if (fragment is CodeEditorFragment) {
-            fragment.loadFile(file)
-        }
+    // Convenience methods to interact with OutputConsoleFragment
+    fun appendToConsole(text: String) {
+        outputConsoleFragment.appendText(text)
+    }
+
+    fun clearConsole() {
+        outputConsoleFragment.clear()
     }
 }
