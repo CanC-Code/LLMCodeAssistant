@@ -14,8 +14,10 @@ class FileBrowserFragment : Fragment() {
     private var _binding: FragmentFileBrowserBinding? = null
     private val binding get() = _binding!!
 
+    // IMPORTANT: concrete type, not RecyclerView.Adapter
     private lateinit var adapter: FileListAdapter
-    private var currentDir: File = File("/sdcard")
+
+    private var currentDir = File("/sdcard")
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -29,16 +31,13 @@ class FileBrowserFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        adapter = FileListAdapter(
-            requireContext(),
-            onClick = { file ->
-                if (file.isDirectory) {
-                    loadDirectory(file)
-                } else {
-                    (activity as? MainActivity)?.openFile(file)
-                }
+        adapter = FileListAdapter(requireContext()) { file ->
+            if (file.isDirectory) {
+                loadDirectory(file)
+            } else {
+                (activity as? MainActivity)?.openFile(file)
             }
-        )
+        }
 
         binding.fileList.layoutManager = LinearLayoutManager(requireContext())
         binding.fileList.adapter = adapter
