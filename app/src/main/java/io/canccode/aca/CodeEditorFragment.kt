@@ -1,7 +1,6 @@
 // File: CodeEditorFragment.kt
 // Author: CCVO
 // Purpose: Displays and edits code chunks
-// Copyright: CanC-code - CCVO
 
 package io.canccode.aca
 
@@ -12,12 +11,20 @@ import android.view.ViewGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import io.canccode.aca.R
-import com.llmassistant.editor.FileManager
-import com.llmassistant.editor.ChunkManager
 import java.io.File
 
 class CodeEditorFragment : Fragment() {
+
+    companion object {
+        private const val ARG_FILE_PATH = "file_path"
+
+        fun newInstance(filePath: String): CodeEditorFragment =
+            CodeEditorFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_FILE_PATH, filePath)
+                }
+            }
+    }
 
     private lateinit var fileManager: FileManager
     private lateinit var chunkManager: ChunkManager
@@ -32,8 +39,13 @@ class CodeEditorFragment : Fragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         fileManager = FileManager()
         chunkManager = ChunkManager(fileManager)
+
+        arguments?.getString(ARG_FILE_PATH)?.let {
+            currentFile = File(it)
+        }
     }
 
     override fun onCreateView(
@@ -43,9 +55,10 @@ class CodeEditorFragment : Fragment() {
     ): View {
         val view = inflater.inflate(R.layout.fragment_code_editor, container, false)
 
-        // MUST match fragment_code_editor.xml
         scrollView = view.findViewById(R.id.codeScrollView)
         codeTextView = view.findViewById(R.id.codeTextView)
+
+        currentFile?.let { loadFile(it) }
 
         return view
     }
