@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/file_browser_fragment_container"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/fileBrowserLayout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" />
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <!-- Current path -->
+    <TextView
+        android:id="@+id/currentPathTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Path"
+        android:textStyle="bold"
+        android:paddingBottom="4dp" />
+
+    <!-- File list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/fileRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:scrollbars="vertical" />
+
+</LinearLayout>
