@@ -1,58 +1,28 @@
 package io.canccode.aca
 
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.LinearLayoutManager
-import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 
-class FileBrowserFragment : Fragment() {
+class MainActivity : AppCompatActivity() {
 
-    private var _binding: FragmentFileBrowserBinding? = null
-    private val binding get() = _binding!!
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-    // IMPORTANT: concrete type, not RecyclerView.Adapter
-    private lateinit var adapter: FileListAdapter
-
-    private var currentDir = File("/sdcard")
-
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        adapter = FileListAdapter(requireContext()) { file ->
-            if (file.isDirectory) {
-                loadDirectory(file)
-            } else {
-                (activity as? MainActivity)?.openFile(file)
-            }
+        if (savedInstanceState == null) {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.top_container, FileBrowserFragment())
+                .commit()
         }
-
-        binding.fileList.layoutManager = LinearLayoutManager(requireContext())
-        binding.fileList.adapter = adapter
-
-        loadDirectory(currentDir)
     }
 
-    private fun loadDirectory(dir: File) {
-        currentDir = dir
-        val files = dir.listFiles()?.sortedBy { it.name } ?: emptyList()
-        adapter.submitList(files)
-    }
+    fun openFileInEditor(file: File) {
+        val fragment = EditorFragment.newInstance(file.absolutePath)
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.top_container, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 }
