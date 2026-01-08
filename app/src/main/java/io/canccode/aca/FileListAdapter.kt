@@ -17,18 +17,12 @@ class FileListAdapter(
 
         fun bind(file: File) {
             binding.fileName.text = file.name
-            binding.root.setOnClickListener {
-                onClick(file)
-            }
+            binding.root.setOnClickListener { onClick(file) }
         }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val binding = ItemFileBinding.inflate(
-            LayoutInflater.from(parent.context),
-            parent,
-            false
-        )
+        val binding = ItemFileBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return FileViewHolder(binding)
     }
 
