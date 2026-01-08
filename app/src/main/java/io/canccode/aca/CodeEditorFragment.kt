@@ -13,6 +13,9 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import java.io.File
 
+import com.llmassistant.editor.FileManager
+import com.llmassistant.editor.ChunkManager
+
 class CodeEditorFragment : Fragment() {
 
     companion object {
@@ -36,6 +39,7 @@ class CodeEditorFragment : Fragment() {
         private set
 
     private var currentFile: File? = null
+    private var lineWrapEnabled: Boolean = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +61,8 @@ class CodeEditorFragment : Fragment() {
 
         scrollView = view.findViewById(R.id.codeScrollView)
         codeTextView = view.findViewById(R.id.codeTextView)
+
+        codeTextView.isHorizontallyScrolling = !lineWrapEnabled
 
         currentFile?.let { loadFile(it) }
 
@@ -92,5 +98,10 @@ class CodeEditorFragment : Fragment() {
     fun getCurrentChunk(): String {
         val file = currentFile ?: return ""
         return chunkManager.getCurrentChunk(file)
+    }
+
+    fun toggleLineWrap() {
+        lineWrapEnabled = !lineWrapEnabled
+        codeTextView.isHorizontallyScrolling = !lineWrapEnabled
     }
 }
