@@ -20,11 +20,9 @@ import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
 import java.io.File
 
-import io.canccode.aca.ui.FileBrowserFragment
-import io.canccode.aca.ui.CodeEditorFragment
-import io.canccode.aca.ui.OutputConsoleFragment
-import io.canccode.aca.llm.LLMHandler
-import io.canccode.aca.llm.ThreadPoolManager
+import com.llmassistant.editor.FileManager
+import com.llmassistant.llm.LLMHandler
+import com.llmassistant.llm.ThreadPoolManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -54,10 +52,8 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("LLMPreferences", MODE_PRIVATE)
         val lastFolderPath = prefs.getString("last_project_folder", null)
 
-        // Initialize FileManager
         fileManager = FileManager()
 
-        // Load last project folder if exists
         projectFolder = lastFolderPath?.let { File(it) }?.takeIf { it.exists() }
 
         if (projectFolder == null) {
@@ -66,7 +62,6 @@ class MainActivity : AppCompatActivity() {
             openFileBrowser(projectFolder!!)
         }
 
-        // Initialize LLM and thread pool
         llmHandler = LLMHandler(this)
         threadPool = ThreadPoolManager()
 
@@ -76,8 +71,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        threadPool.shutdown()    // Stop all background threads
-        llmHandler.close()       // Close JNI LLM safely
+        threadPool.shutdown()
+        llmHandler.close()
     }
 
     // -----------------------------
@@ -132,14 +127,23 @@ class MainActivity : AppCompatActivity() {
     // Editor & LLM integration
     // -----------------------------
     fun openFileInEditor(file: File) {
-        val editor = CodeEditorFragment.newInstance(file.absolutePath, projectFolder?.absolutePath)
+        val editor = CodeEditorFragment.newInstance(
+            file.absolutePath,
+            projectFolder?.absolutePath
+        )
+
         supportFragmentManager.commit {
             replace(R.id.editor_container, editor, "editor")
         }
 
-        val llmPanel = supportFragmentManager.findFragmentByTag("llm") ?: OutputConsoleFragment.newInstance()
+        val llmPanel =
+            supportFragmentManager.findFragmentByTag("llm")
+                ?: OutputConsoleFragment.newInstance()
+
         supportFragmentManager.commit {
-            if (!llmPanel.isAdded) replace(R.id.llm_container, llmPanel, "llm")
+            if (!llmPanel.isAdded) {
+                replace(R.id.llm_container, llmPanel, "llm")
+            }
         }
     }
 
@@ -150,54 +154,65 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun indicateOutsideProject(isOutside: Boolean, view: View) {
-        if (isOutside) {
-            view.setBackgroundColor(Color.parseColor("#33FF0000"))
-        } else {
-            view.setBackgroundColor(Color.TRANSPARENT)
-        }
+        view.setBackgroundColor(
+            if (isOutside) Color.parseColor("#33FF0000")
+            else Color.TRANSPARENT
+        )
     }
 
     // -----------------------------
     // LLM Communication
     // -----------------------------
     private fun setupLLMInput() {
-        val consoleFragment = supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
-            ?: OutputConsoleFragment.newInstance().also { fragment ->
-                supportFragmentManager.commit {
-                    replace(R.id.llm_container, fragment, "llm")
+        val consoleFragment =
+            supportFragmentManager.findFragmentByTag("llm") as? OutputConsoleFragment
+                ?: OutputConsoleFragment.newInstance().also { fragment ->
+                    supportFragmentManager.commit {
+                        replace(R.id.llm_container, fragment, "llm")
+                    }
                 }
-            }
 
-        // Send button click
         sendButton.setOnClickListener {
             val inputText = llmInputField.text.toString().trim()
             if (inputText.isNotEmpty()) {
-                consoleFragment.appendOutput(inputText, OutputConsoleFragment.MessageType.USER)
+                consoleFragment.appendOutput(
+                    inputText,
+                    OutputConsoleFragment.MessageType.USER
+                )
                 llmInputField.text.clear()
 
                 sendLLMInput(inputText) { response, chunkIndex ->
-                    val outputText = if (chunkIndex != null) "[Chunk $chunkIndex]\n$response" else response
-                    consoleFragment.appendOutput(outputText, OutputConsoleFragment.MessageType.LLM)
+                    val outputText =
+                        if (chunkIndex != null) "[Chunk $chunkIndex]\n$response"
+                        else response
+
+                    consoleFragment.appendOutput(
+                        outputText,
+                        OutputConsoleFragment.MessageType.LLM
+                    )
                 }
             }
         }
 
-        // Enter inserts newline (multi-line input)
         llmInputField.setOnKeyListener { _, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_ENTER &&
+                event.action == KeyEvent.ACTION_DOWN
+            ) {
                 llmInputField.append("\n")
-                return@setOnKeyListener true
+                true
+            } else {
+                false
             }
-            false
         }
     }
 
-    /**
-     * Sends user input to the LLM.
-     * Includes current editor chunk and returns optional chunk index.
-     */
-    fun sendLLMInput(userInput: String, onResult: (String, Int?) -> Unit) {
-        val editorFragment = supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
+    fun sendLLMInput(
+        userInput: String,
+        onResult: (String, Int?) -> Unit
+    ) {
+        val editorFragment =
+            supportFragmentManager.findFragmentByTag("editor") as? CodeEditorFragment
+
         if (editorFragment == null) {
             Toast.makeText(this, "Open a file first", Toast.LENGTH_SHORT).show()
             return
@@ -207,7 +222,10 @@ class MainActivity : AppCompatActivity() {
         val chunkIndex = editorFragment.currentChunkIndex
 
         threadPool.submit {
-            val response = llmHandler.infer("$currentChunk\n$userInput", maxTokens = 512)
+            val response = llmHandler.infer(
+                "$currentChunk\n$userInput",
+                maxTokens = 512
+            )
             runOnUiThread { onResult(response, chunkIndex) }
         }
     }
