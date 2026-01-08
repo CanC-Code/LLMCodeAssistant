@@ -1,31 +1,39 @@
 package io.canccode.aca
 
-import android.net.Uri
+import android.content.Context
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.databinding.ItemFileBinding
+import java.io.File
 
 class FileListAdapter(
-    private val files: List<Uri>,
-    private val clickListener: (Uri) -> Unit
+    private val context: Context,
+    private val onClick: (File) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val nameText: TextView = itemView.findViewById(R.id.file_name)
+    private var files: List<File> = emptyList()
+
+    fun submitList(list: List<File>) {
+        files = list
+        notifyDataSetChanged()
+    }
+
+    inner class FileViewHolder(private val binding: ItemFileBinding) :
+        RecyclerView.ViewHolder(binding.root) {
+        fun bind(file: File) {
+            binding.fileName.text = file.name
+            binding.root.setOnClickListener { onClick(file) }
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_file, parent, false)
-        return FileViewHolder(view)
+        val binding = ItemFileBinding.inflate(LayoutInflater.from(context), parent, false)
+        return FileViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        val uri = files[position]
-        holder.nameText.text = uri.lastPathSegment
-        holder.itemView.setOnClickListener { clickListener(uri) }
+        holder.bind(files[position])
     }
 
     override fun getItemCount(): Int = files.size
