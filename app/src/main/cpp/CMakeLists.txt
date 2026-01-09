@@ -5,16 +5,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --------------------------------------------------
-# Paths
+# Correct path to llama.cpp
 # --------------------------------------------------
-set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../external/llama.cpp)
+set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/llama.cpp)
 
 if (NOT EXISTS ${LLAMA_DIR})
     message(FATAL_ERROR "llama.cpp directory not found at: ${LLAMA_DIR}")
 endif()
 
 # --------------------------------------------------
-# llama.cpp sources (EXPLICIT, CI-safe)
+# Explicit llama.cpp sources (Android-safe)
 # --------------------------------------------------
 set(LLAMA_SOURCES
     ${LLAMA_DIR}/ggml.c
