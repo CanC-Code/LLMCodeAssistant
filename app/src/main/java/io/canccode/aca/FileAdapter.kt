@@ -1,28 +1,31 @@
 package io.canccode.aca
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import io.canccode.aca.databinding.ItemFileBinding
-import java.io.File
 
-class FileAdapter(
-    private val files: List<File>,
-    private val listener: (File) -> Unit
-) : RecyclerView.Adapter<FileAdapter.FileViewHolder>() {
+class FileListAdapter(
+    private val files: List<String>,
+    private val onClick: (String) -> Unit
+) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    inner class FileViewHolder(val binding: ItemFileBinding) : RecyclerView.ViewHolder(binding.root)
+    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val fileName: TextView = itemView.findViewById(R.id.fileName)
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val binding = ItemFileBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return FileViewHolder(binding)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return FileViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
         val file = files[position]
-        holder.binding.textViewFileName.text = file.name
-        holder.binding.root.setOnClickListener { listener(file) }
+        holder.fileName.text = file
+        holder.itemView.setOnClickListener { onClick(file) }
     }
 
-    override fun getItemCount() = files.size
+    override fun getItemCount(): Int = files.size
 }
