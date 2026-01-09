@@ -1,3 +1,4 @@
+// File: app/src/main/java/io/canccode/aca/EditorFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -21,12 +22,12 @@ class EditorFragment : Fragment() {
         return binding.root
     }
 
-    fun setText(content: String) {
-        binding.codeEditor.setText(content)
+    fun setText(text: String) {
+        binding.editor.setText(text)
     }
 
     fun getText(): String {
-        return binding.codeEditor.text.toString()
+        return binding.editor.text.toString()
     }
 
     override fun onDestroyView() {
