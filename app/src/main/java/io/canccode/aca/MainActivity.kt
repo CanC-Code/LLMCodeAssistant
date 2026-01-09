@@ -1,50 +1,69 @@
 package io.canccode.aca
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
+import android.widget.Button
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
-import io.canccode.aca.databinding.ActivityMainBinding
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
-
-    // Example file list, replace with your actual directory
-    private val files: List<File> by lazy {
-        val dir = File(filesDir, "example") // or Environment.getExternalStorageDirectory()
-        if (!dir.exists()) dir.mkdirs()
-        dir.listFiles()?.toList() ?: listOf()
-    }
+    private val TAG = "MainActivity"
+    private lateinit var projectLoader: ProjectLoader
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
 
-        // Load fragments
-        if (savedInstanceState == null) {
-            supportFragmentManager.commit {
-                setReorderingAllowed(true)
-                replace(binding.fragmentContainer.id, FileBrowserFragment(), "FileBrowser")
-            }
+        projectLoader = ProjectLoader(this)
+
+        // Mode buttons
+        val btnEditorMode: Button = findViewById(R.id.btnEditorMode)
+        val btnLLMMode: Button = findViewById(R.id.btnLLMMode)
+        btnEditorMode.setOnClickListener { switchMode(EditorFragment()) }
+        btnLLMMode.setOnClickListener { switchMode(LLMFragment()) }
+
+        // Load Project button
+        val btnLoadProject: Button = findViewById(R.id.btnLoadProject)
+        btnLoadProject.setOnClickListener {
+            pickProjectFolder()
+        }
+    }
+
+    // Folder picker using SAF
+    private val folderPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let {
+            // Persist access
+            contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+            loadProject(it)
+        }
+    }
+
+    private fun pickProjectFolder() {
+        folderPickerLauncher.launch(null)
+    }
+
+    private fun loadProject(folderUri: Uri) {
+        projectLoader.loadProject(folderUri)
+
+        // Log loaded files
+        projectLoader.getAllFiles().forEach { (path, content) ->
+            Log.i(TAG, "Loaded: $path (${content.length} chars)")
         }
 
-        // Handle file selection from FileBrowserFragment
-        binding.openEditorButton.setOnClickListener {
-            supportFragmentManager.commit {
-                setReorderingAllowed(true)
-                replace(binding.fragmentContainer.id, EditorFragment(), "Editor")
-                addToBackStack(null)
-            }
-        }
+        // TODO: Update Editor UI or LLM context here
+    }
 
-        binding.openLLMButton.setOnClickListener {
-            supportFragmentManager.commit {
-                setReorderingAllowed(true)
-                replace(binding.fragmentContainer.id, LLMFragment(), "LLM")
-                addToBackStack(null)
-            }
-        }
+    private fun switchMode(fragment: androidx.fragment.app.Fragment) {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.contentContainer, fragment)
+            .commit()
     }
 }
