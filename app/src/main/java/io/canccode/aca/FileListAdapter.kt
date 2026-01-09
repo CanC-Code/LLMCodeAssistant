@@ -1,9 +1,10 @@
 package io.canccode.aca
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import io.canccode.aca.databinding.ItemFileBinding
 import java.io.File
 
 class FileListAdapter(
@@ -11,23 +12,20 @@ class FileListAdapter(
     private val onClick: (File) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    inner class FileViewHolder(
-        private val binding: ItemFileBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
-
-        fun bind(file: File) {
-            binding.fileName.text = file.name
-            binding.root.setOnClickListener { onClick(file) }
-        }
+    class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val fileName: TextView = itemView.findViewById(R.id.fileName)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val binding = ItemFileBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return FileViewHolder(binding)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return FileViewHolder(view)
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        holder.bind(files[position])
+        val file = files[position]
+        holder.fileName.text = file.name
+        holder.itemView.setOnClickListener { onClick(file) }
     }
 
     override fun getItemCount(): Int = files.size
