@@ -21,9 +21,12 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # ---------- Ensure submodules ----------
+      # ---------- Ensure submodules exist ----------
       - name: Initialize & update submodules
-        run: git submodule update --init --recursive
+        run: |
+          git submodule update --init --recursive
+          echo "Listing external folder contents..."
+          ls -R external || echo "Warning: external folder missing!"
 
       # ---------- Java ----------
       - name: Set up JDK 17
@@ -33,12 +36,12 @@ jobs:
           java-version: 17
 
       # ---------- Android SDK / NDK ----------
-      - name: Set up Android SDK and NDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
           build-tools: "34.0.0"
-          ndk: "27.3.137507"
+          ndk: "27.3.10554745"
 
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
@@ -90,7 +93,7 @@ jobs:
           convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
 
-      # ---------- Cache Gradle ----------
+      # ---------- Gradle cache ----------
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -105,13 +108,22 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # ---------- Confirm external/llama.cpp exists ----------
+      - name: Verify llama.cpp headers
+        run: |
+          if [ ! -f external/llama.cpp/include/llama.h ]; then
+            echo "ERROR: llama.h not found in external/llama.cpp/include"
+            exit 1
+          fi
+          ls -R external/llama.cpp/include
+
       # ---------- Build ----------
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
 
-      # ---------- Upload Debug APK ----------
+      # ---------- Upload ----------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: LLMCodeAssistant-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
