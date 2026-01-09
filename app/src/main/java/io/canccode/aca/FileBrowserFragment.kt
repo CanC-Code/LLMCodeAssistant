@@ -6,35 +6,32 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
-import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import androidx.recyclerview.widget.RecyclerView
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private var _binding: FragmentFileBrowserBinding? = null
-    private val binding get() = _binding!!
-
-    private val files: List<File> = listOf() // populate with real files
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var adapter: FileListAdapter
+    private val directoryPath: String = "/some/path" // adjust path
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+    ): View? {
+        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
+        recyclerView = view.findViewById(R.id.recyclerViewFiles) // make sure your XML has this ID
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+        val files = File(directoryPath).listFiles()?.toList() ?: emptyList()
+        val fileNames: List<String> = files.map { it.name }
 
-        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerViewFiles.adapter = FileListAdapter(files) { file ->
+        adapter = FileListAdapter(fileNames) { fileName ->
             // handle file click
         }
-    }
+        recyclerView.adapter = adapter
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+        return view
     }
 }
