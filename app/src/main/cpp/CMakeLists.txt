@@ -1,42 +1,37 @@
-# LLMCodeAssistant/app/src/main/cpp/CMakeLists.txt
 cmake_minimum_required(VERSION 3.18)
-project(LLMCodeAssistantCpp)
+project(llama_jni)
 
-# -------------------- Android settings --------------------
-if(ANDROID)
-    set(CMAKE_CXX_STANDARD 17)
-    set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions -frtti")
-endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# -------------------- Include llama.cpp submodule --------------------
-set(LLAMA_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp")
+# Path to llama.cpp
+set(LLAMA_CPP_DIR "${CMAKE_SOURCE_DIR}/../../external/llama.cpp")
 
-if(EXISTS "${LLAMA_SUBMODULE_DIR}/CMakeLists.txt")
-    message(STATUS "Adding llama.cpp submodule")
-    add_subdirectory("${LLAMA_SUBMODULE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/llama_cpp_build")
-else()
-    message(WARNING "llama.cpp submodule not found! Run 'git submodule update --init --recursive'")
-endif()
+include_directories(
+    ${CMAKE_SOURCE_DIR}
+    ${LLAMA_CPP_DIR}/include
+    ${LLAMA_CPP_DIR}/ggml/include
+)
 
-# -------------------- JNI library --------------------
+file(GLOB LLAMA_SOURCES
+    ${LLAMA_CPP_DIR}/*.cpp
+    ${LLAMA_CPP_DIR}/ggml/src/*.cpp
+)
+
 add_library(
     llama_jni
     SHARED
-    llama_jni.cpp
+    ${CMAKE_SOURCE_DIR}/llama_jni.cpp
+    ${LLAMA_SOURCES}
 )
 
-# Include paths for JNI and llama.cpp
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}
+# Android-specific flags
+target_compile_definitions(llama_jni PRIVATE ANDROID)
+target_compile_options(llama_jni PRIVATE -fexceptions -frtti)
+
+find_library(log-lib log)
+
+target_link_libraries(
+    llama_jni
+    ${log-lib}
 )
-
-if(TARGET llama) # only if llama.cpp was added
-    target_link_libraries(llama_jni PRIVATE llama)
-endif()
-
-# Link log library for Android
-if(ANDROID)
-    find_library(log-lib log)
-    target_link_libraries(llama_jni PRIVATE ${log-lib})
-endif()
