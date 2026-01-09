@@ -12,12 +12,10 @@ class EditorFragment : Fragment() {
 
     private var _binding: FragmentEditorBinding? = null
     private val binding get() = _binding!!
-
-    private val editorViewModel: EditorViewModel by activityViewModels()
+    private val viewModel: EditorViewModel by activityViewModels()
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentEditorBinding.inflate(inflater, container, false)
@@ -27,10 +25,12 @@ class EditorFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Example usage
-        binding.editor.setText(editorViewModel.text.value ?: "")
-        editorViewModel.text.observe(viewLifecycleOwner) {
-            binding.editor.setText(it)
+        viewModel.text.observe(viewLifecycleOwner) { text ->
+            binding.editor.setText(text)
+        }
+
+        binding.editor.addTextChangedListener {
+            viewModel.updateText(it.toString())
         }
     }
 
