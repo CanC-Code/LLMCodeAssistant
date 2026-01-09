@@ -13,7 +13,6 @@ class EditorFragment : Fragment() {
     private var _binding: FragmentEditorBinding? = null
     private val binding get() = _binding!!
 
-    // Shared ViewModel (if used)
     private val editorViewModel: EditorViewModel by activityViewModels()
 
     override fun onCreateView(
@@ -28,10 +27,10 @@ class EditorFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Example usage: binding.editor is now accessible
-        binding.editor.setText(editorViewModel.currentText.value ?: "")
-        binding.editor.addTextChangedListener {
-            editorViewModel.currentText.value = it.toString()
+        // Example usage
+        binding.editor.setText(editorViewModel.text.value ?: "")
+        editorViewModel.text.observe(viewLifecycleOwner) {
+            binding.editor.setText(it)
         }
     }
 
