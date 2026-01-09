@@ -1,5 +1,6 @@
 # File: .github/workflows/android.yml
 # Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
+
 name: Android Build
 
 on:
@@ -36,6 +37,11 @@ jobs:
           build-tools: "34.0.0"
           ndk: "26.1.10909125"
 
+      # ---------- Install CMake (EXPLICIT) ----------
+      - name: Install CMake
+        run: |
+          sdkmanager "cmake;3.22.1"
+
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
         run: |
@@ -49,7 +55,6 @@ jobs:
           BASE_ICON=/tmp/ic_launcher_base.png
           ROUND_ICON=/tmp/ic_launcher_round.png
 
-          # Base square icon
           convert -size 1024x1024 xc:"#1e1e1e" \
             -gravity center \
             -fill white \
@@ -58,13 +63,11 @@ jobs:
             -annotate +0+0 "LLM" \
             "$BASE_ICON"
 
-          # Round icon (circular mask)
           convert "$BASE_ICON" \
             \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
             -compose copyopacity -composite \
             "$ROUND_ICON"
 
-          # Ensure mipmap directories exist
           mkdir -p \
             $ICON_DIR/mipmap-mdpi \
             $ICON_DIR/mipmap-hdpi \
@@ -72,14 +75,12 @@ jobs:
             $ICON_DIR/mipmap-xxhdpi \
             $ICON_DIR/mipmap-xxxhdpi
 
-          # Square launcher icons
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
 
-          # Round launcher icons
           convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
