@@ -1,56 +1,42 @@
-cmake_minimum_required(VERSION 3.18.1)
+# LLMCodeAssistant/app/src/main/cpp/CMakeLists.txt
+cmake_minimum_required(VERSION 3.18)
+project(LLMCodeAssistantCpp)
 
-project(llm_native LANGUAGES C CXX)
+# -------------------- Android settings --------------------
+if(ANDROID)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions -frtti")
+endif()
 
-# ---------------------------
-# C++ standard
-# ---------------------------
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# -------------------- Include llama.cpp submodule --------------------
+set(LLAMA_SUBMODULE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp")
 
-# ---------------------------
-# Paths
-# ---------------------------
-set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/../../../external/llama.cpp)
+if(EXISTS "${LLAMA_SUBMODULE_DIR}/CMakeLists.txt")
+    message(STATUS "Adding llama.cpp submodule")
+    add_subdirectory("${LLAMA_SUBMODULE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/llama_cpp_build")
+else()
+    message(WARNING "llama.cpp submodule not found! Run 'git submodule update --init --recursive'")
+endif()
 
-# ---------------------------
-# llama.cpp options (minimal, Android-safe)
-# ---------------------------
-set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
-set(LLAMA_STATIC OFF CACHE BOOL "" FORCE)
-
-# ---------------------------
-# Add llama.cpp
-# ---------------------------
-add_subdirectory(${LLAMA_DIR} llama)
-
-# ---------------------------
-# JNI library
-# ---------------------------
+# -------------------- JNI library --------------------
 add_library(
-        llm_jni
-        SHARED
-        llama_jni.cpp
+    llama_jni
+    SHARED
+    llama_jni.cpp
 )
 
-# ---------------------------
-# Include paths
-# ---------------------------
-target_include_directories(
-        llm_jni
-        PRIVATE
-        ${LLAMA_DIR}
-        ${LLAMA_DIR}/include
+# Include paths for JNI and llama.cpp
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# ---------------------------
-# Link libraries
-# ---------------------------
-target_link_libraries(
-        llm_jni
-        llama
-        android
-        log
-)
+if(TARGET llama) # only if llama.cpp was added
+    target_link_libraries(llama_jni PRIVATE llama)
+endif()
+
+# Link log library for Android
+if(ANDROID)
+    find_library(log-lib log)
+    target_link_libraries(llama_jni PRIVATE ${log-lib})
+endif()
