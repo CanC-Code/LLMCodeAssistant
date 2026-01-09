@@ -5,15 +5,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import java.io.File
 
 class FileListAdapter(
-    private val files: List<File>,
-    private val onClick: (File) -> Unit
+    private val files: List<String>,
+    private val onClick: (String) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    class FileViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val fileName: TextView = view.findViewById(R.id.fileName)
+    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val fileName: TextView = itemView.findViewById(R.id.fileName)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
@@ -24,7 +23,7 @@ class FileListAdapter(
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
         val file = files[position]
-        holder.fileName.text = file.name
+        holder.fileName.text = file
         holder.itemView.setOnClickListener { onClick(file) }
     }
 
