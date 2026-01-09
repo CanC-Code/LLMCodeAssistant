@@ -1,21 +1,72 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
 android {
-    ...
+    namespace 'com.llmassistant.app'
+    compileSdk 34
 
     defaultConfig {
-        ...
+        applicationId "com.llmassistant.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
 
+        // JNI / C++ configuration
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -frtti -fexceptions"
-                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+                cppFlags "-std=c++17 -O3 -fexceptions -frtti"
             }
+        }
+
+        // Enable multiDex if needed
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // Debug-specific settings
+            debuggable true
         }
     }
 
+    // Link to your CMakeLists.txt for llama_jni.cpp
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1"
         }
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    // Optional: enable viewBinding if using it in Kotlin fragments
+    buildFeatures {
+        viewBinding true
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+
+    // Optional: Kotlin coroutines (if LLMHandler uses them)
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // Optional: MultiDex support
+    implementation 'androidx.multidex:multidex:2.0.1'
 }
