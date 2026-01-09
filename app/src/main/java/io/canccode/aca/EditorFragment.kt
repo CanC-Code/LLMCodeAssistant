@@ -1,4 +1,3 @@
-// File: app/src/main/java/io/canccode/aca/EditorFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -6,12 +5,16 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import io.canccode.aca.databinding.FragmentEditorBinding
 
 class EditorFragment : Fragment() {
 
     private var _binding: FragmentEditorBinding? = null
     private val binding get() = _binding!!
+
+    // Shared ViewModel (if used)
+    private val editorViewModel: EditorViewModel by activityViewModels()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -22,12 +25,14 @@ class EditorFragment : Fragment() {
         return binding.root
     }
 
-    fun setText(text: String) {
-        binding.editor.setText(text)
-    }
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-    fun getText(): String {
-        return binding.editor.text.toString()
+        // Example usage: binding.editor is now accessible
+        binding.editor.setText(editorViewModel.currentText.value ?: "")
+        binding.editor.addTextChangedListener {
+            editorViewModel.currentText.value = it.toString()
+        }
     }
 
     override fun onDestroyView() {
