@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import io.canccode.aca.databinding.FragmentLlmBinding
@@ -13,7 +14,7 @@ class LLMFragment : Fragment() {
     private var _binding: FragmentLlmBinding? = null
     private val binding get() = _binding!!
 
-    private val viewModel: AppViewModel by activityViewModels() // fixed
+    private val llmViewModel: LLMViewModel by activityViewModels()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -27,9 +28,12 @@ class LLMFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // Example: observe ViewModel data
-        viewModel.someLiveData.observe(viewLifecycleOwner) { data ->
-            binding.llmOutputText.text = data
+        // Bind TextView from layout
+        val llmOutputText: TextView = binding.llmOutputText
+
+        // Observe LiveData from ViewModel
+        llmViewModel.someLiveData.observe(viewLifecycleOwner) { text ->
+            llmOutputText.text = text
         }
     }
 
