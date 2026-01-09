@@ -1,3 +1,4 @@
+// File: app/src/main/java/io/canccode/aca/LLMFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -29,8 +30,10 @@ class LLMFragment : Fragment() {
 
         binding.sendButton.setOnClickListener {
             val input = binding.inputField.text.toString()
-            viewModel.sendToLLM(input)
-            binding.inputField.text.clear()
+            if (input.isNotBlank()) {
+                viewModel.sendToLLM(input)
+                binding.inputField.text.clear()
+            }
         }
 
         viewModel.llmInput.observe(viewLifecycleOwner) { input ->
