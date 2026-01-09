@@ -8,12 +8,15 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import io.canccode.aca.databinding.FragmentFileBrowserBinding
 
-class FileBrowserFragment : Fragment() {
+class FileBrowserFragment(
+    private val files: List<String>,
+    private val onClick: (String) -> Unit
+) : Fragment() {
 
     private var _binding: FragmentFileBrowserBinding? = null
     private val binding get() = _binding!!
 
-    private lateinit var fileListAdapter: FileListAdapter
+    private lateinit var adapter: FileAdapter
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -27,15 +30,10 @@ class FileBrowserFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        fileListAdapter = FileListAdapter()
-
-        binding.recyclerViewFiles.apply {
-            layoutManager = LinearLayoutManager(requireContext())
-            adapter = fileListAdapter
-        }
-
-        // Example: load files
-        fileListAdapter.submitList(listOf()) // populate your file list here
+        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(context)
+        adapter = FileAdapter(files, onClick)
+        binding.recyclerViewFiles.adapter = adapter
+        adapter.submitList(files)
     }
 
     override fun onDestroyView() {
