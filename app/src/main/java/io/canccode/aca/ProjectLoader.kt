@@ -4,49 +4,79 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import java.io.BufferedReader
-import java.io.InputStreamReader
 
 class ProjectLoader(private val context: Context) {
 
     private val filesMap: MutableMap<String, String> = mutableMapOf()
 
-    // Load all files recursively from SAF folder
-    fun loadProject(folderUri: Uri) {
+    /**
+     * Entry point: load an entire project from a SAF tree URI
+     */
+    fun loadProject(treeUri: Uri) {
         filesMap.clear()
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            folderUri,
-            DocumentsContract.getTreeDocumentId(folderUri)
-        )
-        val cursor = context.contentResolver.query(childrenUri, arrayOf(
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        ), null, null, null)
 
-        cursor?.use {
-            while (it.moveToNext()) {
-                val name = it.getString(0)
-                val docId = it.getString(1)
-                val mime = it.getString(2)
-                val childUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
+        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        traverseDirectory(treeUri, rootDocId, "")
+    }
+
+    /**
+     * Recursively walk the document tree
+     */
+    private fun traverseDirectory(
+        treeUri: Uri,
+        parentDocId: String,
+        currentPath: String
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            parentDocId
+        )
+
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val docId = cursor.getString(0)
+                val name = cursor.getString(1)
+                val mime = cursor.getString(2)
+
+                val relativePath =
+                    if (currentPath.isEmpty()) name else "$currentPath/$name"
 
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    // Recursively load subfolder
-                    loadProject(childUri)
+                    traverseDirectory(treeUri, docId, relativePath)
                 } else {
-                    // Read file content
-                    val content = context.contentResolver.openInputStream(childUri)?.bufferedReader()?.use(BufferedReader::readText) ?: ""
-                    filesMap[childUri.toString()] = content
+                    val fileUri =
+                        DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+
+                    val content =
+                        context.contentResolver.openInputStream(fileUri)
+                            ?.bufferedReader()
+                            ?.use(BufferedReader::readText)
+                            ?: ""
+
+                    filesMap[relativePath] = content
                 }
             }
         }
     }
 
+    /**
+     * Public API
+     */
     fun getAllFiles(): Map<String, String> = filesMap
 
-    fun getFileContent(uri: String): String = filesMap[uri] ?: ""
+    fun getFileContent(path: String): String = filesMap[path] ?: ""
 
-    fun updateFile(uri: String, content: String) {
-        filesMap[uri] = content
+    fun updateFile(path: String, content: String) {
+        filesMap[path] = content
     }
 }
