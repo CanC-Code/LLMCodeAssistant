@@ -59,6 +59,26 @@ android {
     }
 }
 
+// ------------------ Populate llama.cpp if missing ------------------
+tasks.register("populateLlama") {
+    doLast {
+        def llamaDir = file("${projectDir}/../external/llama.cpp")
+        if (!llamaDir.exists() || !new File(llamaDir, "include/llama.h").exists()) {
+            println("Populating external/llama.cpp...")
+
+            // Example: clone from GitHub (replace with your runtime method)
+            exec {
+                commandLine 'git', 'clone', '--depth=1', 'https://github.com/ggerganov/llama.cpp', llamaDir.absolutePath
+            }
+        } else {
+            println("external/llama.cpp already exists, skipping population")
+        }
+    }
+}
+
+// Ensure population happens before the native build
+preBuild.dependsOn(tasks.populateLlama)
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
