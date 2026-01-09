@@ -1,32 +1,37 @@
-# File: app/src/main/cpp/CMakeLists.txt
-
 cmake_minimum_required(VERSION 3.18)
 project(LLMCodeAssistant LANGUAGES C CXX)
 
-# ----------------------------
-# C++ settings
-# ----------------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ----------------------------
-# Paths
-# ----------------------------
-set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
+# --------------------------------------------------
+# llama.cpp location
+# --------------------------------------------------
+set(LLAMA_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp
+)
 
-# ----------------------------
-# Build llama.cpp (STATIC)
-# ----------------------------
-file(GLOB LLAMA_SOURCES
+if (NOT EXISTS ${LLAMA_DIR}/llama.h)
+    message(FATAL_ERROR "llama.cpp not found at ${LLAMA_DIR}")
+endif()
+
+# --------------------------------------------------
+# Collect llama.cpp sources (recursive, C + C++)
+# --------------------------------------------------
+file(GLOB_RECURSE LLAMA_SOURCES
+    ${LLAMA_DIR}/*.c
     ${LLAMA_DIR}/*.cpp
 )
 
-add_library(
-    llama
-    STATIC
-    ${LLAMA_SOURCES}
-)
+if (LLAMA_SOURCES STREQUAL "")
+    message(FATAL_ERROR "No llama.cpp sources found in ${LLAMA_DIR}")
+endif()
+
+# --------------------------------------------------
+# Build llama.cpp as static library
+# --------------------------------------------------
+add_library(llama STATIC ${LLAMA_SOURCES})
 
 target_include_directories(
     llama
@@ -48,9 +53,9 @@ target_compile_options(
     -frtti
 )
 
-# ----------------------------
-# Build JNI library (SHARED)
-# ----------------------------
+# --------------------------------------------------
+# JNI shared library
+# --------------------------------------------------
 add_library(
     llm
     SHARED
