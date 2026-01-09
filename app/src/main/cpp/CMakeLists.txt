@@ -1,23 +1,20 @@
 cmake_minimum_required(VERSION 3.18)
-project(LLamaAndroid)
+project(LLMCodeAssistant)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Android NDK flags
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions -frtti")
 
 # ---------------------------------------
-# Core llama library
+# Core llama library (external folder)
 # ---------------------------------------
 add_library(llama STATIC
-    llama/llama.cpp
-    # Add any other core files from llama here
+    ${CMAKE_SOURCE_DIR}/../../external/llama.cpp
 )
 
 target_include_directories(llama PUBLIC
-    llama
+    ${CMAKE_SOURCE_DIR}/../../external
 )
 
 # ---------------------------------------
@@ -28,7 +25,7 @@ add_library(llama_jni SHARED
 )
 
 target_include_directories(llama_jni PRIVATE
-    llama
+    ${CMAKE_SOURCE_DIR}/../../external
 )
 
 target_link_libraries(llama_jni
