@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/editor_fragment_root"
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="horizontal"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <EditText
-        android:id="@+id/editText"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:hint="Enter text here"
-        android:padding="16dp"
-        android:background="@android:color/transparent"
-        android:textColor="@android:color/black"
-        android:textSize="16sp"
-        android:inputType="textMultiLine"
-        android:gravity="top|start" />
+    <!-- File list -->
+    <ListView
+        android:id="@+id/listFiles"
+        android:layout_width="120dp"
+        android:layout_height="match_parent"/>
 
-</FrameLayout>
+    <!-- Editor -->
+    <EditText
+        android:id="@+id/editorText"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="match_parent"
+        android:gravity="top"
+        android:inputType="textMultiLine"
+        android:scrollbars="vertical"/>
+</LinearLayout>
