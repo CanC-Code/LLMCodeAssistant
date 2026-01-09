@@ -7,20 +7,17 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import java.io.File
 
-class FileBrowserFragment(
-    private val files: List<String>,
-    private val onClick: (String) -> Unit
-) : Fragment() {
+class FileBrowserFragment : Fragment() {
 
     private var _binding: FragmentFileBrowserBinding? = null
     private val binding get() = _binding!!
 
-    private lateinit var adapter: FileAdapter
+    private val files: List<File> = listOf() // populate with real files
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
@@ -30,10 +27,10 @@ class FileBrowserFragment(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(context)
-        adapter = FileAdapter(files, onClick)
-        binding.recyclerViewFiles.adapter = adapter
-        adapter.submitList(files)
+        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(requireContext())
+        binding.recyclerViewFiles.adapter = FileListAdapter(files) { file ->
+            // handle file click
+        }
     }
 
     override fun onDestroyView() {
