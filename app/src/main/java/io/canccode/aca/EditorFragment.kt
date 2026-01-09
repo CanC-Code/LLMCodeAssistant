@@ -21,12 +21,10 @@ class EditorFragment : Fragment() {
         return view
     }
 
-    // Optional helper to get text
     fun getText(): String {
         return editText.text.toString()
     }
 
-    // Optional helper to set text
     fun setText(text: String) {
         editText.setText(text)
     }
