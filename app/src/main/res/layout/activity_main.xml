@@ -1,32 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Main content -->
     <LinearLayout
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="match_parent"
+        android:padding="16dp">
 
-        <Button
-            android:id="@+id/openEditorButton"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+        <!-- Mode Selection Buttons -->
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Editor"/>
+            android:gravity="center_horizontal">
 
+            <Button
+                android:id="@+id/btnEditorMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Editor"/>
+
+            <Button
+                android:id="@+id/btnLLMMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LLM"
+                android:layout_marginStart="16dp"/>
+        </LinearLayout>
+
+        <!-- Load Project Button -->
         <Button
-            android:id="@+id/openLLMButton"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:id="@+id/btnLoadProject"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="LLM"/>
+            android:text="Load Project"
+            android:layout_marginTop="16dp"/>
+
+        <!-- Editor / LLM Container -->
+        <FrameLayout
+            android:id="@+id/contentContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="16dp"
+            android:background="#f0f0f0"/>
     </LinearLayout>
 
-    <FrameLayout
-        android:id="@+id/fragmentContainer"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"/>
-</LinearLayout>
+    <!-- Optional navigation drawer -->
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        app:menu="@menu/drawer_menu"/>
+</androidx.drawerlayout.widget.DrawerLayout>
