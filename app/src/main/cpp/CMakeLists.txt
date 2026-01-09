@@ -1,32 +1,38 @@
-# File: app/src/main/cpp/CMakeLists.txt
-# Author: CCVO
-# Purpose: Build llama native library and JNI wrapper for Android
-# Copyright: CanC-code - CCVO
-
-cmake_minimum_required(VERSION 3.18.1)
-
+cmake_minimum_required(VERSION 3.18)
 project(llama_jni LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# -----------------------------
+# --------------------------------------------------
 # Paths
-# -----------------------------
+# --------------------------------------------------
 set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../external/llama.cpp)
 
-# -----------------------------
-# llama.cpp sources
-# -----------------------------
-file(GLOB LLAMA_SOURCES
-    ${LLAMA_DIR}/*.cpp
-    ${LLAMA_DIR}/*.c
+if (NOT EXISTS ${LLAMA_DIR})
+    message(FATAL_ERROR "llama.cpp directory not found at: ${LLAMA_DIR}")
+endif()
+
+# --------------------------------------------------
+# llama.cpp sources (EXPLICIT, CI-safe)
+# --------------------------------------------------
+set(LLAMA_SOURCES
+    ${LLAMA_DIR}/ggml.c
+    ${LLAMA_DIR}/ggml-alloc.c
+    ${LLAMA_DIR}/ggml-backend.c
+    ${LLAMA_DIR}/ggml-quants.c
+    ${LLAMA_DIR}/llama.cpp
 )
 
-# -----------------------------
-# Build llama as shared library
-# -----------------------------
+foreach(src ${LLAMA_SOURCES})
+    if (NOT EXISTS ${src})
+        message(FATAL_ERROR "Missing llama source file: ${src}")
+    endif()
+endforeach()
+
+# --------------------------------------------------
+# Build llama shared library
+# --------------------------------------------------
 add_library(
     llama
     SHARED
@@ -36,35 +42,23 @@ add_library(
 target_include_directories(
     llama
     PUBLIC
-    ${LLAMA_DIR}
+        ${LLAMA_DIR}
 )
 
 target_compile_definitions(
     llama
     PRIVATE
-    GGML_USE_CPU
-    GGML_USE_K_QUANTS
+        GGML_USE_CPU
+        GGML_USE_K_QUANTS
 )
 
-set_target_properties(llama PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-)
-
-# -----------------------------
+# --------------------------------------------------
 # JNI wrapper
-# -----------------------------
+# --------------------------------------------------
 add_library(
     llama_jni
     SHARED
     llama_jni.cpp
-)
-
-target_include_directories(
-    llama_jni
-    PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${LLAMA_DIR}
 )
 
 find_library(log-lib log)
@@ -72,7 +66,7 @@ find_library(log-lib log)
 target_link_libraries(
     llama_jni
     PRIVATE
-    llama
-    ${log-lib}
-    android
+        llama
+        ${log-lib}
+        android
 )
