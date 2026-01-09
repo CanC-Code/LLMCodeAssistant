@@ -4,51 +4,33 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
 import androidx.fragment.app.Fragment
-import java.io.File
+import io.canccode.aca.databinding.FragmentEditorBinding
 
 class EditorFragment : Fragment() {
 
-    private lateinit var editor: EditText
-    private lateinit var saveButton: Button
-    private lateinit var file: File
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val path = requireArguments().getString(ARG_PATH)!!
-        file = File(path)
-    }
+    private var _binding: FragmentEditorBinding? = null
+    private val binding get() = _binding!!
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        return inflater.inflate(R.layout.fragment_editor, container, false)
+        _binding = FragmentEditorBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        editor = view.findViewById(R.id.editor)
-        saveButton = view.findViewById(R.id.save_button)
-
-        editor.setText(file.readText())
-
-        saveButton.setOnClickListener {
-            file.writeText(editor.text.toString())
-        }
+    fun setText(content: String) {
+        binding.codeEditor.setText(content)
     }
 
-    companion object {
-        private const val ARG_PATH = "path"
+    fun getText(): String {
+        return binding.codeEditor.text.toString()
+    }
 
-        fun newInstance(path: String): EditorFragment {
-            val f = EditorFragment()
-            f.arguments = Bundle().apply {
-                putString(ARG_PATH, path)
-            }
-            return f
-        }
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
