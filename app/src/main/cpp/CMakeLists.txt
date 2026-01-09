@@ -1,74 +1,56 @@
-plugins {
-    id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
-}
+cmake_minimum_required(VERSION 3.18.1)
 
-android {
-    namespace 'io.canccode.aca'
-    compileSdk 34
+project(llm_native LANGUAGES C CXX)
 
-    defaultConfig {
-        applicationId "io.canccode.aca"
-        minSdk 26
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+# ---------------------------
+# C++ standard
+# ---------------------------
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-        ndk {
-            abiFilters "arm64-v8a"
-        }
+# ---------------------------
+# Paths
+# ---------------------------
+set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/../../../external/llama.cpp)
 
-        externalNativeBuild {
-            cmake {
-                cppFlags "-std=c++17"
-            }
-        }
-    }
+# ---------------------------
+# llama.cpp options (minimal, Android-safe)
+# ---------------------------
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(LLAMA_STATIC OFF CACHE BOOL "" FORCE)
 
-    buildTypes {
-        debug {
-            debuggable true
-        }
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile(
-                    'proguard-android-optimize.txt'),
-                    'proguard-rules.pro'
-        }
-    }
+# ---------------------------
+# Add llama.cpp
+# ---------------------------
+add_subdirectory(${LLAMA_DIR} llama)
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
+# ---------------------------
+# JNI library
+# ---------------------------
+add_library(
+        llm_jni
+        SHARED
+        llama_jni.cpp
+)
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+# ---------------------------
+# Include paths
+# ---------------------------
+target_include_directories(
+        llm_jni
+        PRIVATE
+        ${LLAMA_DIR}
+        ${LLAMA_DIR}/include
+)
 
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            // 🚫 DO NOT pin cmakeVersion
-        }
-    }
-
-    buildFeatures {
-        viewBinding true
-    }
-}
-
-dependencies {
-
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
-
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
-
-    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6'
-    implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.6'
-
-    implementation 'androidx.fragment:fragment-ktx:1.8.5'
-}
+# ---------------------------
+# Link libraries
+# ---------------------------
+target_link_libraries(
+        llm_jni
+        llama
+        android
+        log
+)
