@@ -4,42 +4,44 @@ plugins {
 }
 
 android {
-    namespace 'com.llmassistant.app'
+    namespace 'io.canccode.aca'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.llmassistant.app"
-        minSdk 24
+        applicationId "io.canccode.aca"
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
 
-        // JNI / C++ configuration
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O3 -fexceptions -frtti"
+                cppFlags "-std=c++17"
             }
         }
-
-        // Enable multiDex if needed
-        multiDexEnabled true
     }
 
     buildTypes {
+        debug {
+            debuggable true
+        }
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-        debug {
-            // Debug-specific settings
-            debuggable true
+            proguardFiles getDefaultProguardFile(
+                'proguard-android-optimize.txt'
+            ), 'proguard-rules.pro'
         }
     }
 
-    // Link to your CMakeLists.txt for llama_jni.cpp
+    buildFeatures {
+        viewBinding true
+        dataBinding true
+    }
+
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
+            version "3.18.1"
         }
     }
 
@@ -49,24 +51,25 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = '17'
-    }
-
-    // Optional: enable viewBinding if using it in Kotlin fragments
-    buildFeatures {
-        viewBinding true
+        jvmTarget = "17"
     }
 }
 
 dependencies {
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
-    implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
 
-    // Optional: Kotlin coroutines (if LLMHandler uses them)
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    // Core Android
+    implementation "androidx.core:core-ktx:1.12.0"
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.11.0"
 
-    // Optional: MultiDex support
-    implementation 'androidx.multidex:multidex:2.0.1'
+    // Fragments + lifecycle
+    implementation "androidx.fragment:fragment-ktx:1.6.2"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.8.6"
+
+    // RecyclerView (FileBrowser)
+    implementation "androidx.recyclerview:recyclerview:1.3.2"
+
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
 }
