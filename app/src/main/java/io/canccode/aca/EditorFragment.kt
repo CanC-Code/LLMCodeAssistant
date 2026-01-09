@@ -4,28 +4,48 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.ListView
 import androidx.fragment.app.Fragment
 
 class EditorFragment : Fragment() {
 
-    private lateinit var editText: EditText
+    private lateinit var projectLoader: ProjectLoader
+    private lateinit var fileListView: ListView
+    private lateinit var editorView: EditText
+    private var currentFileUri: String? = null
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        val view = inflater.inflate(R.layout.fragment_editor, container, false)
-        editText = view.findViewById(R.id.editText)
-        return view
+    ): View {
+        val root = inflater.inflate(R.layout.fragment_editor, container, false)
+        fileListView = root.findViewById(R.id.listFiles)
+        editorView = root.findViewById(R.id.editorText)
+        return root
     }
 
-    fun getText(): String {
-        return editText.text.toString()
+    override fun onResume() {
+        super.onResume()
+        projectLoader = (activity as MainActivity).projectLoader
+        updateFileList()
     }
 
-    fun setText(text: String) {
-        editText.setText(text)
+    private fun updateFileList() {
+        val files = projectLoader.getAllFiles().keys.toList()
+        fileListView.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_list_item_1, files)
+
+        fileListView.setOnItemClickListener { _, _, position, _ ->
+            val uri = files[position]
+            currentFileUri = uri
+            editorView.setText(projectLoader.getFileContent(uri))
+        }
+    }
+
+    fun saveCurrentFile() {
+        currentFileUri?.let {
+            projectLoader.updateFile(it, editorView.text.toString())
+        }
     }
 }
