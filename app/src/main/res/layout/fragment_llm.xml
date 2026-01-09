@@ -1,27 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
-    android:padding="12dp"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <EditText
-        android:id="@+id/input_field"
+        android:id="@+id/llmInputText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Enter prompt" />
+        android:hint="Type here"/>
 
     <Button
-        android:id="@+id/send_button"
+        android:id="@+id/llmSendButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Send" />
+        android:text="Send"/>
 
     <TextView
-        android:id="@+id/output_field"
+        android:id="@+id/llmOutputText"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:textIsSelectable="true" />
+        android:layout_height="wrap_content"
+        android:text=""
+        android:padding="8dp"/>
 </LinearLayout>
