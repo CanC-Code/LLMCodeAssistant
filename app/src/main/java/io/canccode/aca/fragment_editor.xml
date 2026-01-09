@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <!-- This ID must match EditorFragment.kt -->
+    <EditText
+        android:id="@+id/editText"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:hint="Enter code here"
+        android:inputType="textMultiLine"
+        android:gravity="top"
+        android:scrollbars="vertical"
+        android:background="@android:color/transparent"
+        android:textColor="@android:color/black"
+        android:textSize="14sp"/>
+</LinearLayout>
