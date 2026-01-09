@@ -25,10 +25,14 @@ jobs:
         submodules: recursive
         fetch-depth: 0
 
-    # ---------- Initialize all submodules ----------
+    # ---------- Initialize submodules ----------
     - name: Initialize submodules
       run: git submodule update --init --recursive
 
-    # ---------- Build APK ----------
+    # ---------- Make gradlew executable ----------
+    - name: Set execute permission for gradlew
+      run: chmod +x ./gradlew
+
+    # ---------- Build Debug APK ----------
     - name: Build Debug APK
       run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
