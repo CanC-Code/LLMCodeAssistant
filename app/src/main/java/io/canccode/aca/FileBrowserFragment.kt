@@ -5,58 +5,45 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
-import androidx.recyclerview.widget.RecyclerView
-import android.widget.TextView
+import androidx.recyclerview.widget.LinearLayoutManager
+import io.canccode.aca.databinding.FragmentFileBrowserBinding
 import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: FileAdapter
+    private var _binding: FragmentFileBrowserBinding? = null
+    private val binding get() = _binding!!
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        recyclerView = view.findViewById(R.id.recyclerViewFiles)
-
-        adapter = FileAdapter()
-        recyclerView.adapter = adapter
-
-        loadFiles()
-        return view
+    ): View {
+        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
+        return binding.root
     }
 
-    private fun loadFiles() {
-        val filesDir = requireContext().filesDir
-        val files = filesDir.listFiles()?.toList() ?: emptyList()
-        adapter.submitList(files)
-    }
-}
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
-class FileAdapter : ListAdapter<File, FileViewHolder>(FileDiffCallback()) {
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(android.R.layout.simple_list_item_1, parent, false)
-        return FileViewHolder(view)
+        val files = requireContext().filesDir.listFiles()?.toList() ?: emptyList()
+
+        binding.fileRecyclerView.layoutManager = LinearLayoutManager(requireContext())
+        binding.fileRecyclerView.adapter = FileListAdapter(files) { file ->
+            openFile(file)
+        }
     }
 
-    override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        holder.bind(getItem(position))
+    private fun openFile(file: File) {
+        val editorFragment = EditorFragment()
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, editorFragment)
+            .addToBackStack(null)
+            .commit()
     }
-}
 
-class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-    private val textView: TextView = itemView.findViewById(android.R.id.text1)
-    fun bind(file: File) {
-        textView.text = file.name
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
-}
-
-class FileDiffCallback : DiffUtil.ItemCallback<File>() {
-    override fun areItemsTheSame(oldItem: File, newItem: File) = oldItem.absolutePath == newItem.absolutePath
-    override fun areContentsTheSame(oldItem: File, newItem: File) = oldItem == newItem
 }
