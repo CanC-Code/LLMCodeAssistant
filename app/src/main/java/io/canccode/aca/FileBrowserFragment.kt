@@ -1,3 +1,4 @@
+// File: app/src/main/java/io/canccode/aca/FileBrowserFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -26,20 +27,14 @@ class FileBrowserFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        val files = requireContext().filesDir.listFiles()?.toList() ?: emptyList()
+        val rootDir = requireContext().filesDir
+        val files = rootDir.listFiles()?.toList() ?: emptyList()
 
-        binding.fileRecyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.fileRecyclerView.adapter = FileListAdapter(files) { file ->
-            openFile(file)
-        }
-    }
-
-    private fun openFile(file: File) {
-        val editorFragment = EditorFragment()
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.fragment_container, editorFragment)
-            .addToBackStack(null)
-            .commit()
+        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(requireContext())
+        binding.recyclerViewFiles.adapter =
+            FileListAdapter(files) { file ->
+                // TODO: open file in editor
+            }
     }
 
     override fun onDestroyView() {
