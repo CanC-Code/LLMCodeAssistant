@@ -12,8 +12,8 @@ class FileListAdapter(
     private val onClick: (File) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
-    class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val fileName: TextView = itemView.findViewById(R.id.fileName)
+    class FileViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val fileName: TextView = view.findViewById(R.id.fileName)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
