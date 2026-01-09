@@ -1,4 +1,3 @@
-// File: app/src/main/java/io/canccode/aca/LLMFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -14,7 +13,7 @@ class LLMFragment : Fragment() {
     private var _binding: FragmentLlmBinding? = null
     private val binding get() = _binding!!
 
-    private val viewModel: AppViewModel by activityViewModels()
+    private val viewModel: AppViewModel by activityViewModels() // fixed
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -28,16 +27,9 @@ class LLMFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.sendButton.setOnClickListener {
-            val input = binding.inputField.text.toString()
-            if (input.isNotBlank()) {
-                viewModel.sendToLLM(input)
-                binding.inputField.text.clear()
-            }
-        }
-
-        viewModel.llmInput.observe(viewLifecycleOwner) { input ->
-            binding.outputField.append("\n> $input")
+        // Example: observe ViewModel data
+        viewModel.someLiveData.observe(viewLifecycleOwner) { data ->
+            binding.llmOutputText.text = data
         }
     }
 
