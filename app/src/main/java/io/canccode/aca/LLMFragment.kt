@@ -4,39 +4,51 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.activityViewModels
-import io.canccode.aca.databinding.FragmentLlmBinding
 
 class LLMFragment : Fragment() {
 
-    private var _binding: FragmentLlmBinding? = null
-    private val binding get() = _binding!!
-    private val viewModel: LLMViewModel by activityViewModels()
+    private lateinit var inputBox: EditText
+    private lateinit var chatOutput: TextView
+    private lateinit var sendBtn: Button
+    private lateinit var projectLoader: ProjectLoader
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentLlmBinding.inflate(inflater, container, false)
-        return binding.root
+        val root = inflater.inflate(R.layout.fragment_llm, container, false)
+        inputBox = root.findViewById(R.id.inputBox)
+        chatOutput = root.findViewById(R.id.chatOutput)
+        sendBtn = root.findViewById(R.id.sendBtn)
+        return root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onResume() {
+        super.onResume()
+        projectLoader = (activity as MainActivity).projectLoader
 
-        viewModel.output.observe(viewLifecycleOwner) { text ->
-            binding.llmOutputText.text = text
-        }
-
-        binding.llmSendButton.setOnClickListener {
-            val prompt = binding.llmInputText.text.toString()
-            viewModel.setOutput("You typed: $prompt") // temporary echo
+        sendBtn.setOnClickListener {
+            val prompt = inputBox.text.toString()
+            val response = answerPrompt(prompt)
+            chatOutput.append("\n> $prompt\n$response\n")
+            inputBox.setText("")
         }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    private fun answerPrompt(prompt: String): String {
+        // Temporary: simple echo + file info
+        val files = projectLoader.getAllFiles()
+        return when {
+            prompt.contains("list files", true) -> files.keys.joinToString("\n")
+            prompt.contains("show file", true) -> {
+                val name = prompt.substringAfterLast(" ").trim()
+                files.entries.firstOrNull { it.key.contains(name) }?.value ?: "File not found."
+            }
+            else -> "LLM would respond here with context from loaded project."
+        }
     }
 }
