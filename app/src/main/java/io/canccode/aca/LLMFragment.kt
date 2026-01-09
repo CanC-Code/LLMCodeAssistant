@@ -12,10 +12,12 @@ class LLMFragment : Fragment() {
 
     private var _binding: FragmentLlmBinding? = null
     private val binding get() = _binding!!
+
     private val viewModel: AppViewModel by activityViewModels()
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         _binding = FragmentLlmBinding.inflate(inflater, container, false)
