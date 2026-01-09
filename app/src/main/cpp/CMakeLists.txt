@@ -1,62 +1,73 @@
 # File: app/src/main/cpp/CMakeLists.txt
 
 cmake_minimum_required(VERSION 3.18)
+project(LLMCodeAssistant LANGUAGES C CXX)
 
-project(LLMCodeAssistantJni LANGUAGES C CXX)
-
-# ----------------------
-# C++ standard
-# ----------------------
+# ----------------------------
+# C++ settings
+# ----------------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ----------------------
-# Source files
-# ----------------------
-# Add all .cpp files in the current directory
-file(GLOB CPP_SRC "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# ----------------------------
+# Paths
+# ----------------------------
+set(LLAMA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 
-# Add all .cpp files in external/ relative to app/src/main/cpp/
-file(GLOB EXTERNAL_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/*.cpp")
-
-# Combine source files
-set(SRC_FILES ${CPP_SRC} ${EXTERNAL_CPP})
-
-# ----------------------
-# Shared library
-# ----------------------
-add_library(
-    llm                 # library name
-    SHARED              # type
-    ${SRC_FILES}        # sources
+# ----------------------------
+# Build llama.cpp (STATIC)
+# ----------------------------
+file(GLOB LLAMA_SOURCES
+    ${LLAMA_DIR}/*.cpp
 )
 
-# ----------------------
-# Include directories
-# ----------------------
+add_library(
+    llama
+    STATIC
+    ${LLAMA_SOURCES}
+)
+
+target_include_directories(
+    llama
+    PUBLIC
+    ${LLAMA_DIR}
+)
+
+target_compile_definitions(
+    llama
+    PRIVATE
+    GGML_USE_CPU
+)
+
+target_compile_options(
+    llama
+    PRIVATE
+    -O3
+    -fexceptions
+    -frtti
+)
+
+# ----------------------------
+# Build JNI library (SHARED)
+# ----------------------------
+add_library(
+    llm
+    SHARED
+    llama_jni.cpp
+)
+
 target_include_directories(
     llm
     PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}                     # cpp/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external # external/
+    ${LLAMA_DIR}
 )
 
-# ----------------------
-# Link Android log library
-# ----------------------
 find_library(log-lib log)
 
 target_link_libraries(
     llm
+    PRIVATE
+    llama
     ${log-lib}
-)
-
-# ----------------------
-# Optional: compiler flags (optimization)
-# ----------------------
-target_compile_options(llm PRIVATE
-    -O3                  # Optimize for speed
-    -fexceptions         # Enable exceptions
-    -frtti               # Enable RTTI
 )
