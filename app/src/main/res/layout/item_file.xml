@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="horizontal"
-    android:padding="16dp"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/itemRoot"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:padding="12dp"
+    android:orientation="vertical">
 
     <TextView
-        android:id="@+id/file_name"
-        android:layout_width="wrap_content"
+        android:id="@+id/textViewFileName"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="filename"
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        android:textColor="@android:color/black"/>
 </LinearLayout>
