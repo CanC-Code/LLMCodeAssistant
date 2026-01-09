@@ -1,43 +1,62 @@
-# Minimum CMake version
+# File: app/src/main/cpp/CMakeLists.txt
+
 cmake_minimum_required(VERSION 3.18)
 
-# Set project name
 project(LLMCodeAssistantJni LANGUAGES C CXX)
 
-# Specify the Android ABI and API level (handled by Gradle usually)
-# set(CMAKE_SYSTEM_NAME Android)
-# set(CMAKE_ANDROID_ARCH_ABI arm64-v8a)
-# set(CMAKE_ANDROID_NDK /path/to/ndk)
-# set(CMAKE_ANDROID_API 34)
-
-# Enable C++17
+# ----------------------
+# C++ standard
+# ----------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Define source files for the library
-set(SRC_FILES
-    llama_jni.cpp
-    ${CMAKE_SOURCE_DIR}/../../../../external/llama.cpp
-)
+# ----------------------
+# Source files
+# ----------------------
+# Add all .cpp files in the current directory
+file(GLOB CPP_SRC "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
-# Create shared library for JNI
+# Add all .cpp files in external/ relative to app/src/main/cpp/
+file(GLOB EXTERNAL_CPP "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/*.cpp")
+
+# Combine source files
+set(SRC_FILES ${CPP_SRC} ${EXTERNAL_CPP})
+
+# ----------------------
+# Shared library
+# ----------------------
 add_library(
-    llm                 # Library name
-    SHARED              # Build as shared library
-    ${SRC_FILES}        # Source files
+    llm                 # library name
+    SHARED              # type
+    ${SRC_FILES}        # sources
 )
 
-# Find the JNI package
-find_package(JNI REQUIRED)
+# ----------------------
+# Include directories
+# ----------------------
+target_include_directories(
+    llm
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}                     # cpp/
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external # external/
+)
 
-# Include JNI headers
-include_directories(${JNI_INCLUDE_DIRS})
+# ----------------------
+# Link Android log library
+# ----------------------
+find_library(log-lib log)
 
-# Link libraries
 target_link_libraries(
     llm
-    ${log-lib}          # Android log library
+    ${log-lib}
 )
 
-# Define Android log library (used in llama_jni.cpp)
-find_library(log-lib log)
+# ----------------------
+# Optional: compiler flags (optimization)
+# ----------------------
+target_compile_options(llm PRIVATE
+    -O3                  # Optimize for speed
+    -fexceptions         # Enable exceptions
+    -frtti               # Enable RTTI
+)
