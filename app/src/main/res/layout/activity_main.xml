@@ -17,7 +17,7 @@
             android:layout_height="match_parent"
             android:padding="16dp">
 
-            <!-- Mode Selection Buttons -->
+            <!-- Mode Selection Buttons integrated into drawer/floating system -->
             <LinearLayout
                 android:orientation="horizontal"
                 android:layout_width="match_parent"
@@ -51,14 +51,14 @@
                 android:layout_height="0dp"
                 android:layout_weight="1"
                 android:layout_marginTop="16dp"
-                android:background="#f0f0f0"/>
+                android:background="@color/colorBackground"/>
         </LinearLayout>
 
-        <!-- Floating draggable menu button -->
+        <!-- Floating draggable menu button (squircle size updated) -->
         <ImageView
             android:id="@+id/floatingMenuButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
             android:layout_margin="16dp"
             android:background="@drawable/ic_dynamic_menu"
             android:contentDescription="Menu"
