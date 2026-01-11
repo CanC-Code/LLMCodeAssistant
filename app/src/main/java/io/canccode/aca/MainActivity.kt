@@ -57,9 +57,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun setupFloatingMenu() {
         floatingMenu.setOnTouchListener { v, event ->
-            val parentWidth = (v.parent as DrawerLayout).width
-            val parentHeight = (v.parent as DrawerLayout).height
-
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dX = v.x - event.rawX
@@ -67,17 +64,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     isDragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    var newX = event.rawX + dX
-                    var newY = event.rawY + dY
-
-                    // Clamp within parent bounds
-                    newX = min(max(0f, newX), parentWidth - v.width.toFloat())
-                    newY = min(max(0f, newY), parentHeight - v.height.toFloat())
-
+                    val newX = (event.rawX + dX).coerceIn(0f, drawerLayout.width - v.width.toFloat())
+                    val newY = (event.rawY + dY).coerceIn(0f, drawerLayout.height - v.height.toFloat())
                     if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) {
                         isDragging = true
                     }
-
                     v.x = newX
                     v.y = newY
                 }
@@ -117,7 +108,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         when (item.itemId) {
             R.id.nav_files -> openFragment(FileBrowserFragment())
             R.id.nav_editor -> openFragment(EditorFragment())
-            R.id.nav_console -> openFragment(LLMFragment())
+            R.id.nav_llm -> openFragment(LLMFragment())
+            R.id.nav_load_project -> pickProjectFolder()
             R.id.nav_reload_model ->
                 Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
             R.id.nav_clear_console ->
