@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.MotionEvent
-import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,8 +14,6 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import com.google.android.material.navigation.NavigationView
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
@@ -42,13 +39,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         floatingMenu = findViewById(R.id.floatingMenuButton)
         setupFloatingMenu()
 
-        val btnEditor = findViewById<Button>(R.id.btnEditorMode)
-        val btnLLM = findViewById<Button>(R.id.btnLLMMode)
-        val btnLoadProject = findViewById<Button>(R.id.btnLoadProject)
-
-        btnEditor.setOnClickListener { openFragment(EditorFragment()) }
-        btnLLM.setOnClickListener { openFragment(LLMFragment()) }
-        btnLoadProject.setOnClickListener { pickProjectFolder() }
+        // Removed old buttons: btnEditorMode, btnLLMMode, btnLoadProject
+        // Navigation is now handled entirely via the burger menu
 
         if (savedInstanceState == null) {
             openFragment(EditorFragment())
