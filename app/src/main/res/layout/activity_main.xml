@@ -11,21 +11,61 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <FrameLayout
-            android:id="@+id/contentContainer"
+        <LinearLayout
+            android:orientation="vertical"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/colorBackground"/>
+            android:padding="16dp">
 
-        <!-- Floating draggable menu button -->
+            <!-- Mode Selection Buttons -->
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal">
+
+                <Button
+                    android:id="@+id/btnEditorMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Editor"/>
+
+                <Button
+                    android:id="@+id/btnLLMMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LLM"
+                    android:layout_marginStart="16dp"/>
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnLoadProject"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Load Project"
+                android:layout_marginTop="16dp"/>
+
+            <FrameLayout
+                android:id="@+id/contentContainer"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="16dp"
+                android:background="#f0f0f0"/>
+        </LinearLayout>
+
+        <!-- Floating draggable menu button with squircle background -->
         <ImageView
             android:id="@+id/floatingMenuButton"
             android:layout_width="56dp"
             android:layout_height="56dp"
             android:layout_margin="16dp"
-            android:background="@drawable/ic_dynamic_menu"
+            android:background="@drawable/ic_hamburger_bg"
+            android:padding="8dp"
             android:contentDescription="Menu"
-            android:layout_gravity="top|start"/>
+            android:layout_gravity="top|start"
+            android:src="@drawable/ic_dynamic_menu"
+            android:scaleType="centerInside"/>
     </FrameLayout>
 
     <!-- Navigation drawer -->
@@ -34,8 +74,6 @@
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        app:itemTextColor="@color/colorOnSurface"
-        app:itemIconTint="@color/colorSecondary"
         app:menu="@menu/drawer_menu"/>
 
 </androidx.drawerlayout.widget.DrawerLayout>
