@@ -1,37 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    File: styles.xml
-    Purpose: Application themes and widget styling
--->
 <resources>
 
-    <!-- Base application theme -->
-    <style name="Theme.LLMCodeAssistant" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorOnPrimary">@color/colorOnPrimary</item>
+    <!--
+        App theme
+        Single authoritative definition.
+        NoActionBar is REQUIRED for custom / floating UI.
+    -->
+    <style name="Theme.LLMCodeAssistant"
+        parent="Theme.Material3.DayNight.NoActionBar">
 
-        <item name="colorSecondary">@color/colorSecondary</item>
-        <item name="colorOnSecondary">@color/colorOnSecondary</item>
+        <!-- Primary brand colors (safe defaults) -->
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryVariant">@color/purple_700</item>
+        <item name="colorOnPrimary">@color/white</item>
 
-        <!-- Use our custom app attribute -->
-        <item name="colorBackground">@color/colorBackground</item>
-        <item name="colorSurface">@color/colorSurface</item>
+        <item name="colorSecondary">@color/teal_200</item>
+        <item name="colorOnSecondary">@color/black</item>
 
-        <item name="android:statusBarColor">@color/colorPrimaryVariant</item>
-    </style>
+        <!-- Status / navigation -->
+        <item name="android:statusBarColor">?attr/colorPrimary</item>
 
-    <!-- Editor text style -->
-    <style name="CodeEditorText">
-        <item name="android:textColor">@color/colorOnSurface</item>
-        <item name="android:textSize">14sp</item>
-        <item name="android:typeface">monospace</item>
-    </style>
-
-    <!-- Console output -->
-    <style name="ConsoleText">
-        <item name="android:textColor">@color/colorOnSurface</item>
-        <item name="android:textSize">13sp</item>
-        <item name="android:typeface">monospace</item>
     </style>
 
 </resources>
