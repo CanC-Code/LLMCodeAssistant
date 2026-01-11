@@ -7,50 +7,63 @@
     android:layout_height="match_parent">
 
     <!-- Main content -->
-    <LinearLayout
-        android:orientation="vertical"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="16dp">
+        android:layout_height="match_parent">
 
-        <!-- Mode Selection Buttons -->
         <LinearLayout
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_horizontal">
+            android:layout_height="match_parent"
+            android:padding="16dp">
+
+            <!-- Mode Selection Buttons -->
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal">
+
+                <Button
+                    android:id="@+id/btnEditorMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Editor"/>
+
+                <Button
+                    android:id="@+id/btnLLMMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LLM"
+                    android:layout_marginStart="16dp"/>
+            </LinearLayout>
 
             <Button
-                android:id="@+id/btnEditorMode"
+                android:id="@+id/btnLoadProject"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Editor"/>
+                android:text="Load Project"
+                android:layout_marginTop="16dp"/>
 
-            <Button
-                android:id="@+id/btnLLMMode"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="LLM"
-                android:layout_marginStart="16dp"/>
+            <FrameLayout
+                android:id="@+id/contentContainer"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="16dp"
+                android:background="#f0f0f0"/>
         </LinearLayout>
 
-        <!-- Load Project Button -->
-        <Button
-            android:id="@+id/btnLoadProject"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Load Project"
-            android:layout_marginTop="16dp"/>
-
-        <!-- Editor / LLM Container -->
-        <FrameLayout
-            android:id="@+id/contentContainer"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginTop="16dp"
-            android:background="#f0f0f0"/>
-    </LinearLayout>
+        <!-- Floating draggable menu button -->
+        <ImageView
+            android:id="@+id/floatingMenuButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_margin="16dp"
+            android:background="@drawable/ic_dynamic_menu"
+            android:contentDescription="Menu"
+            android:layout_gravity="top|start"/>
+    </FrameLayout>
 
     <!-- Navigation drawer -->
     <com.google.android.material.navigation.NavigationView
@@ -59,4 +72,5 @@
         android:layout_height="match_parent"
         android:layout_gravity="start"
         app:menu="@menu/drawer_menu"/>
+
 </androidx.drawerlayout.widget.DrawerLayout>
