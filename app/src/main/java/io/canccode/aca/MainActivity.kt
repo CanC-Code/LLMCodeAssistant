@@ -16,9 +16,7 @@ import com.google.android.material.navigation.NavigationView
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
-    // Public so fragments can access shared project state
     lateinit var projectLoader: ProjectLoader
-
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var navView: NavigationView
     private lateinit var drawerToggle: ActionBarDrawerToggle
@@ -33,7 +31,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         navView = findViewById(R.id.nav_view)
         navView.setNavigationItemSelectedListener(this)
 
-        // Setup hamburger toggle
+        // Hamburger toggle with default icon
         drawerToggle = ActionBarDrawerToggle(
             this,
             drawerLayout,
@@ -59,11 +57,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    // Handle toolbar/hamburger click
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (drawerToggle.onOptionsItemSelected(item)) {
-            return true
-        }
+        if (drawerToggle.onOptionsItemSelected(item)) return true
         return super.onOptionsItemSelected(item)
     }
 
@@ -73,9 +68,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             .commit()
     }
 
-    // -------------------------
-    // Project folder selection
-    // -------------------------
     private val folderPickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
             uri?.let {
@@ -92,28 +84,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         folderPickerLauncher.launch(null)
     }
 
-    // -------------------------
-    // Navigation drawer handling
-    // -------------------------
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.nav_files -> {
-                openFragment(FileBrowserFragment())
-            }
-            R.id.nav_editor -> {
-                openFragment(EditorFragment())
-            }
-            R.id.nav_console -> {
-                openFragment(LLMFragment())
-            }
-            R.id.nav_reload_model -> {
-                Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
-                // Add your reload model logic here
-            }
-            R.id.nav_clear_console -> {
-                Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
-                // Add your clear console logic here
-            }
+            R.id.nav_files -> openFragment(FileBrowserFragment())
+            R.id.nav_editor -> openFragment(EditorFragment())
+            R.id.nav_console -> openFragment(LLMFragment())
+            R.id.nav_reload_model -> Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
+            R.id.nav_clear_console -> Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
         }
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
@@ -122,8 +99,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onBackPressed() {
         if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
             drawerLayout.closeDrawer(GravityCompat.START)
-        } else {
-            super.onBackPressed()
-        }
+        } else super.onBackPressed()
     }
 }
