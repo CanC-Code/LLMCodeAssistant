@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.commit
 import com.google.android.material.navigation.NavigationView
 import kotlin.math.abs
 
@@ -26,6 +27,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private var dY = 0f
     private var isDragging = false
 
+    private var currentModeFragment: Fragment = EditorFragment()
+    private val llmFragment = LLMFragment() // Persistent LLM
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -39,11 +43,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         floatingMenu = findViewById(R.id.floatingMenuButton)
         setupFloatingMenu()
 
-        // Removed old buttons: btnEditorMode, btnLLMMode, btnLoadProject
-        // Navigation is now handled entirely via the burger menu
-
         if (savedInstanceState == null) {
-            openFragment(EditorFragment())
+            supportFragmentManager.commit {
+                replace(R.id.contentContainer, currentModeFragment)
+                add(R.id.contentContainer, llmFragment) // Always overlay LLM
+            }
         }
     }
 
@@ -74,19 +78,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    private fun openFragment(fragment: Fragment) {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.contentContainer, fragment)
-            .commit()
-    }
-
     private val folderPickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
             uri?.let {
                 contentResolver.takePersistableUriPermission(
                     it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
                 projectLoader.loadProject(it)
             }
@@ -98,17 +95,23 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.nav_files -> openFragment(FileBrowserFragment())
-            R.id.nav_editor -> openFragment(EditorFragment())
-            R.id.nav_llm -> openFragment(LLMFragment())
+            R.id.nav_files -> switchMode(FileBrowserFragment())
+            R.id.nav_editor -> switchMode(EditorFragment())
+            R.id.nav_llm -> Toast.makeText(this, "LLM is always available", Toast.LENGTH_SHORT).show()
             R.id.nav_load_project -> pickProjectFolder()
-            R.id.nav_reload_model ->
-                Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
-            R.id.nav_clear_console ->
-                Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
+            R.id.nav_reload_model -> Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
+            R.id.nav_clear_console -> Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
         }
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
+    }
+
+    private fun switchMode(fragment: Fragment) {
+        currentModeFragment = fragment
+        supportFragmentManager.commit {
+            replace(R.id.contentContainer, fragment)
+            if (!llmFragment.isAdded) add(R.id.contentContainer, llmFragment)
+        }
     }
 
     override fun onBackPressed() {
