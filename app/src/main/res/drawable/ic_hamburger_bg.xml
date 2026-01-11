@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <!-- Squircle-style rounded corners -->
+    <corners
+        android:radius="16dp"/>
+
+    <!-- Background color -->
+    <solid android:color="@color/colorSecondary"/>
+
+    <!-- Optional subtle shadow/border -->
+    <stroke
+        android:width="2dp"
+        android:color="@color/colorPrimaryVariant"/>
+</shape>
