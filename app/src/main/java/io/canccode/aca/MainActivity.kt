@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.MotionEvent
-import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
@@ -16,6 +15,8 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import com.google.android.material.navigation.NavigationView
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
@@ -56,6 +57,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun setupFloatingMenu() {
         floatingMenu.setOnTouchListener { v, event ->
+            val parentWidth = (v.parent as DrawerLayout).width
+            val parentHeight = (v.parent as DrawerLayout).height
+
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dX = v.x - event.rawX
@@ -63,11 +67,17 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     isDragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val newX = event.rawX + dX
-                    val newY = event.rawY + dY
+                    var newX = event.rawX + dX
+                    var newY = event.rawY + dY
+
+                    // Clamp within parent bounds
+                    newX = min(max(0f, newX), parentWidth - v.width.toFloat())
+                    newY = min(max(0f, newY), parentHeight - v.height.toFloat())
+
                     if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) {
                         isDragging = true
                     }
+
                     v.x = newX
                     v.y = newY
                 }
