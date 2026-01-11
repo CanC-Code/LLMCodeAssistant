@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    File: strings.xml
-    Purpose: All user-visible strings
--->
-
 <resources>
-
-    <!-- App -->
     <string name="app_name">LLM Code Assistant</string>
 
     <!-- Navigation -->
@@ -33,5 +26,4 @@
     <!-- Errors -->
     <string name="error_generic">An error occurred</string>
     <string name="error_model_load">Failed to load model</string>
-
 </resources>
