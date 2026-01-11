@@ -16,6 +16,10 @@
     <string name="nav_reload_model">Reload Model</string>
     <string name="nav_clear_console">Clear Console</string>
 
+    <!-- Drawer toggle -->
+    <string name="drawer_open">Open navigation drawer</string>
+    <string name="drawer_close">Close navigation drawer</string>
+
     <!-- Editor -->
     <string name="editor_empty">No file opened</string>
 
