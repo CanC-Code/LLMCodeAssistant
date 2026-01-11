@@ -40,7 +40,6 @@ class LLMFragment : Fragment() {
     }
 
     private fun answerPrompt(prompt: String): String {
-        // Temporary: simple echo + file info
         val files = projectLoader.getAllFiles()
         return when {
             prompt.contains("list files", true) -> files.keys.joinToString("\n")
