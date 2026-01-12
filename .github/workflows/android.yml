@@ -43,11 +43,11 @@ jobs:
           build-tools: "34.0.0"
           ndk: "27.3.10554745"
 
-      # ---------- Install CMake manually ----------
+      # ---------- Manual CMake 3.24.1 install ----------
       - name: Install CMake 3.24.1
         run: |
           CMAKE_VERSION=3.24.1
-          CMAKE_DIR=/usr/local/cmake-$CMAKE_VERSION
+          CMAKE_DIR=$HOME/cmake-$CMAKE_VERSION
           mkdir -p $CMAKE_DIR
           
           # Download official prebuilt Linux CMake
