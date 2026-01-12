@@ -1,116 +1,150 @@
-// File: app/src/main/cpp/llama_jni.cpp
-// Author: CCVO
-// Purpose: JNI wrapper for llama.cpp LLM integration (streaming + multi-turn)
-// Updated for llama.cpp 2.x API
-// Copyright: CanC-code - CCVO
-
 #include <jni.h>
 #include <string>
 #include <vector>
-#include <mutex>
 #include <android/log.h>
 
-extern "C" {
 #include "llama.h"
-}
 
-#define LOG_TAG "LLAMA_JNI"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOG_TAG "llama_jni"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static llama_model* model = nullptr;
-static llama_context* ctx = nullptr;
-static std::mutex llama_mutex;
+static llama_model * g_model = nullptr;
+static llama_context * g_ctx = nullptr;
 
-// Initialize model from file path
-extern "C" JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaJNI_initModel(JNIEnv* env, jobject, jstring modelPath) {
-    const char* path = env->GetStringUTFChars(modelPath, nullptr);
-    std::lock_guard<std::mutex> lock(llama_mutex);
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_io_canccode_aca_LLMHandler_nativeLoadModel(
+        JNIEnv * env,
+        jobject /* this */,
+        jstring modelPath
+) {
+    const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
-    // Free existing context and model if any
-    if (ctx) {
-        llama_free(ctx);
-        ctx = nullptr;
-    }
-    if (model) {
-        llama_free_model(model);
-        model = nullptr;
-    }
+    llama_backend_init();
 
-    // Load model
-    model = llama_load_model_from_file(path);
+    llama_model_params model_params = llama_model_default_params();
+    g_model = llama_load_model_from_file(path, model_params);
+
     env->ReleaseStringUTFChars(modelPath, path);
 
-    if (!model) {
-        LOGE("Failed to load model!");
+    if (!g_model) {
+        LOGE("Failed to load model");
         return JNI_FALSE;
     }
 
-    // Create context
-    llama_context_params params = llama_context_default_params();
-    params.n_ctx = 2048;      // context window
-    params.n_threads = 4;     // adjust per device
-    ctx = llama_new_context(model, params);
+    llama_context_params ctx_params = llama_context_default_params();
+    ctx_params.n_ctx = 2048;
 
-    if (!ctx) {
-        LOGE("Failed to create context!");
-        llama_free_model(model);
-        model = nullptr;
+    g_ctx = llama_new_context_with_model(g_model, ctx_params);
+
+    if (!g_ctx) {
+        LOGE("Failed to create context");
+        llama_model_free(g_model);
+        g_model = nullptr;
         return JNI_FALSE;
     }
 
-    LOGI("Model loaded and context created successfully.");
+    LOGI("Model loaded successfully");
     return JNI_TRUE;
 }
 
-// Run prompt and return generated text (single-shot)
-extern "C" JNIEXPORT jstring JNICALL
-Java_io_canccode_aca_LlamaJNI_runPrompt(JNIEnv* env, jobject, jstring prompt) {
-    const char* cPrompt = env->GetStringUTFChars(prompt, nullptr);
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_io_canccode_aca_LLMHandler_nativePrompt(
+        JNIEnv * env,
+        jobject /* this */,
+        jstring prompt
+) {
+    if (!g_ctx || !g_model) {
+        return env->NewStringUTF("Model not loaded");
+    }
+
+    const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
+
+    std::vector<llama_token> tokens;
+    tokens.resize(strlen(c_prompt) + 8);
+
+    int n_tokens = llama_tokenize(
+            g_model,
+            c_prompt,
+            tokens.data(),
+            tokens.size(),
+            true,
+            false
+    );
+
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+
+    if (n_tokens <= 0) {
+        return env->NewStringUTF("Tokenization failed");
+    }
+
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i]   = i;
+        batch.seq_id[i][0] = 0;
+        batch.n_seq_id[i] = 1;
+        batch.logits[i] = false;
+    }
+    batch.logits[n_tokens - 1] = true;
+
+    if (llama_decode(g_ctx, batch) != 0) {
+        llama_batch_free(batch);
+        return env->NewStringUTF("Decode failed");
+    }
+
+    llama_batch_free(batch);
+
+    llama_sampler * sampler = llama_sampler_init_greedy();
+
     std::string output;
 
-    std::lock_guard<std::mutex> lock(llama_mutex);
-    if (!ctx) {
-        env->ReleaseStringUTFChars(prompt, cPrompt);
-        return env->NewStringUTF("Model not initialized");
+    for (int i = 0; i < 128; i++) {
+        llama_token token = llama_sampler_sample(sampler, g_ctx, -1);
+
+        if (token == llama_token_eos(g_model)) {
+            break;
+        }
+
+        char buf[8];
+        int len = llama_token_to_piece(g_ctx, token, buf, sizeof(buf), 0, false);
+        if (len > 0) {
+            output.append(buf, len);
+        }
+
+        llama_batch next = llama_batch_init(1, n_tokens + i, 1);
+        next.token[0] = token;
+        next.pos[0]   = n_tokens + i;
+        next.seq_id[0][0] = 0;
+        next.n_seq_id[0] = 1;
+        next.logits[0] = true;
+
+        llama_decode(g_ctx, next);
+        llama_batch_free(next);
     }
 
-    // Evaluate the prompt
-    int eval_res = llama_eval(ctx, cPrompt, strlen(cPrompt), 0);
-    if (eval_res != 0) {
-        env->ReleaseStringUTFChars(prompt, cPrompt);
-        return env->NewStringUTF("Error evaluating prompt");
-    }
+    llama_sampler_free(sampler);
 
-    // Token generation loop
-    int max_tokens = 256;
-    for (int i = 0; i < max_tokens; ++i) {
-        llama_token token;
-        int sample_res = llama_sample_next_token(ctx, &token);
-        if (sample_res != 0) break;  // stop on error or end-of-stream
-        if (token == LLAMA_TOKEN_EOS) break;
-
-        const char* token_str = llama_token_to_str(ctx, token);
-        if (token_str) output += token_str;
-    }
-
-    env->ReleaseStringUTFChars(prompt, cPrompt);
     return env->NewStringUTF(output.c_str());
 }
 
-// Free model and context
-extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaJNI_freeModel(JNIEnv*, jobject) {
-    std::lock_guard<std::mutex> lock(llama_mutex);
-    if (ctx) {
-        llama_free(ctx);
-        ctx = nullptr;
-        LOGI("Context freed.");
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LLMHandler_nativeUnloadModel(
+        JNIEnv * /* env */,
+        jobject /* this */
+) {
+    if (g_ctx) {
+        llama_free(g_ctx);
+        g_ctx = nullptr;
     }
-    if (model) {
-        llama_free_model(model);
-        model = nullptr;
-        LOGI("Model freed.");
+
+    if (g_model) {
+        llama_model_free(g_model);
+        g_model = nullptr;
     }
+
+    llama_backend_free();
 }
