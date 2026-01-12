@@ -1,8 +1,3 @@
-// File: app/src/main/cpp/llama_jni.cpp
-// Author: CCVO
-// Purpose: JNI wrapper for llama.cpp (updated for latest API)
-// Copyright: CanC-code
-
 #include <jni.h>
 #include <string>
 #include <vector>
