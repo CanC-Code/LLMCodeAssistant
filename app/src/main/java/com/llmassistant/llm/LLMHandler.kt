@@ -1,12 +1,3 @@
-// File: LLMCodeAssistant/app/src/main/java/io/canccode/aca/LLMHandler.kt
-// Author: CCVO
-// Purpose: Kotlin interface to embedded native LLM (llama.cpp GGUF)
-// Notes:
-//  - Explicit initialization required
-//  - Conversation-aware prompt assembly
-//  - Safe context trimming
-//  - JNI-backed inference (no network dependency)
-
 package io.canccode.aca
 
 import android.content.Context
@@ -18,45 +9,17 @@ class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
-
-        init {
-            // Load JNI bridge produced by CMake
-            System.loadLibrary("llama_jni")
-        }
     }
-
-    // -------------------------------------------------
-    // JNI bindings
-    // -------------------------------------------------
-    private external fun nativeInitModel(
-        modelPath: String,
-        threads: Int
-    ): Boolean
-
-    private external fun nativeInfer(
-        prompt: String,
-        maxTokens: Int
-    ): String
-
-    private external fun nativeClose()
 
     // -------------------------------------------------
     // Conversation model
     // -------------------------------------------------
-    private enum class Role {
-        SYSTEM,
-        USER,
-        ASSISTANT
-    }
+    private enum class Role { SYSTEM, USER, ASSISTANT }
 
-    private data class Message(
-        val role: Role,
-        val content: String
-    )
+    private data class Message(val role: Role, val content: String)
 
     private val conversation = CopyOnWriteArrayList<Message>()
 
-    // Hard safety limit to prevent runaway context growth
     private val maxContextChars = 12_000
 
     // -------------------------------------------------
@@ -85,17 +48,10 @@ class LLMHandler(private val context: Context) {
 
         modelFile = model
 
-        val cpuCount = Runtime.getRuntime().availableProcessors()
-        val threads = maxOf(1, minOf(4, cpuCount - 1))
-
         Log.i(TAG, "Initializing LLM")
         Log.i(TAG, "Model: ${model.absolutePath}")
-        Log.i(TAG, "Threads: $threads")
 
-        initialized = nativeInitModel(
-            model.absolutePath,
-            threads
-        )
+        initialized = LlamaJNI.initModel(model.absolutePath)
 
         if (initialized) {
             conversation.clear()
@@ -116,34 +72,17 @@ class LLMHandler(private val context: Context) {
     // -------------------------------------------------
     // Inference (conversation-aware)
     // -------------------------------------------------
-    fun infer(
-        userInput: String,
-        maxTokens: Int = 512
-    ): String {
-        if (!initialized) {
-            return "LLM not initialized"
-        }
+    fun infer(userInput: String, maxTokens: Int = 512): String {
+        if (!initialized) return "LLM not initialized"
 
-        conversation.add(
-            Message(
-                Role.USER,
-                userInput.trim()
-            )
-        )
-
+        conversation.add(Message(Role.USER, userInput.trim()))
         trimContextIfNeeded()
 
         val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
 
-        val reply = nativeInfer(prompt, maxTokens)
-
-        conversation.add(
-            Message(
-                Role.ASSISTANT,
-                reply
-            )
-        )
+        val reply = LlamaJNI.runPrompt(prompt)
+        conversation.add(Message(Role.ASSISTANT, reply))
 
         return reply
     }
@@ -157,24 +96,16 @@ class LLMHandler(private val context: Context) {
         chunkSize: Int = 400,
         userInstruction: String = ""
     ): String {
-        if (!initialized) {
-            return "LLM not initialized"
-        }
-
-        if (!file.exists()) {
-            return "File not found: ${file.absolutePath}"
-        }
+        if (!initialized) return "LLM not initialized"
+        if (!file.exists()) return "File not found: ${file.absolutePath}"
 
         val lines = file.readLines()
         val start = chunkIndex * chunkSize
         val end = minOf(start + chunkSize, lines.size)
 
-        if (start >= lines.size) {
-            return "End of file reached"
-        }
+        if (start >= lines.size) return "End of file reached"
 
         val chunk = lines.subList(start, end).joinToString("\n")
-
         val prompt = buildString {
             append("Analyze the following source code:\n\n")
             append(chunk)
@@ -184,7 +115,7 @@ class LLMHandler(private val context: Context) {
             }
         }
 
-        return infer(prompt, maxTokens = 512)
+        return infer(prompt, maxTokens)
     }
 
     // -------------------------------------------------
@@ -192,17 +123,16 @@ class LLMHandler(private val context: Context) {
     // -------------------------------------------------
     private fun buildPrompt(): String {
         val sb = StringBuilder()
-
         for (msg in conversation) {
-            when (msg.role) {
-                Role.SYSTEM -> sb.append("[SYSTEM]\n")
-                Role.USER -> sb.append("[USER]\n")
-                Role.ASSISTANT -> sb.append("[ASSISTANT]\n")
-            }
-            sb.append(msg.content)
-            sb.append("\n\n")
+            sb.append(
+                when (msg.role) {
+                    Role.SYSTEM -> "[SYSTEM]\n"
+                    Role.USER -> "[USER]\n"
+                    Role.ASSISTANT -> "[ASSISTANT]\n"
+                }
+            )
+            sb.append(msg.content).append("\n\n")
         }
-
         sb.append("[ASSISTANT]\n")
         return sb.toString()
     }
@@ -212,8 +142,6 @@ class LLMHandler(private val context: Context) {
     // -------------------------------------------------
     private fun trimContextIfNeeded() {
         var totalChars = conversation.sumOf { it.content.length }
-
-        // Always preserve SYSTEM message at index 0
         while (totalChars > maxContextChars && conversation.size > 2) {
             val removed = conversation.removeAt(1)
             totalChars -= removed.content.length
@@ -221,7 +149,7 @@ class LLMHandler(private val context: Context) {
     }
 
     // -------------------------------------------------
-    // Conversation reset (model remains loaded)
+    // Conversation reset
     // -------------------------------------------------
     fun resetConversation() {
         conversation.clear()
@@ -241,7 +169,7 @@ class LLMHandler(private val context: Context) {
         if (!initialized) return
 
         Log.i(TAG, "Shutting down LLM")
-        nativeClose()
+        LlamaJNI.release()
 
         initialized = false
         modelFile = null
