@@ -20,8 +20,14 @@ if(EXISTS "${LLAMA_INCLUDE}/llama.h")
         "${GGML_INCLUDE}"
     )
 
+    # Link standard Android libraries
     find_library(log-lib log)
     target_link_libraries(llama_jni ${log-lib})
+
+    # Ensure Gradle knows where the library is
+    set_target_properties(llama_jni PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../jniLibs/${ANDROID_ABI}"
+    )
 
 else()
     message(WARNING "Skipping llama_jni build: ${LLAMA_INCLUDE}/llama.h not found. The JNI library will not be built.")
