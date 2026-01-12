@@ -21,7 +21,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # ---------- Ensure submodules exist ----------
+      # ---------- Initialize submodules ----------
       - name: Initialize & update submodules
         run: |
           git submodule update --init --recursive
@@ -36,12 +36,16 @@ jobs:
           java-version: 17
 
       # ---------- Android SDK / NDK ----------
-      - name: Set up Android SDK
+      - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
           build-tools: "34.0.0"
           ndk: "27.3.10554745"
+
+      # ---------- Install CMake ----------
+      - name: Install CMake 3.24.1
+        run: yes | sdkmanager "cmake;3.24.1"
 
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
