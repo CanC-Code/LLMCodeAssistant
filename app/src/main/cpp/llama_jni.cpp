@@ -1,6 +1,7 @@
 // File: app/src/main/cpp/llama_jni.cpp
 // Author: CCVO
 // Purpose: JNI wrapper for llama.cpp LLM integration (streaming + multi-turn)
+// Updated for llama.cpp 2.x API
 // Copyright: CanC-code - CCVO
 
 #include <jni.h>
@@ -17,39 +18,55 @@ extern "C" {
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static llama_context *ctx = nullptr;
+static llama_model* model = nullptr;
+static llama_context* ctx = nullptr;
 static std::mutex llama_mutex;
 
 // Initialize model from file path
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaJNI_initModel(JNIEnv* env, jobject /*this*/, jstring modelPath) {
+Java_io_canccode_aca_LlamaJNI_initModel(JNIEnv* env, jobject, jstring modelPath) {
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
     std::lock_guard<std::mutex> lock(llama_mutex);
 
+    // Free existing context and model if any
     if (ctx) {
         llama_free(ctx);
         ctx = nullptr;
     }
+    if (model) {
+        llama_free_model(model);
+        model = nullptr;
+    }
 
-    llama_model_params params;
-    params.n_ctx = 2048;    // context size
-    params.n_threads = 4;   // adjust for device
-    params.seed = 42;
-
-    ctx = llama_init_from_file(path, params);
+    // Load model
+    model = llama_load_model_from_file(path);
     env->ReleaseStringUTFChars(modelPath, path);
 
-    if (!ctx) {
+    if (!model) {
         LOGE("Failed to load model!");
         return JNI_FALSE;
     }
-    LOGI("Model loaded successfully.");
+
+    // Create context
+    llama_context_params params = llama_context_default_params();
+    params.n_ctx = 2048;      // context window
+    params.n_threads = 4;     // adjust per device
+    ctx = llama_new_context(model, params);
+
+    if (!ctx) {
+        LOGE("Failed to create context!");
+        llama_free_model(model);
+        model = nullptr;
+        return JNI_FALSE;
+    }
+
+    LOGI("Model loaded and context created successfully.");
     return JNI_TRUE;
 }
 
 // Run prompt and return generated text (single-shot)
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_canccode_aca_LlamaJNI_runPrompt(JNIEnv* env, jobject /*this*/, jstring prompt) {
+Java_io_canccode_aca_LlamaJNI_runPrompt(JNIEnv* env, jobject, jstring prompt) {
     const char* cPrompt = env->GetStringUTFChars(prompt, nullptr);
     std::string output;
 
@@ -59,28 +76,41 @@ Java_io_canccode_aca_LlamaJNI_runPrompt(JNIEnv* env, jobject /*this*/, jstring p
         return env->NewStringUTF("Model not initialized");
     }
 
-    llama_eval(ctx, cPrompt, strlen(cPrompt), nullptr, 0); // simple evaluation
+    // Evaluate the prompt
+    int eval_res = llama_eval(ctx, cPrompt, strlen(cPrompt), 0);
+    if (eval_res != 0) {
+        env->ReleaseStringUTFChars(prompt, cPrompt);
+        return env->NewStringUTF("Error evaluating prompt");
+    }
 
-    // Simple greedy decode loop for demonstration
-    for (int i = 0; i < 256; ++i) {  // max 256 tokens
-        llama_token token = llama_token_sample(ctx, nullptr, 0, 0.0f, 1.0f, 1);
+    // Token generation loop
+    int max_tokens = 256;
+    for (int i = 0; i < max_tokens; ++i) {
+        llama_token token;
+        int sample_res = llama_sample_next_token(ctx, &token);
+        if (sample_res != 0) break;  // stop on error or end-of-stream
         if (token == LLAMA_TOKEN_EOS) break;
 
-        char c = static_cast<char>(token);
-        output += c;
+        const char* token_str = llama_token_to_str(ctx, token);
+        if (token_str) output += token_str;
     }
 
     env->ReleaseStringUTFChars(prompt, cPrompt);
     return env->NewStringUTF(output.c_str());
 }
 
-// Free model context
+// Free model and context
 extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaJNI_freeModel(JNIEnv* env, jobject /*this*/) {
+Java_io_canccode_aca_LlamaJNI_freeModel(JNIEnv*, jobject) {
     std::lock_guard<std::mutex> lock(llama_mutex);
     if (ctx) {
         llama_free(ctx);
         ctx = nullptr;
+        LOGI("Context freed.");
+    }
+    if (model) {
+        llama_free_model(model);
+        model = nullptr;
         LOGI("Model freed.");
     }
 }
