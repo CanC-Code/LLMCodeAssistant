@@ -10,18 +10,19 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Paths
 # ----------------------------------
 # CMakeLists.txt is in app/src/main/cpp
-# llama.cpp submodule is at external/llama.cpp
+# llama.cpp submodule is at repo_root/external/llama.cpp
 
 set(LLAMA_ROOT
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/llama.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp
 )
+
+if (NOT EXISTS ${LLAMA_ROOT}/CMakeLists.txt)
+    message(FATAL_ERROR "llama.cpp not found at ${LLAMA_ROOT}")
+endif()
 
 # ----------------------------------
 # Add llama.cpp (upstream CMake)
 # ----------------------------------
-# This uses llama.cpp's own CMakeLists.txt
-# and avoids guessing source files.
-
 add_subdirectory(
     ${LLAMA_ROOT}
     ${CMAKE_BINARY_DIR}/llama
@@ -38,7 +39,7 @@ target_include_directories(llama_jni PRIVATE
     ${LLAMA_ROOT}/include
 )
 
-# Android log lib
+# Android log library
 find_library(log-lib log)
 
 target_link_libraries(llama_jni
