@@ -1,5 +1,6 @@
 package io.canccode.aca
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -23,6 +24,12 @@ class EditorFragment : Fragment() {
         val root = inflater.inflate(R.layout.fragment_editor, container, false)
         fileListView = root.findViewById(R.id.listFiles)
         editorView = root.findViewById(R.id.editorText)
+
+        // QoL: dark background, readable text
+        editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))
+        editorView.setTextColor(Color.parseColor("#D4D4D4"))
+        editorView.setTextSize(14f)
+
         return root
     }
 
