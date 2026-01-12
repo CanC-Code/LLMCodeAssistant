@@ -11,15 +11,17 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
+        // ---------------------------
+        // Enable external native build
+        // ---------------------------
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17"
-                targets "llama_jni"
+                targets "llama_jni"           // Name of your JNI library
             }
         }
 
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a"
+            abiFilters "arm64-v8a", "armeabi-v7a"  // Android CPU targets
         }
     }
 
@@ -36,6 +38,9 @@ android {
         jvmTarget = '17'
     }
 
+    // ---------------------------
+    // CMake integration path
+    // ---------------------------
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -44,6 +49,6 @@ android {
     }
 
     packagingOptions {
-        pickFirst "**/*.so"
+        pickFirst "**/*.so"  // Avoid duplicate .so conflicts
     }
 }
