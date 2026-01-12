@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # --- Paths ---
 
 # Current CMakeLists.txt is in app/src/main/cpp
-set(LLAMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../external/llama.cpp")
+set(LLAMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp")
 set(LLAMA_INCLUDE "${LLAMA_DIR}/include")
 set(GGML_INCLUDE "${LLAMA_DIR}/ggml/include")  # optional
 
