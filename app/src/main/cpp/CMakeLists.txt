@@ -1,125 +1,91 @@
-#include <jni.h>
-#include <string>
-#include <vector>
-#include <mutex>
-#include <android/log.h>
+cmake_minimum_required(VERSION 3.10.2)
 
-extern "C" {
-#include "llama.h"
-}
+project(llama_jni LANGUAGES C CXX)
 
-#define LOG_TAG "LLAMA_JNI"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+# -------------------------------
+# Toolchain / language settings
+# -------------------------------
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-static llama_model* model = nullptr;
-static llama_context* ctx = nullptr;
-static std::mutex llama_mutex;
+# -------------------------------
+# Paths
+# -------------------------------
+# This CMakeLists.txt lives in:
+# app/src/main/cpp
+#
+# Repo layout:
+# external/llama.cpp  (git submodule)
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaJNI_loadModel(JNIEnv* env, jobject thiz, jstring jpath) {
-    const char* path = env->GetStringUTFChars(jpath, nullptr);
-    if (!path) return JNI_FALSE;
+set(LLAMA_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/llama.cpp
+)
 
-    std::lock_guard<std::mutex> lock(llama_mutex);
+set(LLAMA_INCLUDE_DIR
+    ${LLAMA_DIR}/include
+)
 
-    if (model) {
-        llama_model_free(model);
-        model = nullptr;
-    }
+set(LLAMA_SRC_DIR
+    ${LLAMA_DIR}
+)
 
-    // Default model parameters (adjust as needed)
-    llama_model_load_params params;
-    params.n_ctx = 512;      // context size
-    params.n_parts = -1;     // auto
-    params.n_threads = 4;    // default threads
-    params.low_vram = false;
-    params.vocab_only = false;
+# -------------------------------
+# Sanity logging (non-fatal)
+# -------------------------------
+message(STATUS "llama.cpp root: ${LLAMA_DIR}")
+message(STATUS "llama.cpp include: ${LLAMA_INCLUDE_DIR}")
 
-    model = llama_load_model_from_file(path, params);
-    env->ReleaseStringUTFChars(jpath, path);
+# -------------------------------
+# Build llama.cpp as a static lib
+# -------------------------------
+# llama.cpp is designed to be embedded this way
 
-    if (!model) {
-        LOGE("Failed to load model from path: %s", path);
-        return JNI_FALSE;
-    }
+add_library(llama STATIC
+    ${LLAMA_SRC_DIR}/llama.cpp
+    ${LLAMA_SRC_DIR}/ggml.c
+)
 
-    // Initialize context
-    llama_context_params ctx_params = llama_context_default_params();
-    ctx_params.n_threads = 4;
-    ctx_params.n_batch = 8;
+target_include_directories(llama PUBLIC
+    ${LLAMA_INCLUDE_DIR}
+    ${LLAMA_SRC_DIR}
+)
 
-    if (ctx) {
-        llama_free(ctx);
-        ctx = nullptr;
-    }
-    ctx = llama_new_context_with_model(model, ctx_params);
-    if (!ctx) {
-        LOGE("Failed to create llama context");
-        llama_model_free(model);
-        model = nullptr;
-        return JNI_FALSE;
-    }
+target_compile_definitions(llama PRIVATE
+    GGML_USE_K_QUANTS
+)
 
-    LOGI("Model loaded and context initialized successfully");
-    return JNI_TRUE;
-}
+# Android-specific flags (safe defaults)
+target_compile_options(llama PRIVATE
+    -O3
+    -fvisibility=hidden
+)
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_io_canccode_aca_LlamaJNI_generateText(JNIEnv* env, jobject thiz, jstring jprompt) {
-    const char* prompt = env->GetStringUTFChars(jprompt, nullptr);
-    if (!prompt) return env->NewStringUTF("");
+# -------------------------------
+# JNI shared library
+# -------------------------------
+add_library(llama_jni SHARED
+    llama_jni.cpp
+)
 
-    std::lock_guard<std::mutex> lock(llama_mutex);
+target_include_directories(llama_jni PRIVATE
+    ${LLAMA_INCLUDE_DIR}
+)
 
-    if (!ctx) {
-        env->ReleaseStringUTFChars(jprompt, prompt);
-        return env->NewStringUTF("Error: Context not initialized");
-    }
+# Android system libs
+find_library(log-lib log)
 
-    // Tokenize prompt
-    std::vector<llama_token> tokens;
-    tokens.resize(strlen(prompt) * 2); // rough estimate
-    int n_tokens = llama_tokenize(ctx, prompt, tokens.data(), tokens.size(), false);
-    tokens.resize(n_tokens);
+target_link_libraries(llama_jni
+    llama
+    ${log-lib}
+)
 
-    // Feed prompt to model
-    if (llama_eval(ctx, tokens.data(), tokens.size(), 0, 0) != 0) {
-        env->ReleaseStringUTFChars(jprompt, prompt);
-        return env->NewStringUTF("Error: llama_eval failed");
-    }
+# -------------------------------
+# Gradle / Android output
+# -------------------------------
+# Let Gradle manage ABI split output;
+# do NOT hardcode jniLibs paths
 
-    // Sample next tokens
-    std::string result;
-    const int max_tokens = 64;
-    for (int i = 0; i < max_tokens; ++i) {
-        llama_token token = llama_sample_token(ctx, nullptr);
-        if (token == LLAMA_TOKEN_EOS) break;
-
-        const char* token_str = llama_token_to_str(ctx, token);
-        if (!token_str) break;
-
-        result += token_str;
-
-        // Evaluate new token
-        if (llama_eval(ctx, &token, 1, 0, 0) != 0) break;
-    }
-
-    env->ReleaseStringUTFChars(jprompt, prompt);
-    return env->NewStringUTF(result.c_str());
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaJNI_freeModel(JNIEnv* env, jobject thiz) {
-    std::lock_guard<std::mutex> lock(llama_mutex);
-
-    if (ctx) {
-        llama_free(ctx);
-        ctx = nullptr;
-    }
-    if (model) {
-        llama_model_free(model);
-        model = nullptr;
-    }
-    LOGI("Model and context freed");
-}
+set_target_properties(llama_jni PROPERTIES
+    OUTPUT_NAME "llama_jni"
+)
