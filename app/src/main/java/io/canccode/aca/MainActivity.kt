@@ -1,43 +1,49 @@
 package io.canccode.aca
 
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import androidx.fragment.app.Fragment
+import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import android.widget.Toast
+import io.canccode.aca.fragments.FileBrowserFragment
+import io.canccode.aca.adapters.FileListAdapter
 
-class FileBrowserFragment : Fragment() {
+class MainActivity : AppCompatActivity() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: FileAdapter
+    private lateinit var fileRecyclerView: RecyclerView
+    private lateinit var fileAdapter: FileListAdapter
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        recyclerView = view.findViewById(R.id.fileRecyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        adapter = FileAdapter(emptyList()) { file ->
-            onFileClicked(file)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Initialize RecyclerView
+        fileRecyclerView = findViewById(R.id.fileRecyclerView)
+        fileRecyclerView.layoutManager = LinearLayoutManager(this)
+
+        fileAdapter = FileListAdapter(getCurrentFileList()) { fileName ->
+            openFile(fileName)
         }
-        recyclerView.adapter = adapter
-        loadFiles()
-        return view
+
+        fileRecyclerView.adapter = fileAdapter
+
+        // Load initial fragment
+        if (savedInstanceState == null) {
+            supportFragmentManager.commit {
+                replace(R.id.fragment_container, FileBrowserFragment())
+            }
+        }
     }
 
-    private fun loadFiles() {
-        // Dummy list for demonstration; replace with actual file loading logic
-        val files = listOf("file1.txt", "file2.txt", "file3.txt")
-        adapter.updateFiles(files)
+    private fun openFile(fileName: String) {
+        val fragment = EditorFragment.newInstance(fileName)
+        supportFragmentManager.commit {
+            replace(R.id.fragment_container, fragment)
+            addToBackStack(null)
+        }
     }
 
-    private fun onFileClicked(file: String) {
-        Toast.makeText(requireContext(), "Clicked: $file", Toast.LENGTH_SHORT).show()
-        // Safe call to MainActivity.switchMode
-        (activity as? MainActivity)?.switchMode(EditorFragment())
+    // Stub function, replace with your project loader logic
+    fun getCurrentFileList(): List<String> {
+        return listOf("Example1.txt", "Example2.txt", "Example3.txt")
     }
 }
