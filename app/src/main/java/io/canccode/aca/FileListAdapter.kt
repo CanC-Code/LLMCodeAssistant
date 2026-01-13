@@ -1,19 +1,16 @@
-package io.canccode.aca
+package io.canccode.aca.adapters
 
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.R
 
 class FileListAdapter(
-    private var files: List<String>,
+    private val files: List<String>,
     private val onClick: (String) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
-
-    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val fileName: TextView = itemView.findViewById(R.id.fileName)
-    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
         val view = LayoutInflater.from(parent.context)
@@ -22,16 +19,14 @@ class FileListAdapter(
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        val file = files[position]
-        holder.fileName.text = file
-        holder.itemView.setOnClickListener { onClick(file) }
+        val fileName = files[position]
+        holder.fileNameText.text = fileName
+        holder.itemView.setOnClickListener { onClick(fileName) }
     }
 
     override fun getItemCount(): Int = files.size
 
-    // NEW: update the list dynamically
-    fun updateFiles(newFiles: List<String>) {
-        files = newFiles
-        notifyDataSetChanged()
+    class FileViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val fileNameText: TextView = view.findViewById(R.id.fileNameText)
     }
 }
