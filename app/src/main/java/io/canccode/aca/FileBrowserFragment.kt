@@ -7,31 +7,46 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: FileListAdapter
-    private val directoryPath: String = "/some/path" // adjust path
+    private lateinit var adapter: FileNodeAdapter
+
+    private lateinit var projectLoader: ProjectLoader
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
+    ): View {
         val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        recyclerView = view.findViewById(R.id.recyclerViewFiles) // make sure your XML has this ID
+        recyclerView = view.findViewById(R.id.recyclerViewFiles)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        return view
+    }
 
-        val files = File(directoryPath).listFiles()?.toList() ?: emptyList()
-        val fileNames: List<String> = files.map { it.name }
+    override fun onResume() {
+        super.onResume()
+        projectLoader = (activity as MainActivity).projectLoader
 
-        adapter = FileListAdapter(fileNames) { fileName ->
-            // handle file click
+        val root = projectLoader.getRootNode()
+        adapter = FileNodeAdapter(root) { node ->
+            if (!node.isDirectory) {
+                // Handle file click
+                val editorFragment =
+                    (activity as MainActivity).supportFragmentManager
+                        .findFragmentByTag("EditorFragment") as? EditorFragment
+                editorFragment?.let {
+                    it.loadFile(node.path)
+                    (activity as MainActivity).switchMode(it)
+                }
+            } else {
+                // Toggle expanded/collapsed
+                node.expanded = !node.expanded
+                adapter.notifyDataSetChanged()
+            }
         }
         recyclerView.adapter = adapter
-
-        return view
     }
 }
