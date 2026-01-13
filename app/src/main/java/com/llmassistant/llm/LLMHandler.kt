@@ -48,8 +48,8 @@ class LLMHandler(private val context: Context) {
         Log.i(TAG, "Initializing LLM")
         Log.i(TAG, "Model: ${model.absolutePath}")
 
-        // Corrected call: use LlamaJNI.initModel()
-        initialized = LlamaJNI.initModel(model.absolutePath)
+        // Corrected: use loadModel()
+        initialized = LlamaJNI.loadModel(model.absolutePath)
 
         if (initialized) {
             conversation.clear()
@@ -79,8 +79,8 @@ class LLMHandler(private val context: Context) {
         val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
 
-        // Corrected call: maxTokens removed
-        val reply = LlamaJNI.runPrompt(prompt)
+        // Corrected: use generateText()
+        val reply = LlamaJNI.generateText(prompt)
         conversation.add(Message(Role.ASSISTANT, reply))
 
         return reply
@@ -168,7 +168,8 @@ class LLMHandler(private val context: Context) {
         if (!initialized) return
 
         Log.i(TAG, "Shutting down LLM")
-        LlamaJNI.release()
+        // Corrected: use freeModel()
+        LlamaJNI.freeModel()
 
         initialized = false
         modelFile = null
