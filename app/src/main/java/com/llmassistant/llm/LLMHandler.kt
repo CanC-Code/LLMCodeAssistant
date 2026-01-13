@@ -15,11 +15,8 @@ class LLMHandler(private val context: Context) {
     // Conversation model
     // -------------------------------------------------
     private enum class Role { SYSTEM, USER, ASSISTANT }
-
     private data class Message(val role: Role, val content: String)
-
     private val conversation = CopyOnWriteArrayList<Message>()
-
     private val maxContextChars = 12_000
 
     // -------------------------------------------------
@@ -51,6 +48,7 @@ class LLMHandler(private val context: Context) {
         Log.i(TAG, "Initializing LLM")
         Log.i(TAG, "Model: ${model.absolutePath}")
 
+        // Corrected call: use LlamaJNI.initModel()
         initialized = LlamaJNI.initModel(model.absolutePath)
 
         if (initialized) {
@@ -72,7 +70,7 @@ class LLMHandler(private val context: Context) {
     // -------------------------------------------------
     // Inference (conversation-aware)
     // -------------------------------------------------
-    fun infer(userInput: String, maxTokens: Int = 512): String {
+    fun infer(userInput: String): String {
         if (!initialized) return "LLM not initialized"
 
         conversation.add(Message(Role.USER, userInput.trim()))
@@ -81,6 +79,7 @@ class LLMHandler(private val context: Context) {
         val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
 
+        // Corrected call: maxTokens removed
         val reply = LlamaJNI.runPrompt(prompt)
         conversation.add(Message(Role.ASSISTANT, reply))
 
@@ -115,7 +114,7 @@ class LLMHandler(private val context: Context) {
             }
         }
 
-        return infer(prompt, maxTokens)
+        return infer(prompt)
     }
 
     // -------------------------------------------------
