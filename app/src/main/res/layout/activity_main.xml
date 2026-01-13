@@ -6,26 +6,27 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Main content -->
+    <!-- Main content container -->
     <FrameLayout
         android:id="@+id/contentContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@color/colorBackground" />
+        android:background="@color/colorBackground">
 
-    <!-- Floating draggable menu button -->
-    <ImageView
-        android:id="@+id/floatingMenuButton"
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
-        android:background="@drawable/ic_dynamic_menu"
-        android:contentDescription="Menu"
-        android:clickable="true"
-        android:focusable="true"
-        android:layout_gravity="top|start"
-        android:elevation="8dp"/>
+        <!-- Floating menu button inside content -->
+        <ImageView
+            android:id="@+id/floatingMenuButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/ic_dynamic_menu"
+            android:contentDescription="Menu"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_gravity="top|start"
+            android:elevation="8dp"/>
+    </FrameLayout>
 
     <!-- Navigation drawer -->
     <com.google.android.material.navigation.NavigationView
