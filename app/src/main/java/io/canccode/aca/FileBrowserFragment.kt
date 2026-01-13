@@ -7,46 +7,54 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.widget.TextView
 
 class FileBrowserFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: FileNodeAdapter
+    private lateinit var adapter: FileListAdapter
+    private var files: List<String> = emptyList()
 
     private lateinit var projectLoader: ProjectLoader
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        projectLoader = ProjectLoader(requireContext())
+        files = projectLoader.getCurrentFileList() // Load existing project files if any
+    }
+
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        recyclerView = view.findViewById(R.id.recyclerViewFiles)
+        val rootView = inflater.inflate(R.layout.fragment_file_browser, container, false)
+        recyclerView = rootView.findViewById(R.id.recyclerViewFiles)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        return view
+
+        adapter = FileListAdapter(files) { fileName ->
+            openFile(fileName)
+        }
+        recyclerView.adapter = adapter
+
+        return rootView
     }
 
     override fun onResume() {
         super.onResume()
-        projectLoader = (activity as MainActivity).projectLoader
-
-        val root = projectLoader.getRootNode()
-        adapter = FileNodeAdapter(root) { node ->
-            if (!node.isDirectory) {
-                // Handle file click
-                val editorFragment =
-                    (activity as MainActivity).supportFragmentManager
-                        .findFragmentByTag("EditorFragment") as? EditorFragment
-                editorFragment?.let {
-                    it.loadFile(node.path)
-                    (activity as MainActivity).switchMode(it)
-                }
-            } else {
-                // Toggle expanded/collapsed
-                node.expanded = !node.expanded
-                adapter.notifyDataSetChanged()
-            }
-        }
-        recyclerView.adapter = adapter
+        refreshFileList()
     }
+
+    private fun refreshFileList() {
+        files = projectLoader.getCurrentFileList()
+        adapter.updateFiles(files)
+    }
+
+    private fun openFile(fileName: String) {
+        // Handle opening the file in editor
+        val activity = requireActivity() as? MainActivity
+        activity?.let {
+            it.switchMode(EditorFragment.newInstance(fileName))
+        }
+    }
+
 }
