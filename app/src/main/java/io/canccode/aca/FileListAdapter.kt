@@ -7,7 +7,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class FileListAdapter(
-    private val files: List<String>,
+    private var files: List<String>,
     private val onClick: (String) -> Unit
 ) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
 
@@ -28,4 +28,10 @@ class FileListAdapter(
     }
 
     override fun getItemCount(): Int = files.size
+
+    // NEW: update the list dynamically
+    fun updateFiles(newFiles: List<String>) {
+        files = newFiles
+        notifyDataSetChanged()
+    }
 }
