@@ -1,124 +1,43 @@
 package io.canccode.aca
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.view.MenuItem
-import android.view.MotionEvent
-import android.widget.ImageView
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.GravityCompat
-import androidx.drawerlayout.widget.DrawerLayout
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.commit
-import com.google.android.material.navigation.NavigationView
-import kotlin.math.abs
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import android.widget.Toast
 
-class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+class FileBrowserFragment : Fragment() {
 
-    lateinit var projectLoader: ProjectLoader
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var navView: NavigationView
-    private lateinit var floatingMenu: ImageView
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var adapter: FileAdapter
 
-    private var dX = 0f
-    private var dY = 0f
-    private var isDragging = false
-
-    private var currentModeFragment: Fragment = EditorFragment()
-    private val llmFragment = LLMFragment() // Persistent LLM
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        projectLoader = ProjectLoader(this)
-
-        drawerLayout = findViewById(R.id.drawer_layout)
-        navView = findViewById(R.id.nav_view)
-        navView.setNavigationItemSelectedListener(this)
-
-        floatingMenu = findViewById(R.id.floatingMenuButton)
-        setupFloatingMenu()
-
-        if (savedInstanceState == null) {
-            supportFragmentManager.commit {
-                replace(R.id.contentContainer, currentModeFragment)
-                add(R.id.contentContainer, llmFragment) // Always overlay LLM
-            }
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
+        recyclerView = view.findViewById(R.id.fileRecyclerView)
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        adapter = FileAdapter(emptyList()) { file ->
+            onFileClicked(file)
         }
+        recyclerView.adapter = adapter
+        loadFiles()
+        return view
     }
 
-    private fun setupFloatingMenu() {
-        floatingMenu.setOnTouchListener { v, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    dX = v.x - event.rawX
-                    dY = v.y - event.rawY
-                    isDragging = false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val newX = (event.rawX + dX).coerceIn(0f, drawerLayout.width - v.width.toFloat())
-                    val newY = (event.rawY + dY).coerceIn(0f, drawerLayout.height - v.height.toFloat())
-                    if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) {
-                        isDragging = true
-                    }
-                    v.x = newX
-                    v.y = newY
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        drawerLayout.openDrawer(GravityCompat.START)
-                    }
-                }
-            }
-            true
-        }
+    private fun loadFiles() {
+        // Dummy list for demonstration; replace with actual file loading logic
+        val files = listOf("file1.txt", "file2.txt", "file3.txt")
+        adapter.updateFiles(files)
     }
 
-    private val folderPickerLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-            uri?.let {
-                contentResolver.takePersistableUriPermission(
-                    it,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-                projectLoader.loadProject(it)
-            }
-        }
-
-    fun pickProjectFolder() {
-        folderPickerLauncher.launch(null)
-    }
-
-    override fun onNavigationItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.nav_files -> switchMode(FileBrowserFragment())
-            R.id.nav_editor -> switchMode(EditorFragment())
-            R.id.nav_llm -> Toast.makeText(this, "LLM is always available", Toast.LENGTH_SHORT).show()
-            R.id.nav_load_project -> pickProjectFolder()
-            R.id.nav_reload_model -> Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
-            R.id.nav_clear_console -> Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
-        }
-        drawerLayout.closeDrawer(GravityCompat.START)
-        return true
-    }
-
-    private fun switchMode(fragment: Fragment) {
-        currentModeFragment = fragment
-        supportFragmentManager.commit {
-            replace(R.id.contentContainer, fragment)
-            if (!llmFragment.isAdded) add(R.id.contentContainer, llmFragment)
-        }
-    }
-
-    override fun onBackPressed() {
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
-        } else {
-            super.onBackPressed()
-        }
+    private fun onFileClicked(file: String) {
+        Toast.makeText(requireContext(), "Clicked: $file", Toast.LENGTH_SHORT).show()
+        // Safe call to MainActivity.switchMode
+        (activity as? MainActivity)?.switchMode(EditorFragment())
     }
 }
