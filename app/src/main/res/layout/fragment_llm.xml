@@ -1,50 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:padding="8dp"
+    android:orientation="horizontal"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="?attr/colorSurface">
+    android:layout_height="match_parent">
 
-    <!-- LLM output -->
-    <TextView
-        android:id="@+id/chatOutput"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="?attr/colorSurface"
-        android:textColor="?attr/colorOnSurface"
-        android:textSize="14sp"
-        android:scrollbars="vertical"
-        android:textIsSelectable="true"
-        android:padding="8dp" />
-
-    <!-- Input row -->
+    <!-- Left panel: file browser -->
     <LinearLayout
-        android:orientation="horizontal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingTop="6dp">
+        android:orientation="vertical"
+        android:layout_width="240dp"
+        android:layout_height="match_parent"
+        android:background="?attr/colorSurface"
+        android:padding="4dp">
 
-        <EditText
-            android:id="@+id/inputBox"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Ask LLM about project"
+            android:text="Project Files"
+            android:textStyle="bold"
             android:textColor="?attr/colorOnSurface"
-            android:textColorHint="?attr/colorOnSurface"
-            android:background="?attr/colorSurface"
-            android:padding="10dp"
-            android:inputType="textMultiLine" />
+            android:padding="4dp"/>
 
-        <Button
-            android:id="@+id/sendBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Send"
-            android:layout_marginStart="6dp" />
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/fileRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scrollbars="vertical" />
+    </LinearLayout>
+
+    <!-- Right panel: editor + chat stacked vertically -->
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="match_parent">
+
+        <!-- Editor container -->
+        <FrameLayout
+            android:id="@+id/fragment_container"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="2"
+            android:background="?attr/colorSurface" />
+
+        <!-- Draggable splitter -->
+        <View
+            android:id="@+id/splitter"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:background="?attr/colorPrimary"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <!-- LLM chat panel -->
+        <LinearLayout
+            android:id="@+id/chatPanel"
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="?attr/colorSurface"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/chatOutput"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="?attr/colorSurface"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp"
+                android:scrollbars="vertical"
+                android:textIsSelectable="true"
+                android:padding="8dp" />
+
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp">
+
+                <EditText
+                    android:id="@+id/inputBox"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:hint="Ask LLM about project"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textColorHint="?attr/colorOnSurface"
+                    android:background="?attr/colorSurface"
+                    android:padding="10dp"
+                    android:inputType="textMultiLine" />
+
+                <Button
+                    android:id="@+id/sendBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Send"
+                    android:layout_marginStart="6dp" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>
