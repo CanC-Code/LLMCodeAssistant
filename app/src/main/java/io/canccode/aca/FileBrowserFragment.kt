@@ -1,4 +1,4 @@
-package io.canccode.aca
+package io.canccode.aca.fragments
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -6,51 +6,40 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
-import io.canccode.aca.databinding.FragmentFileBrowserBinding
+import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.R
+import io.canccode.aca.adapters.FileListAdapter
 
 class FileBrowserFragment : Fragment() {
 
-    private var _binding: FragmentFileBrowserBinding? = null
-    private val binding get() = _binding!!
-
+    private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: FileListAdapter
-    private val fileList = mutableListOf<String>() // Example: file names
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
+        inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentFileBrowserBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+    ): View? {
+        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
+        recyclerView = view.findViewById(R.id.recyclerViewFiles)
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        adapter = FileListAdapter(fileList) { fileName ->
-            // Handle file click: open editor fragment
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.fragment_container, EditorFragment.newInstance(fileName))
-                .addToBackStack(null)
-                .commit()
+        adapter = FileListAdapter(getCurrentFileList()) { fileName ->
+            openFile(fileName)
         }
+        recyclerView.adapter = adapter
 
-        binding.recyclerViewFiles.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerViewFiles.adapter = adapter
-
-        loadFiles()
+        return view
     }
 
-    private fun loadFiles() {
-        // Populate fileList with actual files
-        fileList.clear()
-        fileList.addAll(listOf("File1.txt", "File2.txt", "Example.kt")) // Placeholder
-        adapter.notifyDataSetChanged()
+    private fun openFile(fileName: String) {
+        val fragment = EditorFragment.newInstance(fileName)
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.contentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    private fun getCurrentFileList(): List<String> {
+        return listOf("Example1.txt", "Example2.txt", "Example3.txt")
     }
 }
