@@ -2,7 +2,6 @@ package io.canccode.aca
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
 import io.canccode.aca.fragments.FileBrowserFragment
 
 class MainActivity : AppCompatActivity() {
@@ -13,9 +12,9 @@ class MainActivity : AppCompatActivity() {
 
         // Load initial fragment
         if (savedInstanceState == null) {
-            supportFragmentManager.commit {
-                replace(R.id.fragment_container, FileBrowserFragment())
-            }
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.contentContainer, FileBrowserFragment())
+                .commit()
         }
     }
 }
