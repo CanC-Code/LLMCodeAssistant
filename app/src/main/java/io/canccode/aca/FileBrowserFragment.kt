@@ -21,16 +21,13 @@ class FileBrowserFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-
         fileListRecycler = view.findViewById(R.id.file_list_recycler)
         fileListRecycler.layoutManager = LinearLayoutManager(requireContext())
 
-        // Example: list files in the app's files directory
         val directory = requireContext().filesDir
         files = directory.listFiles()?.toList() ?: emptyList()
 
         fileListRecycler.adapter = FileListAdapter(files) { file ->
-            // On file click, open EditorFragment
             val editorFragment = EditorFragment()
             val bundle = Bundle()
             bundle.putString("filePath", file.absolutePath)
