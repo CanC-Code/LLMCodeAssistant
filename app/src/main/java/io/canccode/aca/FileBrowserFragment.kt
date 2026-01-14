@@ -4,30 +4,40 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import io.canccode.aca.R
+import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private lateinit var fragmentContainer: FrameLayout
+    private lateinit var fileListRecycler: RecyclerView
+    private lateinit var files: List<File>
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the fragment layout
         val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
 
-        // Get the container for fragment replacement
-        fragmentContainer = activity?.findViewById(R.id.fragment_container)!!
+        fileListRecycler = view.findViewById(R.id.file_list_recycler)
+        fileListRecycler.layoutManager = LinearLayoutManager(requireContext())
 
-        // Make the file item clickable — use the correct ID from item_file.xml
-        view.findViewById<View>(R.id.item_file_root)?.setOnClickListener {
-            // Replace this fragment with EditorFragment on click
+        // Example: list files in the app's files directory
+        val directory = requireContext().filesDir
+        files = directory.listFiles()?.toList() ?: emptyList()
+
+        fileListRecycler.adapter = FileListAdapter(files) { file ->
+            // On file click, open EditorFragment
+            val editorFragment = EditorFragment()
+            val bundle = Bundle()
+            bundle.putString("filePath", file.absolutePath)
+            editorFragment.arguments = bundle
+
             parentFragmentManager.beginTransaction()
-                .replace(R.id.fragment_container, EditorFragment())
+                .replace(R.id.fragment_container, editorFragment)
                 .addToBackStack(null)
                 .commit()
         }
