@@ -1,40 +1,26 @@
-// File: app/src/main/java/io/canccode/aca/LLMHandler.kt
 package io.canccode.aca
 
 import android.content.Context
 import com.llmassistant.llm.LLMHandler as JavaLLMHandler
+import java.io.File
+import android.util.Log
 
-/**
- * Kotlin wrapper for the Java LLMHandler (JNI) class.
- * Provides a clean interface for the Kotlin codebase.
- */
 class LLMHandler(context: Context) {
 
-    private val javaHandler = JavaLLMHandler()
+    private val javaHandler = JavaLLMHandler() // wraps JNI
 
-    /**
-     * Initialize the LLM model
-     * @param modelPath Absolute path to model file
-     * @param threads Number of threads
-     * @return true if successful
-     */
-    fun init(modelPath: String, threads: Int): Boolean {
-        return javaHandler.init(modelPath, threads)
+    fun initialize(model: File): Boolean {
+        if (!model.exists()) {
+            Log.e("LLMHandler", "Model not found: ${model.absolutePath}")
+            return false
+        }
+        return javaHandler.init(model.absolutePath, 4) // 4 threads, for example
     }
 
-    /**
-     * Run inference on a prompt
-     * @param prompt Input string
-     * @param maxTokens Maximum tokens to generate
-     * @return Generated string
-     */
-    fun infer(prompt: String, maxTokens: Int): String {
+    fun infer(prompt: String, maxTokens: Int = 256): String {
         return javaHandler.infer(prompt, maxTokens)
     }
 
-    /**
-     * Close the model and free resources
-     */
     fun close() {
         javaHandler.close()
     }
