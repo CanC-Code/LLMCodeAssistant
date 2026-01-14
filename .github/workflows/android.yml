@@ -119,20 +119,20 @@ jobs:
           ICON_DIR=app/src/main/res/drawable
           mkdir -p $ICON_DIR
 
-          # File icon (simple document-style)
+          # File icon
           convert -size 48x48 xc:none \
             -fill "#616161" -stroke black -strokewidth 2 \
             -draw "rectangle 8,8 40,40" \
             -draw "line 8,8 32,8 line 32,8 32,32" \
-            "$ICON_DIR/fileIcon.png"
+            "$ICON_DIR/file_icon.png"
 
-          # Arrow forward (triangle pointing right)
+          # Arrow forward
           convert -size 48x48 xc:none \
             -fill "#000000" \
             -draw "polygon 16,12 36,24 16,36" \
             "$ICON_DIR/arrow_forward.png"
 
-          # Arrow down (triangle pointing down, optional if needed)
+          # Arrow down (optional)
           convert -size 48x48 xc:none \
             -fill "#000000" \
             -draw "polygon 12,16 24,36 36,16" \
