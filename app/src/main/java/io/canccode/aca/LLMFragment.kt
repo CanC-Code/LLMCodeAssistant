@@ -1,53 +1,56 @@
 package io.canccode.aca
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.adapters.FileListAdapter
 
+/**
+ * Fragment to display project files for LLM integration
+ */
 class LLMFragment : Fragment() {
 
-    private lateinit var inputBox: EditText
-    private lateinit var chatOutput: TextView
-    private lateinit var sendBtn: Button
+    private lateinit var fileRecyclerView: RecyclerView
+    private lateinit var fileAdapter: FileListAdapter
     private lateinit var projectLoader: ProjectLoader
 
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        // Instantiate ProjectLoader here with context
+        projectLoader = ProjectLoader(context)
+    }
+
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View {
-        val root = inflater.inflate(R.layout.fragment_llm, container, false)
-        inputBox = root.findViewById(R.id.inputBox)
-        chatOutput = root.findViewById(R.id.chatOutput)
-        sendBtn = root.findViewById(R.id.sendBtn)
-        return root
-    }
+    ): View? {
+        val view = inflater.inflate(R.layout.fragment_llm, container, false)
 
-    override fun onResume() {
-        super.onResume()
-        projectLoader = (activity as MainActivity).projectLoader
+        fileRecyclerView = view.findViewById(R.id.fileRecyclerView)
+        fileRecyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        sendBtn.setOnClickListener {
-            val prompt = inputBox.text.toString()
-            val response = answerPrompt(prompt)
-            chatOutput.append("\n> $prompt\n$response\n")
-            inputBox.setText("")
+        // Use legacy API to populate file list
+        val fileList = projectLoader.getAllFiles().keys.toList()
+
+        fileAdapter = FileListAdapter(fileList) { fileName ->
+            openFile(fileName)
         }
+        fileRecyclerView.adapter = fileAdapter
+
+        return view
     }
 
-    private fun answerPrompt(prompt: String): String {
-        val files = projectLoader.getAllFiles()
-        return when {
-            prompt.contains("list files", true) -> files.keys.joinToString("\n")
-            prompt.contains("show file", true) -> {
-                val name = prompt.substringAfterLast(" ").trim()
-                files.entries.firstOrNull { it.key.contains(name) }?.value ?: "File not found."
-            }
-            else -> "LLM would respond here with context from loaded project."
+    private fun openFile(fileName: String) {
+        val fragment = EditorFragment.newInstance(fileName)
+        parentFragmentManager.commit {
+            replace(R.id.fragment_container, fragment)
+            addToBackStack(null)
         }
     }
 }
