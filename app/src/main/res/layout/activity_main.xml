@@ -8,10 +8,16 @@
 
     <!-- Main content container -->
     <FrameLayout
-        android:id="@+id/fragment_container"
+        android:id="@+id/main_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/colorBackground">
+
+        <!-- Mode fragments go here -->
+        <FrameLayout
+            android:id="@+id/fragment_container"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
 
         <!-- Floating menu button -->
         <ImageView
@@ -24,8 +30,15 @@
             android:contentDescription="Menu"
             android:clickable="true"
             android:focusable="true"
-            android:layout_gravity="top|start"
             android:elevation="8dp"/>
+
+        <!-- LLM bottom panel -->
+        <FrameLayout
+            android:id="@+id/llm_container"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_gravity="bottom" />
+
     </FrameLayout>
 
     <!-- Navigation drawer -->
@@ -36,4 +49,5 @@
         android:layout_gravity="start"
         android:fitsSystemWindows="true"
         app:menu="@menu/drawer_menu"/>
+
 </androidx.drawerlayout.widget.DrawerLayout>
