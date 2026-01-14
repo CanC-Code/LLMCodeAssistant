@@ -15,7 +15,7 @@ class LLMFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Use the correct LLMHandler class
+        // Instantiate the Kotlin LLMHandler (ensure correct import)
         llmHandler = LLMHandler(requireContext())
     }
 
@@ -24,6 +24,7 @@ class LLMFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
+        // Inflate the LLM fragment layout
         return inflater.inflate(R.layout.fragment_llm, container, false)
     }
 }
