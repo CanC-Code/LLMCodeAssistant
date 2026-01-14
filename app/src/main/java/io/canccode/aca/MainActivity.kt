@@ -49,8 +49,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         if (savedInstanceState == null) {
             supportFragmentManager.commit {
+                // Add main mode fragment
                 replace(R.id.fragment_container, currentModeFragment)
-                add(R.id.fragment_container, llmFragment)
+                // Add LLM fragment to its own container
+                add(R.id.llm_container, llmFragment)
             }
         }
     }
@@ -114,7 +116,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         currentModeFragment = fragment
         supportFragmentManager.commit {
             replace(R.id.fragment_container, fragment)
-            if (!llmFragment.isAdded) add(R.id.fragment_container, llmFragment)
+            // no longer touching llmFragment
         }
     }
 
