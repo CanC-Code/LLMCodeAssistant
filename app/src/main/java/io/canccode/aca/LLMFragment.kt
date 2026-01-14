@@ -5,7 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import io.canccode.aca.llm.LLMHandler
+import com.llmassistant.llm.LLMHandler
 import io.canccode.aca.R
 
 class LLMFragment : Fragment() {
