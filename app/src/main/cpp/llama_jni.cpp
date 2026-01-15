@@ -1,7 +1,6 @@
 // File: llama_jni.cpp
-// Purpose: JNI bridge for llama.cpp (current API)
-// Target: Android (NDK r25+, arm64-v8a)
-// Status: Production-ready basic inference
+// Purpose: JNI bridge for llama.cpp (real inference)
+// Target: Android NDK r25+, arm64-v8a
 
 #include <jni.h>
 #include <string>
@@ -45,20 +44,19 @@ static void release_all() {
 }
 
 // -----------------------------------------------------------------------------
-// JNI: Load model
+// JNI
 // -----------------------------------------------------------------------------
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeLoadModel(
+Java_io_canccode_aca_LlamaJNI_loadModel(
         JNIEnv * env,
-        jobject /* this */,
+        jobject,
         jstring modelPath,
         jint nCtx,
         jint nThreads
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     release_all();
 
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
@@ -89,51 +87,30 @@ Java_com_llmassistant_llm_LLMHandler_nativeLoadModel(
 
     g_vocab = llama_model_get_vocab(g_model);
 
-    LOGI("Model loaded successfully");
+    LOGI("Model loaded (ctx=%d threads=%d)", nCtx, nThreads);
     return JNI_TRUE;
 }
 
-// -----------------------------------------------------------------------------
-// JNI: Unload model
-// -----------------------------------------------------------------------------
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeUnloadModel(
-        JNIEnv * /* env */,
-        jobject /* this */
-) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    release_all();
-    llama_backend_free();
-}
-
-// -----------------------------------------------------------------------------
-// JNI: Generate text
-// -----------------------------------------------------------------------------
-
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeGenerateText(
+Java_io_canccode_aca_LlamaJNI_generateText(
         JNIEnv * env,
-        jobject /* this */,
-        jstring prompt,
-        jint maxTokens
+        jobject,
+        jstring prompt
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
 
     if (!g_ctx || !g_vocab) {
-        return env->NewStringUTF("Model not loaded");
+        LOGE("Model not initialized");
+        return env->NewStringUTF("");
     }
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const int prompt_len = (int) strlen(c_prompt);
 
-    // Tokenize prompt
-    std::vector<llama_token> tokens;
-    tokens.resize(prompt_len + 4);
-
-    int n_tokens = llama_tokenize(
+    // Tokenize
+    std::vector<llama_token> tokens(prompt_len + 8);
+    int n_prompt_tokens = llama_tokenize(
             g_vocab,
             c_prompt,
             prompt_len,
@@ -145,69 +122,93 @@ Java_com_llmassistant_llm_LLMHandler_nativeGenerateText(
 
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    if (n_tokens <= 0) {
-        return env->NewStringUTF("Tokenization failed");
+    if (n_prompt_tokens <= 0) {
+        LOGE("Tokenization failed");
+        return env->NewStringUTF("");
     }
 
-    tokens.resize(n_tokens);
+    tokens.resize(n_prompt_tokens);
 
-    // Feed prompt
+    // Evaluate prompt
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    for (int i = 0; i < n_tokens; i++) {
-        batch.token[i] = tokens[i];
-        batch.pos[i]   = i;
-        batch.seq_id[i][0] = 0;
+    for (size_t i = 0; i < tokens.size(); i++) {
+        batch.token[i]     = tokens[i];
+        batch.pos[i]       = i;
         batch.n_seq_id[i]  = 1;
-        batch.logits[i] = false;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i]    = false;
     }
-    batch.logits[n_tokens - 1] = true;
+    batch.logits[tokens.size() - 1] = true;
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
-        return env->NewStringUTF("Prompt decode failed");
+        LOGE("Prompt decode failed");
+        return env->NewStringUTF("");
     }
 
     llama_batch_free(batch);
 
+    // Generate tokens
     std::string output;
+    const int max_tokens = 128;
 
-    // Generation loop
-    for (int i = 0; i < maxTokens; i++) {
+    for (int i = 0; i < max_tokens; i++) {
         const float * logits = llama_get_logits(g_ctx);
-        llama_token token = llama_sample_token_greedy(g_ctx, logits);
+        int vocab_size = llama_vocab_n_tokens(g_vocab);
 
-        if (llama_vocab_is_eog(g_vocab, token)) {
+        // Greedy sampling
+        int best_token = 0;
+        float best_logit = logits[0];
+        for (int t = 1; t < vocab_size; t++) {
+            if (logits[t] > best_logit) {
+                best_logit = logits[t];
+                best_token = t;
+            }
+        }
+
+        if (llama_vocab_is_eog(g_vocab, best_token)) {
             break;
         }
 
-        char buf[256];
+        char piece[256];
         int len = llama_token_to_piece(
                 g_vocab,
-                token,
-                buf,
-                sizeof(buf),
+                best_token,
+                piece,
+                sizeof(piece),
                 0,
                 false
         );
 
         if (len > 0) {
-            output.append(buf, len);
+            output.append(piece, len);
         }
 
-        llama_batch gen = llama_batch_init(1, 0, 1);
-        gen.token[0] = token;
-        gen.pos[0]   = llama_get_kv_cache_used_cells(g_ctx);
-        gen.seq_id[0][0] = 0;
-        gen.n_seq_id[0]  = 1;
-        gen.logits[0] = true;
+        llama_batch next = llama_batch_init(1, 0, 1);
+        next.token[0]     = best_token;
+        next.pos[0]       = tokens.size() + i;
+        next.n_seq_id[0]  = 1;
+        next.seq_id[0][0] = 0;
+        next.logits[0]    = true;
 
-        if (llama_decode(g_ctx, gen) != 0) {
-            llama_batch_free(gen);
+        if (llama_decode(g_ctx, next) != 0) {
+            llama_batch_free(next);
             break;
         }
 
-        llama_batch_free(gen);
+        llama_batch_free(next);
     }
 
     return env->NewStringUTF(output.c_str());
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaJNI_freeModel(
+        JNIEnv *,
+        jobject
+) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    release_all();
+    llama_backend_free();
 }
