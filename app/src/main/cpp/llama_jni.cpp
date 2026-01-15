@@ -1,7 +1,7 @@
 // File: llama_jni.cpp
 // Purpose: JNI bridge for llama.cpp (current API)
 // Target: Android (NDK r25+, arm64-v8a)
-// Status: Clean build with latest llama.cpp
+// Status: Production-ready basic inference
 
 #include <jni.h>
 #include <string>
@@ -45,7 +45,7 @@ static void release_all() {
 }
 
 // -----------------------------------------------------------------------------
-// JNI
+// JNI: Load model
 // -----------------------------------------------------------------------------
 
 extern "C"
@@ -93,6 +93,10 @@ Java_com_llmassistant_llm_LLMHandler_nativeLoadModel(
     return JNI_TRUE;
 }
 
+// -----------------------------------------------------------------------------
+// JNI: Unload model
+// -----------------------------------------------------------------------------
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_llmassistant_llm_LLMHandler_nativeUnloadModel(
@@ -104,104 +108,106 @@ Java_com_llmassistant_llm_LLMHandler_nativeUnloadModel(
     llama_backend_free();
 }
 
-extern "C"
-JNIEXPORT jintArray JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeTokenize(
-        JNIEnv * env,
-        jobject /* this */,
-        jstring text,
-        jboolean addBos
-) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-
-    if (!g_vocab) {
-        return nullptr;
-    }
-
-    const char * c_text = env->GetStringUTFChars(text, nullptr);
-    const int text_len = (int) std::strlen(c_text);
-
-    int32_t n_tokens = llama_tokenize(
-            g_vocab,
-            c_text,
-            text_len,
-            nullptr,
-            0,
-            addBos,
-            false
-    );
-
-    if (n_tokens <= 0) {
-        env->ReleaseStringUTFChars(text, c_text);
-        return nullptr;
-    }
-
-    std::vector<llama_token> tokens(n_tokens);
-
-    llama_tokenize(
-            g_vocab,
-            c_text,
-            text_len,
-            tokens.data(),
-            n_tokens,
-            addBos,
-            false
-    );
-
-    env->ReleaseStringUTFChars(text, c_text);
-
-    jintArray out = env->NewIntArray(n_tokens);
-    env->SetIntArrayRegion(out, 0, n_tokens,
-                           reinterpret_cast<const jint *>(tokens.data()));
-
-    return out;
-}
+// -----------------------------------------------------------------------------
+// JNI: Generate text
+// -----------------------------------------------------------------------------
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeTokenToString(
+Java_com_llmassistant_llm_LLMHandler_nativeGenerateText(
         JNIEnv * env,
         jobject /* this */,
-        jint token
+        jstring prompt,
+        jint maxTokens
 ) {
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (!g_vocab) {
-        return env->NewStringUTF("");
+    if (!g_ctx || !g_vocab) {
+        return env->NewStringUTF("Model not loaded");
     }
 
-    char buf[256];
+    const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
+    const int prompt_len = (int) strlen(c_prompt);
 
-    int32_t len = llama_token_to_piece(
+    // Tokenize prompt
+    std::vector<llama_token> tokens;
+    tokens.resize(prompt_len + 4);
+
+    int n_tokens = llama_tokenize(
             g_vocab,
-            (llama_token) token,
-            buf,
-            sizeof(buf),
-            0,
+            c_prompt,
+            prompt_len,
+            tokens.data(),
+            tokens.size(),
+            true,
             false
     );
 
-    if (len <= 0) {
-        return env->NewStringUTF("");
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+
+    if (n_tokens <= 0) {
+        return env->NewStringUTF("Tokenization failed");
     }
 
-    return env->NewStringUTF(buf);
-}
+    tokens.resize(n_tokens);
 
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_com_llmassistant_llm_LLMHandler_nativeIsEos(
-        JNIEnv * /* env */,
-        jobject /* this */,
-        jint token
-) {
-    std::lock_guard<std::mutex> lock(g_mutex);
+    // Feed prompt
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i]   = i;
+        batch.seq_id[i][0] = 0;
+        batch.n_seq_id[i]  = 1;
+        batch.logits[i] = false;
+    }
+    batch.logits[n_tokens - 1] = true;
 
-    if (!g_vocab) {
-        return JNI_FALSE;
+    if (llama_decode(g_ctx, batch) != 0) {
+        llama_batch_free(batch);
+        return env->NewStringUTF("Prompt decode failed");
     }
 
-    return llama_vocab_is_eog(g_vocab, (llama_token) token)
-            ? JNI_TRUE
-            : JNI_FALSE;
+    llama_batch_free(batch);
+
+    std::string output;
+
+    // Generation loop
+    for (int i = 0; i < maxTokens; i++) {
+        const float * logits = llama_get_logits(g_ctx);
+        llama_token token = llama_sample_token_greedy(g_ctx, logits);
+
+        if (llama_vocab_is_eog(g_vocab, token)) {
+            break;
+        }
+
+        char buf[256];
+        int len = llama_token_to_piece(
+                g_vocab,
+                token,
+                buf,
+                sizeof(buf),
+                0,
+                false
+        );
+
+        if (len > 0) {
+            output.append(buf, len);
+        }
+
+        llama_batch gen = llama_batch_init(1, 0, 1);
+        gen.token[0] = token;
+        gen.pos[0]   = llama_get_kv_cache_used_cells(g_ctx);
+        gen.seq_id[0][0] = 0;
+        gen.n_seq_id[0]  = 1;
+        gen.logits[0] = true;
+
+        if (llama_decode(g_ctx, gen) != 0) {
+            llama_batch_free(gen);
+            break;
+        }
+
+        llama_batch_free(gen);
+    }
+
+    return env->NewStringUTF(output.c_str());
 }
