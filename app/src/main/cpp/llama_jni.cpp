@@ -44,7 +44,7 @@ static void release_all() {
 }
 
 // -----------------------------------------------------------------------------
-// JNI
+// JNI Functions
 // -----------------------------------------------------------------------------
 
 extern "C"
@@ -60,12 +60,12 @@ Java_io_canccode_aca_LlamaJNI_loadModel(
     release_all();
 
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
+    LOGI("Loading model from path: %s", path);
 
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
-
     env->ReleaseStringUTFChars(modelPath, path);
 
     if (!g_model) {
@@ -106,57 +106,31 @@ Java_io_canccode_aca_LlamaJNI_generateText(
     }
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
-    const int prompt_len = (int) strlen(c_prompt);
-
-    // Tokenize
-    std::vector<llama_token> tokens(prompt_len + 8);
-    int n_prompt_tokens = llama_tokenize(
-            g_vocab,
-            c_prompt,
-            prompt_len,
-            tokens.data(),
-            tokens.size(),
-            true,
-            false
-    );
-
-    env->ReleaseStringUTFChars(prompt, c_prompt);
-
+    int n_prompt_tokens = llama_tokenize(g_vocab, c_prompt, strlen(c_prompt), nullptr, 0, true, false);
     if (n_prompt_tokens <= 0) {
+        env->ReleaseStringUTFChars(prompt, c_prompt);
         LOGE("Tokenization failed");
         return env->NewStringUTF("");
     }
 
-    tokens.resize(n_prompt_tokens);
+    std::vector<llama_token> tokens(n_prompt_tokens);
+    llama_tokenize(g_vocab, c_prompt, strlen(c_prompt), tokens.data(), n_prompt_tokens, true, false);
+    env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    // Evaluate prompt
-    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    for (size_t i = 0; i < tokens.size(); i++) {
-        batch.token[i]     = tokens[i];
-        batch.pos[i]       = i;
-        batch.n_seq_id[i]  = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i]    = false;
-    }
-    batch.logits[tokens.size() - 1] = true;
-
-    if (llama_decode(g_ctx, batch) != 0) {
-        llama_batch_free(batch);
-        LOGE("Prompt decode failed");
+    // Evaluate prompt tokens
+    if (llama_eval(g_ctx, tokens.data(), n_prompt_tokens, 0, 1) != 0) {
+        LOGE("Failed to evaluate prompt");
         return env->NewStringUTF("");
     }
 
-    llama_batch_free(batch);
-
     // Generate tokens
-    std::string output;
     const int max_tokens = 128;
+    std::string output;
 
     for (int i = 0; i < max_tokens; i++) {
         const float * logits = llama_get_logits(g_ctx);
         int vocab_size = llama_vocab_n_tokens(g_vocab);
 
-        // Greedy sampling
         int best_token = 0;
         float best_logit = logits[0];
         for (int t = 1; t < vocab_size; t++) {
@@ -166,37 +140,14 @@ Java_io_canccode_aca_LlamaJNI_generateText(
             }
         }
 
-        if (llama_vocab_is_eog(g_vocab, best_token)) {
-            break;
-        }
+        if (llama_vocab_is_eog(g_vocab, best_token)) break;
 
         char piece[256];
-        int len = llama_token_to_piece(
-                g_vocab,
-                best_token,
-                piece,
-                sizeof(piece),
-                0,
-                false
-        );
+        int len = llama_token_to_piece(g_vocab, best_token, piece, sizeof(piece), 0, false);
+        if (len > 0) output.append(piece, len);
 
-        if (len > 0) {
-            output.append(piece, len);
-        }
-
-        llama_batch next = llama_batch_init(1, 0, 1);
-        next.token[0]     = best_token;
-        next.pos[0]       = tokens.size() + i;
-        next.n_seq_id[0]  = 1;
-        next.seq_id[0][0] = 0;
-        next.logits[0]    = true;
-
-        if (llama_decode(g_ctx, next) != 0) {
-            llama_batch_free(next);
-            break;
-        }
-
-        llama_batch_free(next);
+        // Evaluate new token
+        if (llama_eval(g_ctx, &best_token, 1, n_prompt_tokens + i, 1) != 0) break;
     }
 
     return env->NewStringUTF(output.c_str());
