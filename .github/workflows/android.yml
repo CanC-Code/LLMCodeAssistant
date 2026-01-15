@@ -1,5 +1,5 @@
 # File: .github/workflows/android.yml
-# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp)
+# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp + LLaMA-2 model)
 name: Android Build
 
 on:
@@ -49,14 +49,8 @@ jobs:
           CMAKE_VERSION=3.24.1
           CMAKE_DIR=$HOME/cmake-$CMAKE_VERSION
           mkdir -p $CMAKE_DIR
-          
-          # Download official prebuilt Linux CMake
           curl -L -o /tmp/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-linux-x86_64.tar.gz
-          
-          # Extract
           tar -xzf /tmp/cmake.tar.gz --strip-components=1 -C $CMAKE_DIR
-          
-          # Add to PATH
           echo "$CMAKE_DIR/bin" >> $GITHUB_PATH
 
       - name: Verify CMake version
@@ -75,7 +69,6 @@ jobs:
           BASE_ICON=/tmp/ic_launcher_base.png
           ROUND_ICON=/tmp/ic_launcher_round.png
 
-          # Base square icon
           convert -size 1024x1024 xc:"#1e1e1e" \
             -gravity center \
             -fill white \
@@ -84,13 +77,11 @@ jobs:
             -annotate +0+0 "LLM" \
             "$BASE_ICON"
 
-          # Round icon (circular mask)
           convert "$BASE_ICON" \
             \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
             -compose copyopacity -composite \
             "$ROUND_ICON"
 
-          # Ensure mipmap directories exist
           mkdir -p \
             $ICON_DIR/mipmap-mdpi \
             $ICON_DIR/mipmap-hdpi \
@@ -98,46 +89,39 @@ jobs:
             $ICON_DIR/mipmap-xxhdpi \
             $ICON_DIR/mipmap-xxxhdpi
 
-          # Square launcher icons
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
 
-          # Round launcher icons
           convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
 
-
-# ---------- Generate File/Arrow Icons ----------
+      # ---------- Generate File/Arrow Icons ----------
       - name: Generate FileTree icons
         run: |
           ICON_DIR=app/src/main/res/drawable
           mkdir -p $ICON_DIR
 
-          # File icon
           convert -size 48x48 xc:none \
             -fill "#616161" -stroke black -strokewidth 2 \
             -draw "rectangle 8,8 40,40" \
             -draw "line 8,8 32,8 line 32,8 32,32" \
             "$ICON_DIR/file_icon.png"
 
-          # Arrow forward
           convert -size 48x48 xc:none \
             -fill "#000000" \
             -draw "polygon 16,12 36,24 16,36" \
             "$ICON_DIR/arrow_forward.png"
 
-          # Arrow down (optional)
           convert -size 48x48 xc:none \
             -fill "#000000" \
             -draw "polygon 12,16 24,36 36,16" \
             "$ICON_DIR/arrow_down.png"
-
 
       # ---------- Gradle cache ----------
       - name: Cache Gradle
@@ -154,7 +138,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Confirm external/llama.cpp exists ----------
+      # ---------- Verify llama.cpp ----------
       - name: Verify llama.cpp headers
         run: |
           if [ ! -f external/llama.cpp/include/llama.h ]; then
@@ -162,6 +146,30 @@ jobs:
             exit 1
           fi
           ls -R external/llama.cpp/include
+
+      # ---------- Download LLaMA-2 model ----------
+      - name: Download LLaMA-2 3B model
+        id: download_model
+        run: |
+          MODEL_DIR=app/src/main/assets/models
+          mkdir -p $MODEL_DIR
+
+          MODEL_URL=https://huggingface.co/meta-llama/Llama-2-3b-ggml/raw/main/ggml-model-q4_0.bin
+          MODEL_FILE=$MODEL_DIR/ggml-llama-2-3b-q4_0.bin
+
+          if [ ! -f "$MODEL_FILE" ]; then
+            echo "Downloading LLaMA-2 3B ggml model..."
+            curl -L -o "$MODEL_FILE" "$MODEL_URL"
+          else
+            echo "Model already exists, skipping download"
+          fi
+
+      # ---------- Cache LLaMA-2 model ----------
+      - name: Cache LLaMA-2 model
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models
+          key: llama-2-3b-${{ runner.os }}
 
       # ---------- Build ----------
       - name: Build Debug APK
