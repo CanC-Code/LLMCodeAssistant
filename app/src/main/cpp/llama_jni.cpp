@@ -38,7 +38,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
-    g_model = llama_load_model_from_file(path, mparams);
+    g_model = llama_model_load_from_file(path, mparams);
 
     env->ReleaseStringUTFChars(modelPath, path);
 
@@ -52,10 +52,10 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     cparams.n_threads = 0; // auto
     cparams.n_threads_batch = 0;
 
-    g_ctx = llama_new_context_with_model(g_model, cparams);
+    g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
         LOGE("Failed to create context");
-        llama_free_model(g_model);
+        llama_model_free(g_model);
         g_model = nullptr;
         return JNI_FALSE;
     }
@@ -92,11 +92,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
 
+    // Get vocab from model
+    const llama_vocab * vocab = llama_model_get_vocab(g_model);
+
     std::vector<llama_token> tokens;
     tokens.resize(strlen(c_prompt) + 8);
 
     int n = llama_tokenize(
-        g_model,
+        vocab,
         c_prompt,
         (int) strlen(c_prompt),
         tokens.data(),
@@ -132,7 +135,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             -1
         );
 
-        if (token == llama_token_eos(g_model)) {
+        if (token == llama_vocab_eos(vocab)) {
             break;
         }
 
@@ -150,7 +153,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
         char buf[8];
         int len = llama_token_to_piece(
-            g_model,
+            vocab,
             token,
             buf,
             sizeof(buf),
@@ -185,7 +188,7 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(
     }
 
     if (g_model) {
-        llama_free_model(g_model);
+        llama_model_free(g_model);
         g_model = nullptr;
     }
 
