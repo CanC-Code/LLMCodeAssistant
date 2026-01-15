@@ -18,7 +18,9 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
@@ -58,7 +60,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         fragmentContainer = findViewById(R.id.fragment_container)
         floatingMenuButton = findViewById(R.id.floatingMenuButton)
 
-        // Optional progress bar (ensure it's in layout)
         llmProgressBar = findViewById<ProgressBar?>(R.id.llm_progress_bar)
 
         setupFloatingMenu()
@@ -70,35 +71,40 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
         }
 
-        // ---------- LLM initialization on first launch ----------
+        // ---------- LLM initialization on launch ----------
         lifecycleScope.launch {
             try {
                 llmProgressBar?.visibility = ProgressBar.VISIBLE
-                Log.i(TAG, "Initializing LLM...")
                 val ok = llmHandler.initialize { progress ->
                     runOnUiThread {
                         llmProgressBar?.progress = progress
                     }
                 }
 
-                if (ok) {
-                    Log.i(TAG, "LLM ready")
-                    runOnUiThread {
+                runOnUiThread {
+                    if (ok) {
+                        Log.i(TAG, "LLM ready")
                         Toast.makeText(this@MainActivity, "LLM ready", Toast.LENGTH_SHORT).show()
-                        llmProgressBar?.visibility = ProgressBar.GONE
-                    }
-                } else {
-                    Log.e(TAG, "LLM failed to initialize")
-                    runOnUiThread {
+                    } else {
+                        Log.e(TAG, "LLM failed to initialize")
                         Toast.makeText(
                             this@MainActivity,
                             "Failed to initialize LLM",
                             Toast.LENGTH_LONG
                         ).show()
                     }
+                    llmProgressBar?.visibility = ProgressBar.GONE
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing LLM", e)
+                runOnUiThread {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Error initializing LLM: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    llmProgressBar?.visibility = ProgressBar.GONE
+                }
             }
         }
     }
@@ -112,20 +118,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     isDragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val newX = (event.rawX + dX)
-                        .coerceIn(0f, drawerLayout.width - v.width.toFloat())
-                    val newY = (event.rawY + dY)
-                        .coerceIn(0f, drawerLayout.height - v.height.toFloat())
-                    if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) {
-                        isDragging = true
-                    }
+                    val newX = (event.rawX + dX).coerceIn(0f, drawerLayout.width - v.width.toFloat())
+                    val newY = (event.rawY + dY).coerceIn(0f, drawerLayout.height - v.height.toFloat())
+                    if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) isDragging = true
                     v.x = newX
                     v.y = newY
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!isDragging) {
-                        drawerLayout.openDrawer(GravityCompat.START)
-                    }
+                    if (!isDragging) drawerLayout.openDrawer(GravityCompat.START)
                 }
             }
             true
@@ -157,11 +157,22 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             R.id.nav_reload_model -> {
                 Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
                 lifecycleScope.launch {
-                    llmHandler.close()
-                    llmHandler.initialize { progress ->
-                        runOnUiThread {
-                            llmProgressBar?.progress = progress
+                    try {
+                        llmProgressBar?.visibility = ProgressBar.VISIBLE
+                        llmHandler.close()
+                        llmHandler.initialize { progress ->
+                            runOnUiThread {
+                                llmProgressBar?.progress = progress
+                            }
                         }
+                        runOnUiThread { Toast.makeText(this@MainActivity, "Model reloaded", Toast.LENGTH_SHORT).show() }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to reload model", e)
+                        runOnUiThread {
+                            Toast.makeText(this@MainActivity, "Failed to reload model", Toast.LENGTH_LONG).show()
+                        }
+                    } finally {
+                        runOnUiThread { llmProgressBar?.visibility = ProgressBar.GONE }
                     }
                 }
             }
