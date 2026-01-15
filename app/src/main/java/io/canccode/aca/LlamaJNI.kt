@@ -7,7 +7,7 @@ object LlamaJNI {
     }
 
     external fun loadModel(
-        modelPath: String,
+        path: String,
         nCtx: Int,
         nThreads: Int
     ): Boolean
@@ -15,15 +15,4 @@ object LlamaJNI {
     external fun generateText(prompt: String): String
 
     external fun freeModel()
-
-    // ------------------------------------------------------------
-    // Convenience wrapper (DEFAULTS)
-    // ------------------------------------------------------------
-    fun loadModelDefault(path: String): Boolean {
-        val threads = Runtime.getRuntime()
-            .availableProcessors()
-            .coerceAtLeast(2)
-
-        return loadModel(path, 2048, threads)
-    }
 }
