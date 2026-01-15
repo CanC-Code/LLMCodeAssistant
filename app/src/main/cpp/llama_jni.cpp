@@ -20,7 +20,6 @@ extern "C" {
 // -----------------------------------------------------------------------------
 // Global state
 // -----------------------------------------------------------------------------
-
 static std::mutex g_mutex;
 
 static llama_model   * g_model = nullptr;
@@ -30,7 +29,6 @@ static const llama_vocab * g_vocab = nullptr;
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
-
 static void release_all() {
     if (g_ctx) {
         llama_free(g_ctx);
@@ -46,7 +44,6 @@ static void release_all() {
 // -----------------------------------------------------------------------------
 // JNI Functions
 // -----------------------------------------------------------------------------
-
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaJNI_loadModel(
@@ -131,6 +128,7 @@ Java_io_canccode_aca_LlamaJNI_generateText(
         const float * logits = llama_get_logits(g_ctx);
         int vocab_size = llama_vocab_n_tokens(g_vocab);
 
+        // Greedy sampling
         int best_token = 0;
         float best_logit = logits[0];
         for (int t = 1; t < vocab_size; t++) {
