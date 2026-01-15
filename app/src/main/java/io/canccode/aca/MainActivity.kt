@@ -3,10 +3,12 @@ package io.canccode.aca
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -14,16 +16,26 @@ import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.commit
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 
     lateinit var projectLoader: ProjectLoader
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var navView: NavigationView
     private lateinit var fragmentContainer: FrameLayout
     private lateinit var floatingMenuButton: ImageView
+
+    // LLM
+    private lateinit var llmHandler: LLMHandler
+    private var llmProgressBar: ProgressBar? = null
 
     private var dX = 0f
     private var dY = 0f
@@ -37,6 +49,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         setContentView(R.layout.activity_main)
 
         projectLoader = ProjectLoader(this)
+        llmHandler = LLMHandler(this)
 
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
@@ -45,14 +58,42 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         fragmentContainer = findViewById(R.id.fragment_container)
         floatingMenuButton = findViewById(R.id.floatingMenuButton)
 
+        // Optional progress bar (safe if missing)
+        llmProgressBar = findViewById<ProgressBar?>(R.id.llm_progress_bar)
+
         setupFloatingMenu()
 
         if (savedInstanceState == null) {
             supportFragmentManager.commit {
-                // Add main mode fragment
                 replace(R.id.fragment_container, currentModeFragment)
-                // Add LLM fragment to its own container
                 add(R.id.llm_container, llmFragment)
+            }
+        }
+
+        // ---------- LLM initialization ----------
+        lifecycleScope.launch {
+            Log.i(TAG, "Initializing LLM...")
+            val ok = llmHandler.initialize { progress ->
+                runOnUiThread {
+                    llmProgressBar?.progress = progress
+                }
+            }
+
+            if (ok) {
+                Log.i(TAG, "LLM ready")
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "LLM ready", Toast.LENGTH_SHORT).show()
+                    llmProgressBar?.visibility = ProgressBar.GONE
+                }
+            } else {
+                Log.e(TAG, "LLM failed to initialize")
+                runOnUiThread {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Failed to initialize LLM",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
@@ -66,8 +107,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     isDragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val newX = (event.rawX + dX).coerceIn(0f, drawerLayout.width - v.width.toFloat())
-                    val newY = (event.rawY + dY).coerceIn(0f, drawerLayout.height - v.height.toFloat())
+                    val newX = (event.rawX + dX)
+                        .coerceIn(0f, drawerLayout.width - v.width.toFloat())
+                    val newY = (event.rawY + dY)
+                        .coerceIn(0f, drawerLayout.height - v.height.toFloat())
                     if (abs(v.x - newX) > 10 || abs(v.y - newY) > 10) {
                         isDragging = true
                     }
@@ -103,10 +146,22 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         when (item.itemId) {
             R.id.nav_files -> switchMode(FileBrowserFragment())
             R.id.nav_editor -> switchMode(EditorFragment())
-            R.id.nav_llm -> Toast.makeText(this, "LLM is always available", Toast.LENGTH_SHORT).show()
+            R.id.nav_llm ->
+                Toast.makeText(this, "LLM is always available", Toast.LENGTH_SHORT).show()
             R.id.nav_load_project -> pickProjectFolder()
-            R.id.nav_reload_model -> Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
-            R.id.nav_clear_console -> Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
+            R.id.nav_reload_model -> {
+                Toast.makeText(this, "Reloading model...", Toast.LENGTH_SHORT).show()
+                lifecycleScope.launch {
+                    llmHandler.close()
+                    llmHandler.initialize { progress ->
+                        runOnUiThread {
+                            llmProgressBar?.progress = progress
+                        }
+                    }
+                }
+            }
+            R.id.nav_clear_console ->
+                Toast.makeText(this, "Clearing console...", Toast.LENGTH_SHORT).show()
         }
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
@@ -116,7 +171,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         currentModeFragment = fragment
         supportFragmentManager.commit {
             replace(R.id.fragment_container, fragment)
-            // no longer touching llmFragment
         }
     }
 
