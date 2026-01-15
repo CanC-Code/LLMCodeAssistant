@@ -1,59 +1,53 @@
-// File: app/src/main/cpp/llama_jni.cpp
-// Author: CCVO
-// Purpose: Modern JNI wrapper for llama.cpp integration on Android
-// Compatible with newest llama.cpp API
 #include <jni.h>
 #include <string>
 #include <vector>
 #include <mutex>
 #include <android/log.h>
 
-extern "C" {
 #include "llama.h"
-}
 
 #define LOG_TAG "LLAMA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static std::mutex g_mutex;
 static llama_model* g_model = nullptr;
 static llama_context* g_ctx = nullptr;
+static std::mutex g_mutex;
 
-// ------------------------
-// JNI Methods
-// ------------------------
+extern "C" {
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaBridge_initModel(JNIEnv* env, jobject thiz, jstring modelPath) {
-    const char* path_cstr = env->GetStringUTFChars(modelPath, nullptr);
-    std::string path(path_cstr);
-    env->ReleaseStringUTFChars(modelPath, path_cstr);
+JNIEXPORT jboolean JNICALL Java_io_canccode_aca_LlamaBridge_initModel
+  (JNIEnv* env, jobject, jstring modelPath) {
+
+    const char* path = env->GetStringUTFChars(modelPath, nullptr);
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (g_model || g_ctx) {
-        LOGE("Model already loaded");
-        return JNI_FALSE;
+    if (g_model) {
+        LOGI("Model already loaded");
+        env->ReleaseStringUTFChars(modelPath, path);
+        return JNI_TRUE;
     }
 
-    // Load model
-    g_model = llama_model_load_from_file(path.c_str());
+    llama_model_load_params params{};
+    params.n_ctx = 512; // or your default context size
+    params.n_gpu_layers = 0;
+    params.seed = 42;
+
+    g_model = llama_model_load_from_file(path, &params);
+    env->ReleaseStringUTFChars(modelPath, path);
+
     if (!g_model) {
-        LOGE("Failed to load model from path: %s", path.c_str());
+        LOGE("Failed to load model");
         return JNI_FALSE;
     }
 
-    // Set context parameters
-    llama_context_params ctx_params;
-    llama_default_context_params(&ctx_params);
-    ctx_params.n_ctx = 512;          // context size
-    ctx_params.n_threads = 4;        // adjust to device cores
+    llama_context_params ctx_params = llama_context_default_params();
+    g_ctx = llama_new_context(g_model, &ctx_params);
 
-    g_ctx = llama_init_from_model(g_model, ctx_params);
     if (!g_ctx) {
         LOGE("Failed to create context");
-        llama_model_free(g_model);
+        llama_free_model(g_model);
         g_model = nullptr;
         return JNI_FALSE;
     }
@@ -62,56 +56,51 @@ Java_io_canccode_aca_LlamaBridge_initModel(JNIEnv* env, jobject thiz, jstring mo
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
-Java_io_canccode_aca_LlamaBridge_runPrompt(JNIEnv* env, jobject thiz, jstring prompt) {
-    if (!g_ctx) return env->NewStringUTF("");
+JNIEXPORT jstring JNICALL Java_io_canccode_aca_LlamaBridge_runPrompt
+  (JNIEnv* env, jobject, jstring prompt) {
 
-    const char* prompt_cstr = env->GetStringUTFChars(prompt, nullptr);
-    std::string str_prompt(prompt_cstr);
-    env->ReleaseStringUTFChars(prompt, prompt_cstr);
+    const char* str_prompt = env->GetStringUTFChars(prompt, nullptr);
+    std::string output;
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    std::vector<llama_token> tokens;
-
-    // Tokenize (new 7-arg signature)
-    llama_token* token_buf = nullptr;
-    size_t n_token_buf = 0;
-    if (llama_tokenize(g_ctx, str_prompt.c_str(), true, &token_buf, &n_token_buf, nullptr, 0) != 0) {
-        LOGE("Tokenization failed");
+    if (!g_ctx) {
+        LOGE("Context not initialized");
+        env->ReleaseStringUTFChars(prompt, str_prompt);
         return env->NewStringUTF("");
     }
 
-    tokens.assign(token_buf, token_buf + n_token_buf);
-    free(token_buf);
+    const llama_vocab* vocab = llama_get_vocab(g_ctx);
 
-    std::string result;
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        if (llama_eval(g_ctx, &tokens[i], 1, i, 1) != 0) {
-            LOGE("Eval failed at token %zu", i);
-            break;
-        }
-        char buf[256];
-        int len = llama_token_to_str(g_ctx, tokens[i], buf, sizeof(buf));
-        if (len > 0) result.append(buf, len);
+    std::vector<llama_token> tokens(1024);
+    int n_tokens = llama_tokenize(vocab, str_prompt, true, tokens.data(), tokens.size());
+
+    for (int i = 0; i < n_tokens; ++i) {
+        if (llama_eval(g_ctx, &tokens[i], 1, i, 4) != 0) break;
+        char buf[128];
+        int n = llama_token_to_str(g_ctx, tokens[i], buf, sizeof(buf));
+        if (n > 0) output += std::string(buf, n);
     }
 
-    return env->NewStringUTF(result.c_str());
+    env->ReleaseStringUTFChars(prompt, str_prompt);
+    return env->NewStringUTF(output.c_str());
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_freeModel(JNIEnv* env, jobject thiz) {
+JNIEXPORT void JNICALL Java_io_canccode_aca_LlamaBridge_freeModel
+  (JNIEnv*, jobject) {
+
     std::lock_guard<std::mutex> lock(g_mutex);
 
     if (g_ctx) {
-        llama_context_free(g_ctx);
+        llama_free(g_ctx);
         g_ctx = nullptr;
     }
-
     if (g_model) {
-        llama_model_free(g_model);
+        llama_free_model(g_model);
         g_model = nullptr;
     }
 
-    LOGI("Model and context freed");
+    LOGI("Model freed");
 }
+
+} // extern "C"
