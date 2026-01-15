@@ -49,6 +49,7 @@ class FileTreeAdapter(
 
         fun bind(node: FileNode) {
             name.text = node.file.name
+
             itemView.setPadding(
                 32 * node.level,
                 itemView.paddingTop,
@@ -61,7 +62,7 @@ class FileTreeAdapter(
                     if (node.isExpanded)
                         android.R.drawable.arrow_down_float
                     else
-                        android.R.drawable.arrow_forward
+                        android.R.drawable.arrow_right
                 )
 
                 itemView.setOnClickListener {
