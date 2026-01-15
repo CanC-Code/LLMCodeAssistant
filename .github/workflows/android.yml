@@ -147,30 +147,6 @@ jobs:
           fi
           ls -R external/llama.cpp/include
 
-      # ---------- Download LLaMA-2 model ----------
-      - name: Download LLaMA-2 3B model
-        id: download_model
-        run: |
-          MODEL_DIR=app/src/main/assets/models
-          mkdir -p $MODEL_DIR
-
-          MODEL_URL=https://huggingface.co/meta-llama/Llama-2-3b-ggml/raw/main/ggml-model-q4_0.bin
-          MODEL_FILE=$MODEL_DIR/ggml-llama-2-3b-q4_0.bin
-
-          if [ ! -f "$MODEL_FILE" ]; then
-            echo "Downloading LLaMA-2 3B ggml model..."
-            curl -L -o "$MODEL_FILE" "$MODEL_URL"
-          else
-            echo "Model already exists, skipping download"
-          fi
-
-      # ---------- Cache LLaMA-2 model ----------
-      - name: Cache LLaMA-2 model
-        uses: actions/cache@v4
-        with:
-          path: app/src/main/assets/models
-          key: llama-2-3b-${{ runner.os }}
-
       # ---------- Build ----------
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
