@@ -1,4 +1,3 @@
-// File: llama_jni.cpp
 #include <jni.h>
 #include <string>
 #include <vector>
