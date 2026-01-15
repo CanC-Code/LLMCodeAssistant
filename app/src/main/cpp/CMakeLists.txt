@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.18.1)
 
 project(llama_jni LANGUAGES C CXX)
 
-# Use C++17
+# ----------------------------------
+# Compiler settings
+# ----------------------------------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -11,7 +13,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # ----------------------------------
 # Paths
 # ----------------------------------
-# CMakeLists.txt is in app/src/main/cpp
+# This CMakeLists.txt is in app/src/main/cpp
 # Assume llama.cpp submodule is at repo_root/external/llama.cpp
 set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 
@@ -45,9 +47,8 @@ find_library(log-lib log)
 
 # Link libraries
 target_link_libraries(llama_jni
-    llama          # llama.cpp library
-    ${log-lib}     # Android log
-    pthread        # threading
+    llama            # llama.cpp static library
+    ${log-lib}       # Android log
 )
 
 # Optional: enable warnings and optimization
@@ -56,5 +57,5 @@ target_compile_options(llama_jni PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
-# Explicit output name
+# Set output name explicitly
 set_target_properties(llama_jni PROPERTIES OUTPUT_NAME "llama_jni")
