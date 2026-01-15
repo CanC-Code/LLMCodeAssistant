@@ -9,15 +9,14 @@ import androidx.recyclerview.widget.RecyclerView
 import java.io.File
 
 /**
- * A collapsible tree adapter for displaying folders and files.
- * Folders can be expanded/collapsed dynamically.
+ * Collapsible file tree adapter.
+ * Directories expand/collapse inline.
  */
 class FileTreeAdapter(
     private val rootFiles: List<File>,
     private val onFileClick: (File) -> Unit
 ) : RecyclerView.Adapter<FileTreeAdapter.FileViewHolder>() {
 
-    // Flattened list of visible nodes
     private val visibleNodes = mutableListOf<FileNode>()
 
     init {
@@ -39,8 +38,7 @@ class FileTreeAdapter(
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        val node = visibleNodes[position]
-        holder.bind(node)
+        holder.bind(visibleNodes[position])
     }
 
     override fun getItemCount(): Int = visibleNodes.size
@@ -51,14 +49,21 @@ class FileTreeAdapter(
 
         fun bind(node: FileNode) {
             name.text = node.file.name
-            val padding = 40 * node.level
-            itemView.setPadding(padding, itemView.paddingTop, itemView.paddingRight, itemView.paddingBottom)
+            itemView.setPadding(
+                32 * node.level,
+                itemView.paddingTop,
+                itemView.paddingRight,
+                itemView.paddingBottom
+            )
 
             if (node.file.isDirectory) {
                 icon.setImageResource(
-                    if (node.isExpanded) android.R.drawable.arrow_down_float
-                    else android.R.drawable.arrow_forward
+                    if (node.isExpanded)
+                        android.R.drawable.arrow_down_float
+                    else
+                        android.R.drawable.arrow_forward
                 )
+
                 itemView.setOnClickListener {
                     if (node.isExpanded) collapse(node) else expand(node)
                 }
@@ -72,7 +77,12 @@ class FileTreeAdapter(
     private fun expand(node: FileNode) {
         node.isExpanded = true
         val position = visibleNodes.indexOf(node)
-        val children = node.file.listFiles()?.sortedBy { it.name }?.map { FileNode(it, node.level + 1) } ?: emptyList()
+
+        val children = node.file.listFiles()
+            ?.sortedBy { it.name }
+            ?.map { FileNode(it, node.level + 1) }
+            ?: emptyList()
+
         visibleNodes.addAll(position + 1, children)
         notifyItemRangeInserted(position + 1, children.size)
         notifyItemChanged(position)
@@ -81,22 +91,25 @@ class FileTreeAdapter(
     private fun collapse(node: FileNode) {
         node.isExpanded = false
         val position = visibleNodes.indexOf(node)
-        val count = removeChildren(position)
-        notifyItemRangeRemoved(position + 1, count)
+        val removed = removeChildren(position)
+        notifyItemRangeRemoved(position + 1, removed)
         notifyItemChanged(position)
     }
 
     private fun removeChildren(position: Int): Int {
-        val startLevel = visibleNodes[position].level
+        val baseLevel = visibleNodes[position].level
         var count = 0
+
         var i = position + 1
-        while (i < visibleNodes.size && visibleNodes[i].level > startLevel) {
+        while (i < visibleNodes.size && visibleNodes[i].level > baseLevel) {
             count++
             i++
         }
-        for (j in 0 until count) {
+
+        repeat(count) {
             visibleNodes.removeAt(position + 1)
         }
+
         return count
     }
 }
