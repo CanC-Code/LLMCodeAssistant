@@ -2,52 +2,93 @@ package io.canccode.aca
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.URL
 
 class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
-        private const val DEFAULT_CTX = 2048
+        private const val MODEL_NAME = "llama-2-3b.ggmlv3.q4_0.bin"
+        private const val MODEL_URL = "https://your-server.com/models/$MODEL_NAME" // replace with your real URL
     }
 
-    private val modelManager = ModelManager(context)
+    private val modelDir: File = File(context.filesDir, "llm_models")
+    private val modelFile: File = File(modelDir, MODEL_NAME)
     private var initialized = false
 
-    suspend fun initialize(onProgress: (Int) -> Unit): Boolean {
-        if (initialized) return true
+    /**
+     * Initialize the LLM: downloads model if missing, loads via JNI
+     */
+    suspend fun initialize(progressCallback: (Int) -> Unit): Boolean {
+        try {
+            // Ensure directory exists
+            modelDir.mkdirs()
 
-        val ok = modelManager.ensureModel(onProgress)
-        if (!ok) return false
+            // Download model if missing
+            if (!modelFile.exists()) {
+                Log.i(TAG, "Model not found, downloading...")
+                downloadModel(modelFile, progressCallback)
+                Log.i(TAG, "Model download complete")
+            } else {
+                Log.i(TAG, "Model found in cache")
+            }
 
-        val threads = Runtime.getRuntime()
-            .availableProcessors()
-            .coerceAtLeast(2)
+            // Load model using JNI wrapper with default nCtx / nThreads
+            initialized = LlamaJNI.loadModelDefault(modelFile.absolutePath)
 
-        initialized = LlamaJNI.loadModel(
-            modelManager.getModelPath(),
-            DEFAULT_CTX,
-            threads
-        )
-
-        if (initialized) {
-            Log.i(TAG, "LLM initialized")
-        } else {
-            Log.e(TAG, "LLM failed to initialize")
+            return initialized
+        } catch (e: Exception) {
+            Log.e(TAG, "LLM initialization failed", e)
+            return false
         }
-
-        return initialized
     }
 
-    fun isInitialized(): Boolean = initialized
+    /**
+     * Download the model with progress callback
+     */
+    private suspend fun downloadModel(dest: File, progressCallback: (Int) -> Unit) {
+        withContext(Dispatchers.IO) {
+            val url = URL(MODEL_URL)
+            dest.parentFile?.mkdirs()
+            url.openStream().use { input ->
+                dest.outputStream().use { output ->
+                    val total = url.openConnection().contentLength
+                    var downloaded = 0L
+                    val buffer = ByteArray(8 * 1024)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        downloaded += read
+                        val percent = (downloaded * 100 / total).toInt()
+                        progressCallback(percent.coerceIn(0, 100))
+                    }
+                }
+            }
+        }
+    }
 
-    fun infer(prompt: String): String {
-        if (!initialized) return "LLM not initialized"
+    /**
+     * Generate text using JNI
+     */
+    fun generateText(prompt: String): String {
+        if (!initialized) {
+            Log.e(TAG, "LLM not initialized, call initialize() first")
+            return ""
+        }
         return LlamaJNI.generateText(prompt)
     }
 
+    /**
+     * Free model memory
+     */
     fun close() {
-        if (!initialized) return
-        LlamaJNI.freeModel()
-        initialized = false
+        if (initialized) {
+            LlamaJNI.freeModel()
+            initialized = false
+            Log.i(TAG, "LLM model freed")
+        }
     }
 }
