@@ -11,25 +11,27 @@ import java.io.File
 
 class FileBrowserFragment : Fragment() {
 
-    private lateinit var fileListRecycler: RecyclerView
+    private lateinit var recyclerView: RecyclerView
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
+    ): View {
         val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
-        fileListRecycler = view.findViewById(R.id.file_list_recycler)
-        fileListRecycler.layoutManager = LinearLayoutManager(requireContext())
 
-        val rootDir = requireContext().filesDir
-        val rootFiles = rootDir.listFiles()?.sortedBy { it.name } ?: emptyList()
+        recyclerView = view.findViewById(R.id.file_list_recycler)
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        fileListRecycler.adapter = FileTreeAdapter(rootFiles) { file ->
-            val editorFragment = EditorFragment()
-            val bundle = Bundle()
-            bundle.putString("filePath", file.absolutePath)
-            editorFragment.arguments = bundle
+        val rootDir: File = requireContext().filesDir
+        val rootFiles = rootDir.listFiles()?.toList() ?: emptyList()
+
+        recyclerView.adapter = FileTreeAdapter(rootFiles) { file ->
+            val editorFragment = EditorFragment().apply {
+                arguments = Bundle().apply {
+                    putString("filePath", file.absolutePath)
+                }
+            }
 
             parentFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, editorFragment)
