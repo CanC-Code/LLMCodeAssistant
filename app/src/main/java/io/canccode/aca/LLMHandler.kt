@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import com.llmassistant.llm.LLMHandler as JNIHandler
 
 class LLMHandler(private val context: Context) {
 
@@ -11,25 +12,24 @@ class LLMHandler(private val context: Context) {
         private const val TAG = "LLMHandler"
     }
 
-    // -------------------------------------------------
-    // Conversation model
-    // -------------------------------------------------
+    // Conversation roles
     private enum class Role { SYSTEM, USER, ASSISTANT }
     private data class Message(val role: Role, val content: String)
     private val conversation = CopyOnWriteArrayList<Message>()
     private val maxContextChars = 12_000
 
-    // -------------------------------------------------
-    // State
-    // -------------------------------------------------
+    // ---------------------------
+    // JNI handler
+    // ---------------------------
+    private val jni = JNIHandler()
     private var initialized = false
     private var modelFile: File? = null
 
-    // -------------------------------------------------
+    // ---------------------------
     // Initialization
-    // -------------------------------------------------
+    // ---------------------------
     @Synchronized
-    fun initialize(model: File): Boolean {
+    fun initialize(model: File, threads: Int = Runtime.getRuntime().availableProcessors()): Boolean {
         if (initialized) {
             if (modelFile?.absolutePath != model.absolutePath) {
                 Log.e(TAG, "LLM already initialized with a different model")
@@ -44,12 +44,9 @@ class LLMHandler(private val context: Context) {
         }
 
         modelFile = model
+        Log.i(TAG, "Initializing LLM with model: ${model.absolutePath}")
 
-        Log.i(TAG, "Initializing LLM")
-        Log.i(TAG, "Model: ${model.absolutePath}")
-
-        initialized = LlamaJNI.loadModel(model.absolutePath)
-
+        initialized = jni.init(model.absolutePath, threads)
         if (initialized) {
             conversation.clear()
             conversation.add(
@@ -64,12 +61,12 @@ class LLMHandler(private val context: Context) {
         return initialized
     }
 
-    fun isInitialized(): Boolean = initialized
+    fun isInitialized() = initialized
 
-    // -------------------------------------------------
+    // ---------------------------
     // Inference (conversation-aware)
-    // -------------------------------------------------
-    fun infer(userInput: String): String {
+    // ---------------------------
+    fun infer(userInput: String, maxTokens: Int = 512): String {
         if (!initialized) return "LLM not initialized"
 
         conversation.add(Message(Role.USER, userInput.trim()))
@@ -78,20 +75,21 @@ class LLMHandler(private val context: Context) {
         val prompt = buildPrompt()
         Log.d(TAG, "Infer prompt chars=${prompt.length}")
 
-        val reply = LlamaJNI.generateText(prompt)
+        val reply = jni.infer(prompt, maxTokens)
         conversation.add(Message(Role.ASSISTANT, reply))
 
         return reply
     }
 
-    // -------------------------------------------------
-    // File-aware inference (chunked source analysis)
-    // -------------------------------------------------
+    // ---------------------------
+    // File-aware inference
+    // ---------------------------
     fun inferFileChunk(
         file: File,
         chunkIndex: Int,
         chunkSize: Int = 400,
-        userInstruction: String = ""
+        userInstruction: String = "",
+        maxTokens: Int = 512
     ): String {
         if (!initialized) return "LLM not initialized"
         if (!file.exists()) return "File not found: ${file.absolutePath}"
@@ -112,12 +110,12 @@ class LLMHandler(private val context: Context) {
             }
         }
 
-        return infer(prompt)
+        return infer(prompt, maxTokens)
     }
 
-    // -------------------------------------------------
-    // Prompt assembly
-    // -------------------------------------------------
+    // ---------------------------
+    // Prompt building
+    // ---------------------------
     private fun buildPrompt(): String {
         val sb = StringBuilder()
         for (msg in conversation) {
@@ -134,9 +132,9 @@ class LLMHandler(private val context: Context) {
         return sb.toString()
     }
 
-    // -------------------------------------------------
+    // ---------------------------
     // Context trimming
-    // -------------------------------------------------
+    // ---------------------------
     private fun trimContextIfNeeded() {
         var totalChars = conversation.sumOf { it.content.length }
         while (totalChars > maxContextChars && conversation.size > 2) {
@@ -145,9 +143,9 @@ class LLMHandler(private val context: Context) {
         }
     }
 
-    // -------------------------------------------------
-    // Conversation reset
-    // -------------------------------------------------
+    // ---------------------------
+    // Reset conversation
+    // ---------------------------
     fun resetConversation() {
         conversation.clear()
         conversation.add(
@@ -158,16 +156,15 @@ class LLMHandler(private val context: Context) {
         )
     }
 
-    // -------------------------------------------------
+    // ---------------------------
     // Shutdown
-    // -------------------------------------------------
+    // ---------------------------
     @Synchronized
     fun close() {
         if (!initialized) return
 
         Log.i(TAG, "Shutting down LLM")
-        LlamaJNI.freeModel()
-
+        jni.close()
         initialized = false
         modelFile = null
         conversation.clear()
