@@ -1,39 +1,38 @@
-// File: app/src/main/cpp/llama_jni.cpp
-// Purpose: Modern JNI bridge for llama.cpp (fully compatible with latest API)
-
 #include <jni.h>
 #include <string>
 #include <vector>
 #include <mutex>
 #include <android/log.h>
-
-extern "C" {
 #include "llama.h"
-}
 
 #define LOG_TAG "LLAMA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+static std::mutex g_mutex;
 static llama_model* g_model = nullptr;
 static llama_context* g_ctx = nullptr;
-static std::mutex g_mutex;
 
-extern "C" JNIEXPORT jboolean JNICALL
+extern "C" {
+
+// Initialize the model
+JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initModel(JNIEnv* env, jobject thiz, jstring modelPath) {
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
+    if (!path) return JNI_FALSE;
+
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
-    }
     if (g_ctx) {
-        llama_context_free(g_ctx);
+        llama_free(g_ctx);
         g_ctx = nullptr;
     }
+    if (g_model) {
+        llama_free(g_model);
+        g_model = nullptr;
+    }
 
-    g_model = llama_model_load(path);
+    g_model = llama_load_model(path);
     env->ReleaseStringUTFChars(modelPath, path);
 
     if (!g_model) {
@@ -42,11 +41,10 @@ Java_io_canccode_aca_LlamaBridge_initModel(JNIEnv* env, jobject thiz, jstring mo
     }
 
     llama_context_params params = llama_context_default_params();
-    g_ctx = llama_init_from_model(g_model, params);
-
+    g_ctx = llama_new_context(g_model, params);
     if (!g_ctx) {
-        LOGE("Failed to initialize context");
-        llama_model_free(g_model);
+        LOGE("Failed to create context");
+        llama_free(g_model);
         g_model = nullptr;
         return JNI_FALSE;
     }
@@ -55,54 +53,41 @@ Java_io_canccode_aca_LlamaBridge_initModel(JNIEnv* env, jobject thiz, jstring mo
     return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+// Run a prompt
+JNIEXPORT jstring JNICALL
 Java_io_canccode_aca_LlamaBridge_runPrompt(JNIEnv* env, jobject thiz, jstring prompt) {
-    const char* prompt_cstr = env->GetStringUTFChars(prompt, nullptr);
+    const char* c_prompt = env->GetStringUTFChars(prompt, nullptr);
+    if (!c_prompt || !g_ctx) return env->NewStringUTF("");
+
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (!g_ctx) {
-        env->ReleaseStringUTFChars(prompt, prompt_cstr);
-        LOGE("Context not initialized");
-        return env->NewStringUTF("");
-    }
-
-    std::vector<llama_token> tokens(4096);
-    int n_tokens = llama_tokenize(
-        g_ctx,
-        prompt_cstr,
-        true,       // add_bos
-        tokens.data(),
-        (int)tokens.size(),
-        false,      // allow_special
-        true        // allow_extended
-    );
-    env->ReleaseStringUTFChars(prompt, prompt_cstr);
-
-    if (n_tokens <= 0) return env->NewStringUTF("");
-
-    std::string result;
-    char buf[256];
+    std::vector<llama_token> tokens;
+    int n_tokens = llama_tokenize(g_ctx->vocab, c_prompt, tokens);
+    std::string output;
 
     for (int i = 0; i < n_tokens; ++i) {
-        int len = llama_token_to_str_with_context(g_ctx, tokens[i], buf, sizeof(buf));
-        if (len > 0) {
-            result.append(buf, len);
-        }
+        char buf[256];
+        llama_token_to_str(g_ctx->vocab, tokens[i], buf, sizeof(buf));
+        output += buf;
     }
 
-    return env->NewStringUTF(result.c_str());
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+    return env->NewStringUTF(output.c_str());
 }
 
-extern "C" JNIEXPORT void JNICALL
+// Free the model
+JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_freeModel(JNIEnv* env, jobject thiz) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_ctx) {
-        llama_context_free(g_ctx);
+        llama_free(g_ctx);
         g_ctx = nullptr;
     }
     if (g_model) {
-        llama_model_free(g_model);
+        llama_free(g_model);
         g_model = nullptr;
     }
-    LOGI("Model and context freed");
+    LOGI("Model freed");
 }
+
+} // extern "C"
