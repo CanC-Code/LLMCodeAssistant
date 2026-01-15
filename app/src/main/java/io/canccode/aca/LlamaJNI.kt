@@ -6,7 +6,11 @@ object LlamaJNI {
         System.loadLibrary("llama_jni")
     }
 
-    external fun loadModel(path: String): Boolean
+    external fun loadModel(
+        modelPath: String,
+        nCtx: Int,
+        nThreads: Int
+    ): Boolean
 
     external fun generateText(prompt: String): String
 
