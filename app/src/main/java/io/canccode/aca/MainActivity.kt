@@ -58,7 +58,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         fragmentContainer = findViewById(R.id.fragment_container)
         floatingMenuButton = findViewById(R.id.floatingMenuButton)
 
-        // Optional progress bar (safe if missing)
+        // Optional progress bar (ensure it's in layout)
         llmProgressBar = findViewById<ProgressBar?>(R.id.llm_progress_bar)
 
         setupFloatingMenu()
@@ -70,30 +70,35 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
         }
 
-        // ---------- LLM initialization ----------
+        // ---------- LLM initialization on first launch ----------
         lifecycleScope.launch {
-            Log.i(TAG, "Initializing LLM...")
-            val ok = llmHandler.initialize { progress ->
-                runOnUiThread {
-                    llmProgressBar?.progress = progress
+            try {
+                llmProgressBar?.visibility = ProgressBar.VISIBLE
+                Log.i(TAG, "Initializing LLM...")
+                val ok = llmHandler.initialize { progress ->
+                    runOnUiThread {
+                        llmProgressBar?.progress = progress
+                    }
                 }
-            }
 
-            if (ok) {
-                Log.i(TAG, "LLM ready")
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, "LLM ready", Toast.LENGTH_SHORT).show()
-                    llmProgressBar?.visibility = ProgressBar.GONE
+                if (ok) {
+                    Log.i(TAG, "LLM ready")
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "LLM ready", Toast.LENGTH_SHORT).show()
+                        llmProgressBar?.visibility = ProgressBar.GONE
+                    }
+                } else {
+                    Log.e(TAG, "LLM failed to initialize")
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Failed to initialize LLM",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
-            } else {
-                Log.e(TAG, "LLM failed to initialize")
-                runOnUiThread {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Failed to initialize LLM",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing LLM", e)
             }
         }
     }
