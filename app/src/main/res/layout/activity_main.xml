@@ -13,11 +13,21 @@
         android:layout_height="match_parent"
         android:background="@color/colorBackground">
 
-        <!-- Mode fragments go here -->
+        <!-- Editor / mode fragments -->
         <FrameLayout
             android:id="@+id/fragment_container"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:layout_marginBottom="200dp" /> <!-- leave space for LLM panel -->
+
+        <!-- LLM bottom panel -->
+        <FrameLayout
+            android:id="@+id/llm_container"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_gravity="bottom"
+            android:background="@color/colorSurface"
+            android:elevation="4dp"/>
 
         <!-- Floating menu button -->
         <ImageView
@@ -26,18 +36,12 @@
             android:layout_height="56dp"
             android:layout_marginStart="16dp"
             android:layout_marginTop="16dp"
-            android:background="@drawable/ic_dynamic_menu"
             android:contentDescription="Menu"
             android:clickable="true"
             android:focusable="true"
-            android:elevation="8dp"/>
-
-        <!-- LLM bottom panel -->
-        <FrameLayout
-            android:id="@+id/llm_container"
-            android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom" />
+            android:elevation="8dp"
+            android:src="@drawable/ic_dynamic_menu"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
 
         <!-- LLM progress bar -->
         <ProgressBar
@@ -46,10 +50,9 @@
             android:layout_width="match_parent"
             android:layout_height="8dp"
             android:layout_gravity="bottom"
-            android:layout_marginBottom="0dp"
             android:max="100"
             android:progress="0"
-            android:visibility="visible"/>
+            android:visibility="gone"/> <!-- hidden until model loads -->
 
     </FrameLayout>
 
