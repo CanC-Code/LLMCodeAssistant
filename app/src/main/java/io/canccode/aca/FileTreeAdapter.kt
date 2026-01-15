@@ -62,7 +62,7 @@ class FileTreeAdapter(
                     if (node.isExpanded)
                         android.R.drawable.arrow_down_float
                     else
-                        android.R.drawable.arrow_right
+                        android.R.drawable.ic_media_next
                 )
 
                 itemView.setOnClickListener {
