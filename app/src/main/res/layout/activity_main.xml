@@ -39,6 +39,18 @@
             android:layout_height="200dp"
             android:layout_gravity="bottom" />
 
+        <!-- LLM progress bar -->
+        <ProgressBar
+            android:id="@+id/llm_progress_bar"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_gravity="bottom"
+            android:layout_marginBottom="0dp"
+            android:max="100"
+            android:progress="0"
+            android:visibility="visible"/>
+
     </FrameLayout>
 
     <!-- Navigation drawer -->
