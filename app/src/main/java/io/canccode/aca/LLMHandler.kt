@@ -3,170 +3,76 @@ package io.canccode.aca
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
-import com.llmassistant.llm.LLMHandler as JNIHandler
+import java.io.FileOutputStream
 
 class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
+        private const val MODEL_NAME = "ggml-llama-2-3b-q4_0.bin"
+        private const val ASSET_MODEL_PATH = "models/$MODEL_NAME"
     }
 
-    // Conversation roles
-    private enum class Role { SYSTEM, USER, ASSISTANT }
-    private data class Message(val role: Role, val content: String)
-    private val conversation = CopyOnWriteArrayList<Message>()
-    private val maxContextChars = 12_000
-
-    // ---------------------------
-    // JNI handler
-    // ---------------------------
-    private val jni = JNIHandler()
     private var initialized = false
     private var modelFile: File? = null
 
-    // ---------------------------
-    // Initialization
-    // ---------------------------
+    /**
+     * Initialize the LLM. Copies the model from assets to app files if necessary.
+     */
     @Synchronized
-    fun initialize(model: File, threads: Int = Runtime.getRuntime().availableProcessors()): Boolean {
-        if (initialized) {
-            if (modelFile?.absolutePath != model.absolutePath) {
-                Log.e(TAG, "LLM already initialized with a different model")
+    fun initialize(): Boolean {
+        if (initialized) return true
+
+        // Ensure app files path for LLM models exists
+        val modelDir = File(context.filesDir, "llm")
+        if (!modelDir.exists()) modelDir.mkdirs()
+
+        val destFile = File(modelDir, MODEL_NAME)
+        modelFile = destFile
+
+        // Copy from assets if not already present
+        if (!destFile.exists()) {
+            try {
+                context.assets.open(ASSET_MODEL_PATH).use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i(TAG, "Copied model from assets to ${destFile.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to copy model from assets", e)
                 return false
             }
-            return true
+        } else {
+            Log.i(TAG, "Model already exists at ${destFile.absolutePath}")
         }
 
-        if (!model.exists()) {
-            Log.e(TAG, "Model file not found: ${model.absolutePath}")
-            return false
-        }
-
-        modelFile = model
-        Log.i(TAG, "Initializing LLM with model: ${model.absolutePath}")
-
-        initialized = jni.init(model.absolutePath, threads)
+        // Load model via JNI
+        initialized = LlamaJNI.loadModel(destFile.absolutePath)
         if (initialized) {
-            conversation.clear()
-            conversation.add(
-                Message(
-                    Role.SYSTEM,
-                    "You are a local coding assistant. Be precise, technical, and concise."
-                )
-            )
+            Log.i(TAG, "LLM initialized successfully with model: $MODEL_NAME")
+        } else {
+            Log.e(TAG, "Failed to initialize LLM")
         }
 
-        Log.i(TAG, "LLM initialized = $initialized")
         return initialized
     }
 
-    fun isInitialized() = initialized
+    fun isInitialized(): Boolean = initialized
 
-    // ---------------------------
-    // Inference (conversation-aware)
-    // ---------------------------
-    fun infer(userInput: String, maxTokens: Int = 512): String {
+    /**
+     * Run a prompt through the model.
+     */
+    fun infer(prompt: String): String {
         if (!initialized) return "LLM not initialized"
-
-        conversation.add(Message(Role.USER, userInput.trim()))
-        trimContextIfNeeded()
-
-        val prompt = buildPrompt()
-        Log.d(TAG, "Infer prompt chars=${prompt.length}")
-
-        val reply = jni.infer(prompt, maxTokens)
-        conversation.add(Message(Role.ASSISTANT, reply))
-
-        return reply
+        return LlamaJNI.generateText(prompt)
     }
 
-    // ---------------------------
-    // File-aware inference
-    // ---------------------------
-    fun inferFileChunk(
-        file: File,
-        chunkIndex: Int,
-        chunkSize: Int = 400,
-        userInstruction: String = "",
-        maxTokens: Int = 512
-    ): String {
-        if (!initialized) return "LLM not initialized"
-        if (!file.exists()) return "File not found: ${file.absolutePath}"
-
-        val lines = file.readLines()
-        val start = chunkIndex * chunkSize
-        val end = minOf(start + chunkSize, lines.size)
-
-        if (start >= lines.size) return "End of file reached"
-
-        val chunk = lines.subList(start, end).joinToString("\n")
-        val prompt = buildString {
-            append("Analyze the following source code:\n\n")
-            append(chunk)
-            if (userInstruction.isNotBlank()) {
-                append("\n\nInstruction:\n")
-                append(userInstruction.trim())
-            }
-        }
-
-        return infer(prompt, maxTokens)
-    }
-
-    // ---------------------------
-    // Prompt building
-    // ---------------------------
-    private fun buildPrompt(): String {
-        val sb = StringBuilder()
-        for (msg in conversation) {
-            sb.append(
-                when (msg.role) {
-                    Role.SYSTEM -> "[SYSTEM]\n"
-                    Role.USER -> "[USER]\n"
-                    Role.ASSISTANT -> "[ASSISTANT]\n"
-                }
-            )
-            sb.append(msg.content).append("\n\n")
-        }
-        sb.append("[ASSISTANT]\n")
-        return sb.toString()
-    }
-
-    // ---------------------------
-    // Context trimming
-    // ---------------------------
-    private fun trimContextIfNeeded() {
-        var totalChars = conversation.sumOf { it.content.length }
-        while (totalChars > maxContextChars && conversation.size > 2) {
-            val removed = conversation.removeAt(1)
-            totalChars -= removed.content.length
-        }
-    }
-
-    // ---------------------------
-    // Reset conversation
-    // ---------------------------
-    fun resetConversation() {
-        conversation.clear()
-        conversation.add(
-            Message(
-                Role.SYSTEM,
-                "You are a local coding assistant. Be precise, technical, and concise."
-            )
-        )
-    }
-
-    // ---------------------------
-    // Shutdown
-    // ---------------------------
     @Synchronized
     fun close() {
         if (!initialized) return
-
-        Log.i(TAG, "Shutting down LLM")
-        jni.close()
+        LlamaJNI.freeModel()
         initialized = false
-        modelFile = null
-        conversation.clear()
+        Log.i(TAG, "LLM closed")
     }
 }
