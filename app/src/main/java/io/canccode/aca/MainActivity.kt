@@ -1,3 +1,4 @@
+// File: app/src/main/java/io/canccode/aca/MainActivity.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -13,12 +14,11 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-
+        // Replace this with a real direct .gguf file link
         private const val MODEL_URL =
             "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf"
-
         private const val MODEL_FILENAME = "model.gguf"
-        private const val CONTEXT_SIZE = 2048
+        private const val N_CTX = 512  // context size for llama.cpp
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
 
         Log.i(TAG, "App started")
 
+        // Launch LLM initialization
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val modelFile = File(filesDir, MODEL_FILENAME)
@@ -34,18 +35,24 @@ class MainActivity : AppCompatActivity() {
                 if (!modelFile.exists()) {
                     Log.i(TAG, "Downloading model...")
                     downloadModel(modelFile)
+                } else {
+                    Log.i(TAG, "Model already exists: ${modelFile.absolutePath}")
                 }
 
                 Log.i(TAG, "Initializing LLM...")
-                val ok = LlamaBridge.initNative(
-                    modelFile.absolutePath,
-                    CONTEXT_SIZE
-                )
-
+                val ok = LlamaBridge.initNative(modelFile.absolutePath, N_CTX)
                 Log.i(TAG, "LLM init result = $ok")
 
+                if (ok) {
+                    // Test prompt
+                    val output = LlamaBridge.generateNative("Hello LLM!", 64)
+                    Log.i(TAG, "LLM test output: $output")
+                } else {
+                    Log.e(TAG, "Failed to initialize LLM")
+                }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Initialization failed", e)
+                Log.e(TAG, "Error initializing LLM", e)
             }
         }
     }
@@ -54,8 +61,8 @@ class MainActivity : AppCompatActivity() {
         withContext(Dispatchers.IO) {
             val url = URL(MODEL_URL)
             val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 60_000
+            connection.connectTimeout = 15000
+            connection.readTimeout = 60000
             connection.connect()
 
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
@@ -67,13 +74,13 @@ class MainActivity : AppCompatActivity() {
                     input.copyTo(output)
                 }
             }
-
             Log.i(TAG, "Model downloaded to ${destinationFile.absolutePath}")
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.i(TAG, "Shutting down LLM...")
         LlamaBridge.shutdownNative()
     }
 }
