@@ -19,8 +19,8 @@ class EditorFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         val root = inflater.inflate(R.layout.fragment_editor, container, false)
-
         editorView = root.findViewById(R.id.editorText)
+
         editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))
         editorView.setTextColor(Color.parseColor("#D4D4D4"))
         editorView.textSize = 14f
