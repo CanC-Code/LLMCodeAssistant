@@ -1,7 +1,4 @@
-// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/utils/ModelDownloader.kt
-// Author: CCVO
-// Purpose: Safe, atomic download and verification of local GGUF LLM models
-
+// File: app/src/main/java/com/llmassistant/utils/ModelDownloader.kt
 package com.llmassistant.utils
 
 import android.content.Context
@@ -36,7 +33,7 @@ class ModelDownloader(private val context: Context) {
         modelUrl: String,
         outputName: String,
         expectedSha256: String,
-        onProgress: ((Int) -> Unit)? = null
+        onProgress: (Int) -> Unit = {}
     ): File = withContext(Dispatchers.IO) {
 
         val finalFile = File(modelDir, outputName)
@@ -67,7 +64,7 @@ class ModelDownloader(private val context: Context) {
                     output.write(buffer, 0, read)
                     downloaded += read
                     if (totalSize > 0) {
-                        onProgress?.invoke(((downloaded * 100) / totalSize).toInt())
+                        onProgress.invoke(((downloaded * 100) / totalSize).toInt())
                     }
                 }
             }
