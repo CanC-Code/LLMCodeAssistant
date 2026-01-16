@@ -2,6 +2,7 @@
 package io.canccode.aca
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -9,21 +10,17 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.llmassistant.llm.LLMHandler
 
 class LLMFragment : Fragment() {
 
-    private lateinit var inputBox: EditText
-    private lateinit var chatOutput: TextView
-    private lateinit var sendBtn: Button
-    private lateinit var llmHandler: LLMHandler
+    private lateinit var inputEditText: EditText
+    private lateinit var outputTextView: TextView
+    private lateinit var generateButton: Button
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        llmHandler = LLMHandler(requireContext())
+    companion object {
+        private const val TAG = "LLMFragment"
+        private const val DEFAULT_MAX_TOKENS = 64
     }
 
     override fun onCreateView(
@@ -31,24 +28,27 @@ class LLMFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val root = inflater.inflate(R.layout.fragment_llm, container, false)
+        val view = inflater.inflate(R.layout.fragment_llm, container, false)
 
-        inputBox = root.findViewById(R.id.inputBox)
-        chatOutput = root.findViewById(R.id.chatOutput)
-        sendBtn = root.findViewById(R.id.sendBtn)
+        inputEditText = view.findViewById(R.id.llm_input)
+        outputTextView = view.findViewById(R.id.llm_output)
+        generateButton = view.findViewById(R.id.llm_generate_button)
 
-        sendBtn.setOnClickListener {
-            val prompt = inputBox.text.toString()
-            inputBox.setText("")
+        generateButton.setOnClickListener {
+            val prompt = inputEditText.text.toString()
+            if (prompt.isBlank()) return@setOnClickListener
 
-            lifecycleScope.launch {
-                val response = withContext(Dispatchers.IO) {
-                    llmHandler.infer(prompt)
-                }
-                chatOutput.append("\n> $prompt\n$response\n")
+            LLMHandler.generate(prompt, DEFAULT_MAX_TOKENS) { output ->
+                outputTextView.text = output
+                Log.i(TAG, "Generated output: $output")
             }
         }
 
-        return root
+        return view
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        Log.i(TAG, "LLMFragment destroyed")
     }
 }
