@@ -9,6 +9,10 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class LLMFragment : Fragment() {
 
@@ -26,17 +30,23 @@ class LLMFragment : Fragment() {
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
+    ): View {
         val root = inflater.inflate(R.layout.fragment_llm, container, false)
+
         inputBox = root.findViewById(R.id.inputBox)
         chatOutput = root.findViewById(R.id.chatOutput)
         sendBtn = root.findViewById(R.id.sendBtn)
 
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString()
-            val response = llmHandler.infer(prompt)
-            chatOutput.append("\n> $prompt\n$response\n")
             inputBox.setText("")
+
+            lifecycleScope.launch {
+                val response = withContext(Dispatchers.IO) {
+                    llmHandler.infer(prompt)
+                }
+                chatOutput.append("\n> $prompt\n$response\n")
+            }
         }
 
         return root
