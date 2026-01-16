@@ -1,122 +1,110 @@
-// File: app/src/main/java/io/canccode/aca/LLMHandler.kt
-package io.canccode.aca
+// File: app/src/main/java/com/llmassistant/llm/LLMHandler.kt
+package com.llmassistant.llm
 
+import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.*
+import io.canccode.aca.LlamaBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
-class LLMHandler(private val mainActivity: MainActivity) {
+class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
+        private const val MODEL_URL =
+            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf"
+        private const val MODEL_FILENAME = "tinyllama-1.1b-chat.Q4_K_M.gguf"
+        private const val N_CTX = 512
     }
 
-    private val handlerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var isInitialized = false
-    private lateinit var modelFile: File
+    private val modelFile: File by lazy {
+        File(context.filesDir, MODEL_FILENAME)
+    }
 
     /**
-     * Initialize the LLM.
-     * @param onProgress optional callback with progress 0-100 for download/init.
+     * Initialize the model: downloads if missing, then calls LlamaBridge.initNative
+     * Returns true if initialization succeeded
      */
-    fun initialize(onProgress: ((Int) -> Unit)? = null, modelPath: String? = null, nCtx: Int = 512): Deferred<Boolean> {
-        return handlerScope.async {
-            try {
-                // Determine model path
-                modelFile = if (modelPath != null) File(modelPath) else File(mainActivity.filesDir, "tinyllama-1.1b-chat.Q4_K_M.gguf")
-
-                // Download if missing
-                if (!modelFile.exists()) {
-                    mainActivity.runOnUiThread { onProgress?.invoke(0) }
-                    downloadModel(modelFile, onProgress)
-                } else {
-                    Log.i(TAG, "Model already exists: ${modelFile.absolutePath}")
-                }
-
-                // Initialize native
-                isInitialized = LlamaBridge.initNative(modelFile.absolutePath, nCtx)
-                Log.i(TAG, "LLM initialized: $isInitialized")
-                isInitialized
-            } catch (e: Exception) {
-                Log.e(TAG, "LLM initialization error", e)
-                isInitialized = false
-                false
-            } finally {
-                mainActivity.runOnUiThread { onProgress?.invoke(100) }
+    suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (!modelFile.exists()) {
+                Log.i(TAG, "Downloading LLM model...")
+                downloadModel(modelFile)
+            } else {
+                Log.i(TAG, "LLM model already exists: ${modelFile.absolutePath}")
             }
+
+            Log.i(TAG, "Initializing LLM via LlamaBridge...")
+            val ok = LlamaBridge.initNative(modelFile.absolutePath, N_CTX)
+            Log.i(TAG, "LLM init result = $ok")
+            ok
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize LLM", e)
+            false
         }
     }
 
     /**
-     * Generate text from a prompt.
+     * Generates text from a prompt
      */
-    fun generate(prompt: String, maxTokens: Int = 64): String {
-        return if (isInitialized) {
-            try {
-                LlamaBridge.generateNative(prompt, maxTokens)
-            } catch (e: Exception) {
-                Log.e(TAG, "LLM generation error", e)
-                "Error generating text"
-            }
-        } else {
-            Log.e(TAG, "LLM not initialized")
-            "LLM not initialized"
+    suspend fun generate(prompt: String, maxTokens: Int = 64): String = withContext(Dispatchers.IO) {
+        try {
+            LlamaBridge.generateNative(prompt, maxTokens)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error generating text", e)
+            ""
         }
     }
 
     /**
-     * Shutdown and free resources.
+     * Shutdown the LLM
      */
     fun shutdown() {
-        if (isInitialized) {
-            try {
-                LlamaBridge.shutdownNative()
-                isInitialized = false
-                Log.i(TAG, "LLM shutdown completed")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during LLM shutdown", e)
-            }
+        try {
+            Log.i(TAG, "Shutting down LLM via LlamaBridge...")
+            LlamaBridge.shutdownNative()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error shutting down LLM", e)
         }
-        handlerScope.cancel()
     }
 
     /**
-     * Download the GGUF model.
+     * Downloads GGUF model from MODEL_URL into destination file
      */
-    private suspend fun downloadModel(destinationFile: File, onProgress: ((Int) -> Unit)? = null) {
-        withContext(Dispatchers.IO) {
-            val url = java.net.URL(MainActivity.MODEL_URL)
-            val connection = url.openConnection() as java.net.HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000
-            connection.connect()
+    private suspend fun downloadModel(destinationFile: File) = withContext(Dispatchers.IO) {
+        val url = URL(MODEL_URL)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 15000
+        connection.readTimeout = 60000
+        connection.connect()
 
-            if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                throw RuntimeException("HTTP ${connection.responseCode} downloading model")
-            }
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            throw RuntimeException("HTTP ${connection.responseCode} downloading model")
+        }
 
-            val totalSize = connection.contentLengthLong
-            var downloaded = 0L
+        val totalSize = connection.contentLengthLong
+        var downloaded = 0L
 
-            connection.inputStream.use { input ->
-                FileOutputStream(destinationFile).use { output ->
-                    val buffer = ByteArray(8 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        output.write(buffer, 0, read)
-                        downloaded += read
+        connection.inputStream.use { input ->
+            FileOutputStream(destinationFile).use { output ->
+                val buffer = ByteArray(8 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    output.write(buffer, 0, read)
+                    downloaded += read
 
-                        // Update progress
-                        if (totalSize > 0) {
-                            val progress = ((downloaded * 100) / totalSize).toInt()
-                            mainActivity.runOnUiThread { onProgress?.invoke(progress) }
-                        }
+                    if (totalSize > 0) {
+                        val progress = ((downloaded * 100) / totalSize).toInt()
+                        Log.i(TAG, "Download progress: $progress%")
                     }
                 }
             }
-
-            Log.i(TAG, "Model downloaded to ${destinationFile.absolutePath}")
         }
+        Log.i(TAG, "Model downloaded to ${destinationFile.absolutePath}")
     }
 }
