@@ -1,3 +1,5 @@
+// File: app/src/main/java/io/canccode/aca/MainActivity.kt
+// NO CHANGES - Keep your existing file as-is
 package io.canccode.aca
 
 import android.content.Intent
