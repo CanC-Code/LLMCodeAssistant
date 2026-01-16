@@ -1,3 +1,4 @@
+// File: app/src/main/java/io/canccode/aca/LLMFragment.kt
 package io.canccode.aca
 
 import android.os.Bundle
@@ -8,7 +9,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import io.canccode.aca.R
 
 class LLMFragment : Fragment() {
 
