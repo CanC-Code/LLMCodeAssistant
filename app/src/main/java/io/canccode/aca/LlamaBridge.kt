@@ -1,5 +1,3 @@
-// File: app/src/main/java/io/canccode/aca/LlamaBridge.kt
-// Rename LlamaJNI.kt to this filename
 package io.canccode.aca
 
 object LlamaBridge {
