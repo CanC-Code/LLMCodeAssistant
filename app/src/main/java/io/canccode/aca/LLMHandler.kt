@@ -1,5 +1,5 @@
 // File: app/src/main/java/com/llmassistant/llm/LLMHandler.kt
-package com.llmassistant.llm
+package io.canccode.aca
 
 import android.content.Context
 import android.util.Log
