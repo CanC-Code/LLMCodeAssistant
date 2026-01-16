@@ -3,6 +3,8 @@ package io.canccode.aca
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.Button
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
 import java.io.File
@@ -15,14 +17,17 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
 
-        // REPLACE THIS WITH A REAL DIRECT .gguf FILE
+        // ⚠️ MUST be a real, direct-download .gguf file
         private const val MODEL_URL =
-            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf"
+            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.q4_0.gguf"
 
         private const val MODEL_FILENAME = "model.gguf"
     }
 
-    // JNI bindings
+    private lateinit var statusText: TextView
+    private lateinit var initButton: Button
+
+    // JNI
     external fun initLlama(modelPath: String): Boolean
     external fun freeLlama()
 
@@ -30,41 +35,71 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        Log.i(TAG, "App started")
+        statusText = findViewById(R.id.statusText)
+        initButton = findViewById(R.id.initButton)
 
-        CoroutineScope(Dispatchers.IO).launch {
-            val modelFile = File(filesDir, MODEL_FILENAME)
-
-            if (!modelFile.exists()) {
-                Log.i(TAG, "Downloading model...")
-                downloadModel(modelFile)
-            }
-
-            Log.i(TAG, "Initializing LLM...")
-            val ok = initLlama(modelFile.absolutePath)
-            Log.i(TAG, "LLM init result = $ok")
+        initButton.setOnClickListener {
+            checkAndInitModel()
         }
     }
 
-    private suspend fun downloadModel(destinationFile: File) {
-        withContext(Dispatchers.IO) {
-            val url = URL(MODEL_URL)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000
-            connection.connect()
+    private fun checkAndInitModel() {
+        val modelFile = File(filesDir, MODEL_FILENAME)
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw RuntimeException("HTTP ${connection.responseCode}")
-            }
+        if (modelFile.exists()) {
+            statusText.text = "Model found. Initializing…"
+            initLlm(modelFile)
+            return
+        }
 
-            connection.inputStream.use { input ->
-                FileOutputStream(destinationFile).use { output ->
-                    input.copyTo(output)
+        statusText.text = "Downloading model…"
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                downloadModel(modelFile)
+
+                withContext(Dispatchers.Main) {
+                    statusText.text = "Download complete. Initializing…"
+                    initLlm(modelFile)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Model download failed", e)
+                withContext(Dispatchers.Main) {
+                    statusText.text = "Download failed:\n${e.message}"
                 }
             }
+        }
+    }
 
-            Log.i(TAG, "Model downloaded to ${destinationFile.absolutePath}")
+    private fun initLlm(modelFile: File) {
+        try {
+            val success = initLlama(modelFile.absolutePath)
+            statusText.text =
+                if (success) "LLM initialized successfully"
+                else "LLM failed to initialize"
+        } catch (e: Throwable) {
+            Log.e(TAG, "LLM init crashed", e)
+            statusText.text = "Native crash:\n${e.message}"
+        }
+    }
+
+    private fun downloadModel(destinationFile: File) {
+        val url = URL(MODEL_URL)
+        val connection = url.openConnection() as HttpURLConnection
+
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 60_000
+        connection.instanceFollowRedirects = true
+        connection.connect()
+
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            throw RuntimeException("HTTP ${connection.responseCode}")
+        }
+
+        connection.inputStream.use { input ->
+            FileOutputStream(destinationFile).use { output ->
+                input.copyTo(output)
+            }
         }
     }
 
