@@ -2,87 +2,60 @@ package io.canccode.aca
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.ProgressBar
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
-import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var llmHandler: LLMHandler
+    private lateinit var llmProgressBar: ProgressBar
+
     companion object {
         private const val TAG = "MainActivity"
-
-        // Publicly downloadable TinyLlama GGUF model
-        private const val MODEL_URL =
-            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf"
-        private const val MODEL_FILENAME = "tinyllama-1.1b-chat.Q4_K_M.gguf"
-
-        private const val N_CTX = 512 // context size for llama.cpp
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        Log.i(TAG, "App started")
+        llmProgressBar = findViewById(R.id.llm_progress_bar)
+        llmHandler = LLMHandler(this)
 
+        initializeLLM()
+    }
+
+    private fun initializeLLM() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val modelFile = File(filesDir, MODEL_FILENAME)
+                runOnUiThread { llmProgressBar.progress = 0; llmProgressBar.isIndeterminate = true }
 
-                if (!modelFile.exists()) {
-                    Log.i(TAG, "Model not found, downloading...")
-                    downloadModel(modelFile)
-                } else {
-                    Log.i(TAG, "Model already exists at ${modelFile.absolutePath}")
+                val initialized = llmHandler.initialize { progress ->
+                    runOnUiThread { llmProgressBar.isIndeterminate = false; llmProgressBar.progress = progress }
                 }
 
-                Log.i(TAG, "Initializing LLM...")
-                val ok = LlamaBridge.initNative(modelFile.absolutePath, N_CTX)
-                Log.i(TAG, "LLM init result = $ok")
+                runOnUiThread {
+                    llmProgressBar.isIndeterminate = false
+                    llmProgressBar.progress = 100
+                }
 
-                if (ok) {
-                    // Test prompt
-                    val output = LlamaBridge.generateNative("Hello LLM!", 64)
-                    Log.i(TAG, "LLM test output: $output")
+                if (initialized) {
+                    Log.i(TAG, "LLM initialized successfully!")
+                    val testOutput = llmHandler.infer("Hello LLM!", 64)
+                    Log.i(TAG, "Test output: $testOutput")
                 } else {
-                    Log.e(TAG, "Failed to initialize LLM")
+                    Log.e(TAG, "LLM failed to initialize")
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error during model setup", e)
+                Log.e(TAG, "Error initializing LLM", e)
             }
-        }
-    }
-
-    private suspend fun downloadModel(destinationFile: File) {
-        withContext(Dispatchers.IO) {
-            val url = URL(MODEL_URL)
-            val connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 60000
-            connection.requestMethod = "GET"
-            connection.connect()
-
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw RuntimeException("HTTP ${connection.responseCode} while downloading model")
-            }
-
-            connection.inputStream.use { input ->
-                FileOutputStream(destinationFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            Log.i(TAG, "Model downloaded to ${destinationFile.absolutePath}")
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Shutting down LLM...")
-        LlamaBridge.shutdownNative()
+        llmHandler.close()
     }
 }
