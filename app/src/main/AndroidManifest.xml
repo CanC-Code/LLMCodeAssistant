@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.canccode.aca">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Internet is NORMAL permission: no runtime request -->
+    <!-- Internet is a normal permission -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -12,7 +10,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ACA">
+        android:theme="@style/Theme.LLMCodeAssistant">
 
         <activity
             android:name=".MainActivity"
