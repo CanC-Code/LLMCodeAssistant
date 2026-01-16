@@ -11,45 +11,29 @@ class LLMHandler(private val context: Context) {
 
     companion object {
         private const val TAG = "LLMHandler"
-        private const val MODEL_NAME = "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+        private const val MODEL_NAME = "model.gguf"
         private const val MODEL_URL =
-            "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
-
-        // DEV MODE ONLY — replace with real hash before release
-        private const val MODEL_SHA256 =
-            "0000000000000000000000000000000000000000000000000000000000000000"
-
-        private const val CTX_SIZE = 2048
+            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-GGUF/resolve/main/tinyllama-1.1b-chat.Q4_K_M.gguf"
+        private const val DEV_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
+        private const val CTX_SIZE = 512
     }
 
     private val downloader = ModelDownloader(context)
     private var isInitialized = false
 
-    suspend fun initialize(onProgress: (Int) -> Unit = {}): Boolean =
-        withContext(Dispatchers.IO) {
+    suspend fun initialize(onProgress: (Int) -> Unit = {}): Boolean = withContext(Dispatchers.IO) {
+        if (isInitialized) return@withContext true
 
-            if (isInitialized) return@withContext true
+        val modelFile = downloader.getModel(MODEL_NAME)
+            ?: downloader.downloadModel(MODEL_URL, MODEL_NAME, DEV_HASH, onProgress)
 
-            val modelFile =
-                downloader.getModel(MODEL_NAME)
-                    ?: downloader.downloadModel(
-                        modelUrl = MODEL_URL,
-                        outputName = MODEL_NAME,
-                        expectedSha256 = MODEL_SHA256,
-                        onProgress = onProgress
-                    )
+        Log.i(TAG, "Loading model: ${modelFile.absolutePath}")
+        val success = LlamaBridge.initNative(modelFile.absolutePath, CTX_SIZE)
+        isInitialized = success
 
-            Log.i(TAG, "Loading model: ${modelFile.absolutePath}")
-
-            val success = LlamaBridge.initNative(modelFile.absolutePath, CTX_SIZE)
-            isInitialized = success
-
-            if (!success) {
-                Log.e(TAG, "Native initialization failed")
-            }
-
-            success
-        }
+        if (!success) Log.e(TAG, "Native LLM init failed")
+        success
+    }
 
     fun infer(prompt: String, maxTokens: Int = 128): String {
         if (!isInitialized) return "[LLM not initialized]"
