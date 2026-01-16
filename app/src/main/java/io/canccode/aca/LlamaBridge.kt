@@ -1,4 +1,3 @@
-// File: app/src/main/java/io/canccode/aca/LlamaBridge.kt
 package io.canccode.aca
 
 object LlamaBridge {
