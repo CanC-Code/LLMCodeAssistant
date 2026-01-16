@@ -2,71 +2,81 @@
 package io.canccode.aca
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import java.io.File
-import java.io.FileOutputStream
-import java.net.URL
-import java.util.concurrent.Executors
+import android.util.Log
+import com.llmassistant.utils.ModelDownloader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-object LLMHandler {
-    init {
-        System.loadLibrary("llama_jni") // Load JNI library
+class LLMHandler(private val context: Context) {
+
+    companion object {
+        private const val TAG = "LLMHandler"
+        private const val MODEL_NAME = "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+        private const val MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
+        // TODO: Replace with actual SHA256 hash of your model
+        private const val MODEL_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+        private const val CTX_SIZE = 2048
     }
 
-    private var initialized = false
-    private lateinit var modelFile: File
-    private val executor = Executors.newSingleThreadExecutor()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val downloader = ModelDownloader(context)
+    private var isInitialized = false
 
-    // JNI functions
-    private external fun nativeInit(modelPath: String): Boolean
-    private external fun nativeGenerate(prompt: String, maxTokens: Int): String
-
-    fun isInitialized(): Boolean = initialized
-
-    /**
-     * Initialize model: downloads if needed and calls nativeInit
-     */
-    fun initialize(context: Context, onProgress: (Float) -> Unit, onComplete: (Boolean) -> Unit) {
-        executor.execute {
-            try {
-                // Set model file path in app storage
-                modelFile = File(context.filesDir, "ggml-model.bin")
-
-                // Download model if not exists
-                if (!modelFile.exists()) {
-                    val url = URL("https://your-server.com/models/ggml-model.bin") // Replace with actual hosted model
-                    url.openStream().use { input ->
-                        FileOutputStream(modelFile).use { output ->
-                            val buffer = ByteArray(8 * 1024)
-                            var bytesRead: Int
-                            var total: Long = 0
-                            val contentLength = url.openConnection().contentLengthLong
-
-                            while (input.read(buffer).also { bytesRead = it } != -1) {
-                                output.write(buffer, 0, bytesRead)
-                                total += bytesRead
-                                val progress = total.toFloat() / contentLength
-                                mainHandler.post { onProgress(progress) }
-                            }
-                        }
-                    }
-                }
-
-                // Initialize JNI model
-                initialized = nativeInit(modelFile.absolutePath)
-                mainHandler.post { onComplete(initialized) }
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-                mainHandler.post { onComplete(false) }
+    suspend fun initialize(onProgress: (Int) -> Unit = {}): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (isInitialized) {
+                Log.i(TAG, "Already initialized")
+                return@withContext true
             }
+
+            // Check if model exists, download if not
+            var modelFile = downloader.getModel(MODEL_NAME)
+            if (modelFile == null) {
+                Log.i(TAG, "Model not found, downloading...")
+                modelFile = downloader.downloadModel(
+                    modelUrl = MODEL_URL,
+                    outputName = MODEL_NAME,
+                    expectedSha256 = MODEL_SHA256,
+                    onProgress = onProgress
+                )
+            } else {
+                Log.i(TAG, "Model found at ${modelFile.absolutePath}")
+            }
+
+            // Load model into native memory
+            Log.i(TAG, "Loading model into memory...")
+            val success = LlamaBridge.initNative(modelFile.absolutePath, CTX_SIZE)
+            
+            if (success) {
+                isInitialized = true
+                Log.i(TAG, "Model loaded successfully")
+            } else {
+                Log.e(TAG, "Failed to load model")
+            }
+            
+            success
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during initialization", e)
+            false
         }
     }
 
-    fun generate(prompt: String, maxTokens: Int = 128): String {
-        if (!initialized) return "LLM not initialized"
-        return nativeGenerate(prompt, maxTokens)
+    fun infer(prompt: String, maxTokens: Int = 100): String {
+        if (!isInitialized) {
+            return "[Error: LLM not initialized]"
+        }
+        return try {
+            LlamaBridge.generateNative(prompt, maxTokens)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during inference", e)
+            "[Error: ${e.message}]"
+        }
+    }
+
+    fun close() {
+        if (isInitialized) {
+            LlamaBridge.shutdownNative()
+            isInitialized = false
+            Log.i(TAG, "Model closed")
+        }
     }
 }
