@@ -1,66 +1,67 @@
-// File: app/src/main/java/com/llmassistant/llm/LLMHandler.kt
-package com.llmassistant.llm
+package io.canccode.aca
 
+import android.content.Context
 import android.util.Log
-import io.canccode.aca.LlamaBridge
-import kotlinx.coroutines.*
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
-object LLMHandler {
-    private const val TAG = "LLMHandler"
-    private val ioScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+class LLMHandler(private val context: Context) {
 
-    var initialized = false
-        private set
+    private val TAG = "LLMHandler"
+    private val MODEL_NAME = "ggml-alpaca-7b-q4.bin"  // change to your desired GGUF
+    private val MODEL_URL = "https://huggingface.co/ccvo/alpaca-7b-q4/resolve/main/$MODEL_NAME"
 
-    /**
-     * Initialize the LLM with the model path and context size.
-     */
-    fun init(modelPath: String, nCtx: Int, onResult: (Boolean) -> Unit) {
-        ioScope.launch {
-            try {
-                val ok = LlamaBridge.initNative(modelPath, nCtx)
-                initialized = ok
-                Log.i(TAG, "LLM initialized: $ok")
-                withContext(Dispatchers.Main) { onResult(ok) }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error initializing LLM", e)
-                withContext(Dispatchers.Main) { onResult(false) }
-            }
-        }
+    private val modelDir: File by lazy {
+        File(context.filesDir, "models").also { it.mkdirs() }
+    }
+
+    private val modelFile: File by lazy {
+        File(modelDir, MODEL_NAME)
     }
 
     /**
-     * Generate text using the LLM.
+     * Ensures the model file exists locally. Downloads if missing.
      */
-    fun generate(prompt: String, maxTokens: Int, onResult: (String) -> Unit) {
-        if (!initialized) {
-            Log.w(TAG, "LLM not initialized yet")
-            onResult("")
-            return
+    fun ensureModelReady() {
+        if (!modelFile.exists()) {
+            Log.i(TAG, "Model file not found, downloading...")
+            downloadModel()
+        } else {
+            Log.i(TAG, "Model file exists: ${modelFile.absolutePath}")
         }
-        ioScope.launch {
-            try {
-                val output = LlamaBridge.generateNative(prompt, maxTokens)
-                withContext(Dispatchers.Main) { onResult(output) }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error generating output", e)
-                withContext(Dispatchers.Main) { onResult("") }
-            }
-        }
+
+        // Initialize native LLM bridge
+        LlamaBridge.initNative(modelFile.absolutePath, 512) // 512-context example
+        Log.i(TAG, "Model ready at: ${modelFile.absolutePath}")
     }
 
-    /**
-     * Shutdown the LLM.
-     */
-    fun shutdown() {
-        ioScope.launch {
-            try {
-                LlamaBridge.shutdownNative()
-                initialized = false
-                Log.i(TAG, "LLM shutdown complete")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error shutting down LLM", e)
+    private fun downloadModel() {
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL(MODEL_URL)
+            connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            connection.requestMethod = "GET"
+            connection.connect()
+
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw Exception("Server returned HTTP ${connection.responseCode} ${connection.responseMessage}")
             }
+
+            connection.inputStream.use { input ->
+                FileOutputStream(modelFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Log.i(TAG, "Model downloaded successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download model", e)
+            throw e
+        } finally {
+            connection?.disconnect()
         }
     }
 }
