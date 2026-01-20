@@ -1,8 +1,8 @@
-// File: app/src/main/java/io/canccode/aca/MainActivity.kt
 package io.canccode.aca
 
 import android.os.Bundle
-import android.util.Log
+import android.view.MotionEvent
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageView
@@ -11,14 +11,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.getSystemService
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
-
-    private val TAG = "MainActivity"
-    private lateinit var llmHandler: LLMHandler
 
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var navView: NavigationView
@@ -44,7 +38,7 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         // -----------------------------
-        // Floating menu button
+        // Floating menu button (click + drag)
         // -----------------------------
         floatingMenuButton = findViewById(R.id.floatingMenuButton)
         floatingMenuButton.setOnClickListener {
@@ -55,13 +49,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // -----------------------------
-        // Initialize LLM handler
-        // -----------------------------
-        llmHandler = LLMHandler(this)
+        enableDrag(floatingMenuButton)
 
-        // Initialize LLM asynchronously (NO permissions required)
-        initializeLLM()
+        // -----------------------------
+        // Attach LLM Fragment
+        // -----------------------------
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.llm_container, LLMFragment())
+            .commit()
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
@@ -79,14 +74,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun initializeLLM() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                Log.i(TAG, "Initializing LLM…")
-                llmHandler.ensureModelReady()
-                Log.i(TAG, "LLM initialized successfully")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize LLM", e)
+    private fun enableDrag(view: View) {
+        var dX = 0f
+        var dY = 0f
+
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dX = v.x - event.rawX
+                    dY = v.y - event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    v.animate()
+                        .x(event.rawX + dX)
+                        .y(event.rawY + dY)
+                        .setDuration(0)
+                        .start()
+                    true
+                }
+                else -> false
             }
         }
     }
