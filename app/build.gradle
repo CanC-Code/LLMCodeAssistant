@@ -1,6 +1,6 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android' // updated canonical plugin ID
+    id 'kotlin-android'
 }
 
 android {
@@ -9,16 +9,16 @@ android {
 
     defaultConfig {
         applicationId "io.canccode.aca"
-        minSdk 26 // upgraded from 24 for wider library compatibility
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-
-        // Llama.cpp requires modern ARM with FP16 support, plus wider ABI coverage
+        
+        // ARMv7 has FP16 issues with llamafile - stick to arm64-v8a
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a", "x86", "x86_64"
+            abiFilters "arm64-v8a"
         }
     }
 
@@ -30,11 +30,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-
+    
     kotlinOptions {
         jvmTarget = '17'
     }
-
+    
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
@@ -65,25 +65,27 @@ dependencies {
     implementation "androidx.core:core-ktx:1.12.0"
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.11.0"
+    
+    // Added for new features
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "androidx.drawerlayout:drawerlayout:1.2.0"
 
     // Fragments & Lifecycle
-    implementation "androidx.fragment:fragment-ktx:1.6.2"
-    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0"
-    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.7.0"
+    implementation "androidx.fragment:fragment-ktx:1.6.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.1"
 
     // RecyclerView
-    implementation "androidx.recyclerview:recyclerview:1.3.2"
-
-    // Navigation
+    implementation "androidx.recyclerview:recyclerview:1.3.0"
+    
+    // Navigation (new - for drawer)
     implementation "androidx.navigation:navigation-fragment-ktx:2.7.6"
     implementation "androidx.navigation:navigation-ui-ktx:2.7.6"
-
-    // Coroutines
+    
+    // Coroutines (new - for async operations)
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
-
-    // DocumentFile for SAF
+    
+    // DocumentFile (new - for SAF support)
     implementation "androidx.documentfile:documentfile:1.0.1"
 
     // Testing
