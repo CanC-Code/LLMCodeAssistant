@@ -28,7 +28,7 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val PREF_NAME = "model_prefs"
 
-        // Made public so MainActivity can read them
+        // Made public so MainActivity can access them
         const val KEY_MODEL_PATH = "selected_model_path"
         const val KEY_MODEL_URI = "selected_model_uri"
 
@@ -118,7 +118,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun handlePickedModel(uri: Uri) {
-        // FIXED: pass flags as IntArray (required by takePersistableUriPermission)
+        // Correct fix: flags must be IntArray, not single Int
         val flags = intArrayOf(
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -126,7 +126,7 @@ class SettingsFragment : Fragment() {
 
         requireContext().contentResolver.takePersistableUriPermission(uri, flags)
 
-        // Copy to app-private storage (llama.cpp cannot read content:// URIs directly)
+        // Copy to internal storage (recommended - llama.cpp cannot read content:// URIs)
         val destFile = File(requireContext().filesDir, "picked_model.gguf")
         try {
             requireContext().contentResolver.openInputStream(uri)?.use { input ->
@@ -138,7 +138,7 @@ class SettingsFragment : Fragment() {
             Toast.makeText(context, "Local model copied & selected", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.e("SettingsFragment", "Failed to copy picked model", e)
-            // Fallback: save URI (but won't work with llama.cpp until copied)
+            // Fallback: keep URI (but llama.cpp will fail to load it)
             saveModelUri(uri.toString())
             Toast.makeText(context, "Picked model (copy failed – may not load)", Toast.LENGTH_LONG).show()
         }
