@@ -109,6 +109,9 @@ class LLMFragment : Fragment() {
                     val msg = if (ok) "LLM Ready! Ask me anything.\n" else "LLM Init Failed\n"
                     chatOutput?.append(msg)
                     Toast.makeText(requireContext(), if (ok) "LLM Ready" else "LLM Init Failed", Toast.LENGTH_SHORT).show()
+                    
+                    // Notify MainActivity that LLM is ready
+                    (activity as? MainActivity)?.setLLMInitialized(ok)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Init error", e)
