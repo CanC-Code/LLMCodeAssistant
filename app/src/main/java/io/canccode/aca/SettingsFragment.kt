@@ -28,7 +28,7 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val PREF_NAME = "model_prefs"
 
-        // Made public
+        // Made public so MainActivity can access them
         const val KEY_MODEL_PATH = "selected_model_path"
         const val KEY_MODEL_URI = "selected_model_uri"
 
@@ -55,9 +55,9 @@ class SettingsFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
 
-        tvStatus = view.findViewById(R.id.tv_model_status)
-        progressBar = view.findViewById(R.id.progress_model)
-        btnDownload = view.findViewById(R.id.btn_download_model)
+        tvStatus     = view.findViewById(R.id.tv_model_status)
+        progressBar  = view.findViewById(R.id.progress_model)
+        btnDownload  = view.findViewById(R.id.btn_download_model)
         btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
         btnClearModel = view.findViewById(R.id.btn_clear_model)
 
@@ -65,7 +65,7 @@ class SettingsFragment : Fragment() {
 
         updateUI()
 
-        btnDownload.setOnClickListener { startDownload() }
+        btnDownload.setOnClickListener  { startDownload() }
         btnPickLocal.setOnClickListener { pickModelFile.launch("*/*") }
         btnClearModel.setOnClickListener { clearModelSelection() }
 
@@ -74,7 +74,7 @@ class SettingsFragment : Fragment() {
 
     private fun updateUI() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
-        val uri = prefs.getString(KEY_MODEL_URI, null)
+        val uri  = prefs.getString(KEY_MODEL_URI, null)
 
         when {
             path != null && File(path).exists() -> {
@@ -117,6 +117,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun handlePickedModel(uri: Uri) {
+        // Correct fix: pass flags as IntArray, not as single Int
         val flags = intArrayOf(
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -124,7 +125,7 @@ class SettingsFragment : Fragment() {
 
         requireContext().contentResolver.takePersistableUriPermission(uri, flags)
 
-        // Copy to internal storage (llama.cpp cannot read content:// directly)
+        // Copy to internal storage so llama.cpp can read it (content:// URIs not supported natively)
         val destFile = File(requireContext().filesDir, "picked_model.gguf")
         try {
             requireContext().contentResolver.openInputStream(uri)?.use { input ->
@@ -136,8 +137,9 @@ class SettingsFragment : Fragment() {
             Toast.makeText(context, "Local model copied and selected", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.e("SettingsFragment", "Failed to copy picked model", e)
-            saveModelUri(uri.toString()) // fallback
-            Toast.makeText(context, "Selected model (copy failed - may not work)", Toast.LENGTH_LONG).show()
+            // Fallback: save URI (but llama.cpp won't be able to load it until copying is fixed)
+            saveModelUri(uri.toString())
+            Toast.makeText(context, "Selected model (copy failed – may not load)", Toast.LENGTH_LONG).show()
         }
     }
 
