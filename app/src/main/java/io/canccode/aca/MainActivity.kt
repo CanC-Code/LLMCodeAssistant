@@ -1,4 +1,3 @@
-// app/src/main/java/io/canccode/aca/MainActivity.kt
 package io.canccode.aca
 
 import android.content.Intent
@@ -22,7 +21,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
 import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_PATH
-import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,15 +64,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             initDrawer()
             initFloatingButton()
             initGlobalLLM()
-            tryAutoInitLLM()           // Attempt to load whatever model was last selected
+            tryAutoInitLLM()
 
-            // Load initial fragment
             if (savedInstanceState == null) {
                 loadFragment(LLMFragment())
             }
 
             Log.d(TAG, "MainActivity onCreate complete")
-
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -83,7 +79,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun loadLastModelPath() {
         currentModelPath = prefs.getString(KEY_MODEL_PATH, null)
-            ?: prefs.getString(KEY_MODEL_URI, null)
         Log.i(TAG, "Loaded last model path: $currentModelPath")
     }
 
@@ -98,19 +93,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
             try {
-                success = if (path.startsWith("content://")) {
-                    // SAF URI — llama.cpp does NOT support content:// URIs directly
-                    // TODO: implement copy to filesDir / cacheDir here in future
-                    Log.w(TAG, "SAF content:// URI detected - not supported by llama.cpp yet. Copy not implemented.")
-                    false
+                val file = File(path)
+                if (file.exists() && file.canRead()) {
+                    success = LlamaBridge.initNative(file.absolutePath, 2048)
                 } else {
-                    val file = File(path)
-                    if (file.exists() && file.canRead()) {
-                        LlamaBridge.initNative(file.absolutePath, 2048)
-                    } else {
-                        Log.w(TAG, "Model file not found or unreadable: $path")
-                        false
-                    }
+                    Log.w(TAG, "Model file not found or unreadable: $path")
                 }
             } catch (e: Throwable) {
                 Log.e(TAG, "Model initialization failed", e)
@@ -176,7 +163,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             try {
                 val response = LlamaBridge.generateNative(prompt, 256)
                 withContext(Dispatchers.Main) {
-                    // For now just toast — later route to LLMFragment chat
                     Toast.makeText(this@MainActivity, response.take(200), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
@@ -189,18 +175,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.nav_load_project -> {
-                directoryPicker.launch(null)
-            }
-            R.id.nav_file_browser -> {
-                loadFragment(FileBrowserFragment.newInstance(projectLoader))
-            }
-            R.id.nav_llm -> {
-                loadFragment(LLMFragment())
-            }
-            R.id.nav_settings -> {
-                loadFragment(SettingsFragment())
-            }
+            R.id.nav_load_project -> directoryPicker.launch(null)
+            R.id.nav_file_browser -> loadFragment(FileBrowserFragment.newInstance(projectLoader))
+            R.id.nav_llm -> loadFragment(LLMFragment())
+            R.id.nav_settings -> loadFragment(SettingsFragment())
         }
 
         drawerLayout.closeDrawer(GravityCompat.START)
@@ -299,11 +277,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (toggle.onOptionsItemSelected(item)) {
-            true
-        } else {
-            super.onOptionsItemSelected(item)
-        }
+        return if (toggle.onOptionsItemSelected(item)) true else super.onOptionsItemSelected(item)
     }
 
     override fun onDestroy() {
