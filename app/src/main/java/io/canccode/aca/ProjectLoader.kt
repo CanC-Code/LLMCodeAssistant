@@ -18,34 +18,37 @@ data class FileNode(
 )
 
 /**
- * Loads a project using SAF and preserves full directory structure.
- *
- * IMPORTANT:
- *  - Keeps filesMap for backward compatibility
- *  - Introduces a proper tree model for UI
+ * Enhanced ProjectLoader with proper SAF support and tree structure
  */
 class ProjectLoader(private val context: Context) {
 
-    // Backward-compatible flat map (EditorFragment relies on this)
+    // Backward-compatible flat map
     private val filesMap: MutableMap<String, String> = mutableMapOf()
 
-    // New: root of the project tree
-    private lateinit var rootNode: FileNode
+    // Root of the project tree
+    private var rootNode: FileNode = FileNode("root", "", null, true)
+    
+    private var projectUri: Uri? = null
 
     /**
-     * Entry point: load an entire project from a SAF tree URI
+     * Load an entire project from a SAF tree URI
      */
     fun loadProject(treeUri: Uri) {
         filesMap.clear()
+        projectUri = treeUri
 
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
 
+        // Get root directory name
+        val rootName = getDocumentName(rootUri) ?: "Project"
+
         rootNode = FileNode(
-            name = "root",
+            name = rootName,
             path = "",
             uri = rootUri,
-            isDirectory = true
+            isDirectory = true,
+            expanded = true
         )
 
         traverseDirectory(
@@ -54,6 +57,23 @@ class ProjectLoader(private val context: Context) {
             parentNode = rootNode,
             currentPath = ""
         )
+    }
+
+    /**
+     * Get document name from URI
+     */
+    private fun getDocumentName(uri: Uri): String? {
+        return context.contentResolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(0)
+            } else null
+        }
     }
 
     /**
@@ -86,13 +106,11 @@ class ProjectLoader(private val context: Context) {
                 val name = cursor.getString(1)
                 val mime = cursor.getString(2)
 
-                val relativePath =
-                    if (currentPath.isEmpty()) name else "$currentPath/$name"
-
-                val docUri =
-                    DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                val relativePath = if (currentPath.isEmpty()) name else "$currentPath/$name"
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
 
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    // Directory node
                     val dirNode = FileNode(
                         name = name,
                         path = relativePath,
@@ -102,6 +120,7 @@ class ProjectLoader(private val context: Context) {
 
                     parentNode.children.add(dirNode)
 
+                    // Recursively load children
                     traverseDirectory(
                         treeUri = treeUri,
                         parentDocId = docId,
@@ -109,13 +128,17 @@ class ProjectLoader(private val context: Context) {
                         currentPath = relativePath
                     )
                 } else {
-                    val content =
+                    // File node
+                    val content = try {
                         context.contentResolver.openInputStream(docUri)
                             ?.bufferedReader()
                             ?.use(BufferedReader::readText)
                             ?: ""
+                    } catch (e: Exception) {
+                        ""
+                    }
 
-                    // Store flat map (legacy support)
+                    // Store in flat map for backward compatibility
                     filesMap[relativePath] = content
 
                     val fileNode = FileNode(
@@ -136,7 +159,7 @@ class ProjectLoader(private val context: Context) {
     // ------------------------------------------------------------------------
 
     /**
-     * Legacy API (used by EditorFragment)
+     * Legacy API (used by existing code)
      */
     fun getAllFiles(): Map<String, String> = filesMap
 
@@ -144,11 +167,27 @@ class ProjectLoader(private val context: Context) {
 
     fun updateFile(path: String, content: String) {
         filesMap[path] = content
-        // NOTE: writing back to SAF will be handled later
+        // Note: To persist to SAF, call writeFileToUri
+    }
+
+    /**
+     * Write content to a file URI
+     */
+    fun writeFileToUri(uri: Uri, content: String): Boolean {
+        return try {
+            context.contentResolver.openOutputStream(uri)?.use {
+                it.write(content.toByteArray())
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
      * New API: full project tree
      */
     fun getRootNode(): FileNode = rootNode
+    
+    fun getProjectUri(): Uri? = projectUri
 }
