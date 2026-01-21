@@ -227,4 +227,13 @@ class SettingsFragment : Fragment() {
         
         (activity as? MainActivity)?.onModelSelectionChanged()
     }
+
+    fun onModelInitComplete(success: Boolean) {
+        progressBar.visibility = View.GONE
+        updateStatusText()
+        
+        if (success) {
+            Toast.makeText(requireContext(), "Model ready to use!", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
