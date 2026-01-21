@@ -194,7 +194,9 @@ class SettingsFragment : Fragment() {
 
                 withContext(Dispatchers.Main) {
                     saveModelPath(destFile.absolutePath)
-                    Toast.makeText(context, "Model copied and selected", Toast.LENGTH_SHORT).show()
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.isIndeterminate = true
+                    Toast.makeText(context, "Model copied, initializing...", Toast.LENGTH_SHORT).show()
                 }
                 
             } catch (e: Exception) {
