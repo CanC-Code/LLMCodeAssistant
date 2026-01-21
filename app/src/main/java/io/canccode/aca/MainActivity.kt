@@ -1,5 +1,7 @@
+// Updated app/src/main/java/io/canccode/aca/MainActivity.kt
 package io.canccode.aca
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -19,6 +21,7 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
 import androidx.fragment.app.Fragment
+import com.llmassistant.utils.ModelDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,6 +59,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             initDrawer()
             initFloatingButton()
             initGlobalLLM()
+            initLLM()  // New: Initialize LLM with download if needed
             
             // Load initial fragment
             if (savedInstanceState == null) {
@@ -119,6 +123,68 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             Log.d(TAG, "Global LLM interface initialized")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing global LLM", e)
+        }
+    }
+
+    // New: Initialize LLM, download model if not present
+    private fun initLLM() {
+        val downloader = ModelDownloader(this)
+        val filename = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+        val modelFile = downloader.getModel(filename)
+
+        if (modelFile != null) {
+            val success = LlamaBridge.initNative(modelFile.absolutePath, 512)  // 512 context size
+            if (success) {
+                setLLMInitialized(true)
+                Toast.makeText(this, "LLM initialized successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Failed to initialize LLM", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            // Prompt user to download ~4GB model
+            AlertDialog.Builder(this)
+                .setTitle("Download LLM Model")
+                .setMessage("The app needs to download a 4.37 GB AI model to enable on-device LLM features. This will run entirely offline after download. Proceed?")
+                .setPositiveButton("Yes") { _, _ ->
+                    downloadModel(downloader, filename)
+                }
+                .setNegativeButton("No") { _, _ ->
+                    Toast.makeText(this, "LLM features disabled", Toast.LENGTH_SHORT).show()
+                }
+                .show()
+        }
+    }
+
+    // New: Download the model in background
+    private fun downloadModel(downloader: ModelDownloader, filename: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val url = "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+                val expectedSha = "3e0039fd0273fcbebb49228943b17831aadd55cbcbf56f0af00499be2040ccf9"
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Starting model download...", Toast.LENGTH_LONG).show()
+                }
+
+                downloader.downloadModel(
+                    modelUrl = url,
+                    filename = filename,
+                    expectedSha256 = expectedSha,
+                    onProgress = { progress ->
+                        // Optional: Update UI progress here if you add a ProgressBar
+                        Log.d(TAG, "Download progress: $progress%")
+                    }
+                )
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Model downloaded successfully", Toast.LENGTH_LONG).show()
+                    initLLM()  // Retry initialization after download
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -270,6 +336,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runOnUiThread {
             llmSendGlobal.isEnabled = initialized
             llmInputGlobal.isEnabled = initialized
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (llmInitialized) {
+            LlamaBridge.shutdownNative()
         }
     }
 }
