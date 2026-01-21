@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="LLM Model Management"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:paddingBottom="16dp"/>
+
+    <TextView
+        android:id="@+id/tv_model_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No model selected"
+        android:padding="12dp"
+        android:background="#EEEEEE"
+        android:layout_marginBottom="16dp"/>
+
+    <ProgressBar
+        android:id="@+id/progress_model"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:visibility="gone"
+        android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/btn_download_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Download Default Model (~4.1 GB)"
+        android:layout_marginBottom="12dp"/>
+
+    <Button
+        android:id="@+id/btn_pick_local_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Pick Existing GGUF File"
+        android:layout_marginBottom="12dp"/>
+
+    <Button
+        android:id="@+id/btn_clear_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Clear Model Selection"
+        android:textColor="#B00020"/>
+
+</LinearLayout>
