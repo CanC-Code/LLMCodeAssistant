@@ -1,4 +1,3 @@
-// app/src/main/java/io/canccode/aca/SettingsFragment.kt
 package io.canccode.aca
 
 import android.content.Context
@@ -30,7 +29,6 @@ class SettingsFragment : Fragment() {
         private const val PREF_NAME = "model_prefs"
         const val KEY_MODEL_PATH = "selected_model_path"
 
-        // Default remote model
         private const val DEFAULT_MODEL_NAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
         private const val DEFAULT_MODEL_URL =
             "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
@@ -125,9 +123,11 @@ class SettingsFragment : Fragment() {
                     }
                 } ?: throw IllegalStateException("Cannot open input stream from URI")
 
-                // Persist read permission (copy already done, write not needed long-term)
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
+                // Correct flags usage - single Int value
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
 
                 withContext(Dispatchers.Main) {
                     saveModelPath(destFile.absolutePath)
