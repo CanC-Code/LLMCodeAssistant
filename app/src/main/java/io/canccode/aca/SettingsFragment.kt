@@ -1,7 +1,7 @@
-// app/src/main/java/io/canccode/aca/SettingsFragment.kt
 package io.canccode.aca
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.llmassistant.utils.ModelDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,12 +25,15 @@ class SettingsFragment : Fragment() {
 
     companion object {
         private const val PREF_NAME = "model_prefs"
-        private const val KEY_MODEL_PATH = "selected_model_path"
-        private const val KEY_MODEL_URI = "selected_model_uri"         // for SAF-picked files
 
-        // Default remote model (you can make this configurable later)
+        // Made public so MainActivity can read them
+        const val KEY_MODEL_PATH = "selected_model_path"
+        const val KEY_MODEL_URI = "selected_model_uri"
+
+        // Default remote model
         const val DEFAULT_MODEL_NAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-        const val DEFAULT_MODEL_URL = "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+        const val DEFAULT_MODEL_URL =
+            "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
     }
 
     private lateinit var prefs: SharedPreferences
@@ -50,9 +54,9 @@ class SettingsFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
 
-        tvStatus     = view.findViewById(R.id.tv_model_status)
-        progressBar  = view.findViewById(R.id.progress_model)
-        btnDownload  = view.findViewById(R.id.btn_download_model)
+        tvStatus = view.findViewById(R.id.tv_model_status)
+        progressBar = view.findViewById(R.id.progress_model)
+        btnDownload = view.findViewById(R.id.btn_download_model)
         btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
         btnClearModel = view.findViewById(R.id.btn_clear_model)
 
@@ -60,7 +64,7 @@ class SettingsFragment : Fragment() {
 
         updateUI()
 
-        btnDownload.setOnClickListener  { startDownload() }
+        btnDownload.setOnClickListener { startDownload() }
         btnPickLocal.setOnClickListener { pickModelFile.launch("*/*") }
         btnClearModel.setOnClickListener { clearModelSelection() }
 
@@ -69,7 +73,7 @@ class SettingsFragment : Fragment() {
 
     private fun updateUI() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
-        val uri  = prefs.getString(KEY_MODEL_URI, null)
+        val uri = prefs.getString(KEY_MODEL_URI, null)
 
         when {
             path != null && File(path).exists() -> {
@@ -114,7 +118,7 @@ class SettingsFragment : Fragment() {
     private fun handlePickedModel(uri: Uri) {
         requireContext().contentResolver.takePersistableUriPermission(
             uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
 
         saveModelUri(uri.toString())
@@ -133,8 +137,8 @@ class SettingsFragment : Fragment() {
                 val file = downloader.downloadModel(
                     modelUrl = DEFAULT_MODEL_URL,
                     filename = DEFAULT_MODEL_NAME,
-                    expectedSha256 = null,          // ← add real hash if you have it
-                    onProgress = { pct ->
+                    expectedSha256 = null,
+                    onProgress = { pct: Int ->
                         lifecycleScope.launch(Dispatchers.Main) {
                             progressBar.progress = pct
                             tvStatus.text = "Downloading… $pct%"
