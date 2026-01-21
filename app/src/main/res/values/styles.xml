@@ -1,22 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    File: styles.xml
-    Purpose: Application themes and widget styling
--->
 <resources>
 
-    <!-- Base application theme -->
-    <style name="Theme.LLMCodeAssistant" parent="Theme.Material3.DayNight.NoActionBar">
+    <!-- Base application theme - Use AppCompat, NOT Material3 -->
+    <style name="Theme.LLMCodeAssistant" parent="Theme.AppCompat.Light.DarkActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorOnPrimary">@color/colorOnPrimary</item>
-
-        <item name="colorSecondary">@color/colorSecondary</item>
-        <item name="colorOnSecondary">@color/colorOnSecondary</item>
-
-        <!-- Use our custom app attribute -->
-        <item name="colorBackground">@color/colorBackground</item>
-        <item name="colorSurface">@color/colorSurface</item>
-
+        <item name="colorPrimaryDark">@color/colorPrimaryVariant</item>
+        <item name="colorAccent">@color/colorSecondary</item>
+        
         <item name="android:statusBarColor">@color/colorPrimaryVariant</item>
     </style>
 
