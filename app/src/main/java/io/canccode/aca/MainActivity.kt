@@ -289,6 +289,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     fun getProjectLoader(): ProjectLoader = projectLoader
+    
+    fun isLLMReady(): Boolean = llmInitialized
 
     private fun enableDragAndClick(view: View) {
         var dX = 0f
