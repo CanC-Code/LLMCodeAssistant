@@ -1,3 +1,4 @@
+// app/src/main/java/io/canccode/aca/SettingsFragment.kt
 package io.canccode.aca
 
 import android.content.Context
@@ -5,6 +6,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,11 +28,10 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val PREF_NAME = "model_prefs"
 
-        // Made public so MainActivity can read them
+        // Made public
         const val KEY_MODEL_PATH = "selected_model_path"
         const val KEY_MODEL_URI = "selected_model_uri"
 
-        // Default remote model
         const val DEFAULT_MODEL_NAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
         const val DEFAULT_MODEL_URL =
             "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
@@ -116,13 +117,28 @@ class SettingsFragment : Fragment() {
     }
 
     private fun handlePickedModel(uri: Uri) {
-        requireContext().contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val flags = intArrayOf(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
 
-        saveModelUri(uri.toString())
-        Toast.makeText(context, "Local model selected", Toast.LENGTH_SHORT).show()
+        requireContext().contentResolver.takePersistableUriPermission(uri, flags)
+
+        // Copy to internal storage (llama.cpp cannot read content:// directly)
+        val destFile = File(requireContext().filesDir, "picked_model.gguf")
+        try {
+            requireContext().contentResolver.openInputStream(uri)?.use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            saveModelPath(destFile.absolutePath)
+            Toast.makeText(context, "Local model copied and selected", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e("SettingsFragment", "Failed to copy picked model", e)
+            saveModelUri(uri.toString()) // fallback
+            Toast.makeText(context, "Selected model (copy failed - may not work)", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun startDownload() {
