@@ -1,26 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+
     <group android:checkableBehavior="single">
-        
+
         <item
             android:id="@+id/nav_load_project"
             android:icon="@android:drawable/ic_menu_upload"
             android:title="Load Project (SAF)" />
-        
+
         <item
             android:id="@+id/nav_file_browser"
             android:icon="@android:drawable/ic_menu_manage"
             android:title="File Browser" />
-        
+
         <item
             android:id="@+id/nav_llm"
             android:icon="@android:drawable/ic_menu_info_details"
             android:title="LLM Chat" />
-        
+
         <item
             android:id="@+id/nav_settings"
             android:icon="@android:drawable/ic_menu_preferences"
-            android:title="Settings" />
-            
+            android:title="Settings & Model" />
+
     </group>
+
 </menu>
