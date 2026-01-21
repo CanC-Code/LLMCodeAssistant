@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -64,11 +65,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             initDrawer()
             initFloatingButton()
             initGlobalLLM()
-            tryAutoInitLLM()
 
             if (savedInstanceState == null) {
                 loadFragment(LLMFragment())
             }
+
+            // Auto-init LLM if model path exists
+            tryAutoInitLLM()
 
             Log.d(TAG, "MainActivity onCreate complete")
         } catch (e: Exception) {
@@ -83,36 +86,93 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     fun onModelSelectionChanged() {
+        Log.d(TAG, "Model selection changed, reloading...")
         loadLastModelPath()
         tryAutoInitLLM()
     }
 
     private fun tryAutoInitLLM() {
-        val path = currentModelPath ?: return
+        val path = currentModelPath
+        
+        if (path.isNullOrEmpty()) {
+            Log.i(TAG, "No model path configured")
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    "No model selected. Go to Settings to choose a model.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
+
+        Log.i(TAG, "Attempting to initialize model: $path")
+        
+        runOnUiThread {
+            Toast.makeText(this, "Initializing model...", Toast.LENGTH_SHORT).show()
+        }
 
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
+            var errorMsg: String? = null
+            
             try {
                 val file = File(path)
-                if (file.exists() && file.canRead()) {
-                    success = LlamaBridge.initNative(file.absolutePath, 2048)
+                
+                if (!file.exists()) {
+                    errorMsg = "Model file not found:\n${file.name}"
+                    Log.e(TAG, "Model file does not exist: $path")
+                } else if (!file.canRead()) {
+                    errorMsg = "Cannot read model file:\n${file.name}"
+                    Log.e(TAG, "Cannot read model file: $path")
                 } else {
-                    Log.w(TAG, "Model file not found or unreadable: $path")
+                    Log.i(TAG, "Loading model from: ${file.absolutePath}")
+                    Log.i(TAG, "Model file size: ${file.length() / (1024 * 1024)}MB")
+                    
+                    // Shutdown any existing model first
+                    try {
+                        LlamaBridge.shutdownNative()
+                        Log.d(TAG, "Shut down previous model instance")
+                    } catch (e: Exception) {
+                        Log.d(TAG, "No previous model to shutdown")
+                    }
+                    
+                    success = LlamaBridge.initNative(file.absolutePath, 2048)
+                    
+                    if (success) {
+                        Log.i(TAG, "Model initialized successfully!")
+                    } else {
+                        errorMsg = "Model initialization failed (returned false)"
+                        Log.e(TAG, errorMsg)
+                    }
                 }
             } catch (e: Throwable) {
+                errorMsg = "Model initialization error: ${e.message}"
                 Log.e(TAG, "Model initialization failed", e)
             }
 
             withContext(Dispatchers.Main) {
                 setLLMInitialized(success)
+                
                 if (success) {
-                    Toast.makeText(this@MainActivity, "Model loaded successfully", Toast.LENGTH_SHORT).show()
-                } else if (!path.isNullOrEmpty()) {
                     Toast.makeText(
                         this@MainActivity,
-                        "Failed to load model:\n$path",
+                        "✓ Model loaded successfully!",
                         Toast.LENGTH_LONG
                     ).show()
+                    
+                    // Hide progress bar in SettingsFragment if visible
+                    val settingsFragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment
+                    settingsFragment?.onModelInitComplete(true)
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "✗ Failed to load model\n${errorMsg ?: "Unknown error"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    
+                    val settingsFragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment
+                    settingsFragment?.onModelInitComplete(false)
                 }
             }
         }
@@ -155,7 +215,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "LLM not initialized yet", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "LLM not initialized. Load a model in Settings first.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -219,6 +279,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runOnUiThread {
             llmSendGlobal.isEnabled = initialized
             llmInputGlobal.isEnabled = initialized
+            
+            if (initialized) {
+                llmInputGlobal.hint = "Ask LLM..."
+            } else {
+                llmInputGlobal.hint = "No model loaded - go to Settings"
+            }
         }
     }
 
