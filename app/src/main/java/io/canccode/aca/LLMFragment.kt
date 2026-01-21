@@ -14,18 +14,10 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.net.URL
 
 class LLMFragment : Fragment() {
 
     private val TAG = "LLMFragment"
-    
-    private val modelUrl =
-        "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-    private val modelFileName = "tinyllama-1.1b-chat.Q4_K_M.gguf"
-
-    private var initialized = false
 
     private var chatOutput: TextView? = null
     private var inputBox: EditText? = null
@@ -64,9 +56,13 @@ class LLMFragment : Fragment() {
                 }
             }
 
-            chatOutput?.text = "LLM Fragment loaded. Initializing model...\n"
-            
-            initializeLLM()
+            // Check if model is loaded
+            val mainActivity = activity as? MainActivity
+            if (mainActivity?.isLLMReady() == true) {
+                chatOutput?.text = "LLM Ready! Ask me anything.\n"
+            } else {
+                chatOutput?.text = "No model loaded.\n\nGo to Settings → Pick Existing GGUF File to select your model.\n"
+            }
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in onViewCreated", e)
@@ -74,74 +70,26 @@ class LLMFragment : Fragment() {
         }
     }
 
-    private fun initializeLLM() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val modelDir = File(requireContext().filesDir, "models")
-                if (!modelDir.exists()) modelDir.mkdirs()
-
-                val modelFile = File(modelDir, modelFileName)
-
-                if (!modelFile.exists()) {
-                    withContext(Dispatchers.Main) {
-                        chatOutput?.append("Downloading model...\n")
-                    }
-                    
-                    try {
-                        downloadModel(modelFile)
-                        withContext(Dispatchers.Main) {
-                            chatOutput?.append("Model downloaded!\n")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Download failed", e)
-                        withContext(Dispatchers.Main) {
-                            chatOutput?.append("Download failed: ${e.message}\n")
-                            Toast.makeText(requireContext(), "Failed to download model", Toast.LENGTH_LONG).show()
-                        }
-                        return@launch
-                    }
-                }
-
-                val ok = LlamaBridge.initNative(modelFile.absolutePath, 2048)
-                initialized = ok
-
-                withContext(Dispatchers.Main) {
-                    val msg = if (ok) "LLM Ready! Ask me anything.\n" else "LLM Init Failed\n"
-                    chatOutput?.append(msg)
-                    Toast.makeText(requireContext(), if (ok) "LLM Ready" else "LLM Init Failed", Toast.LENGTH_SHORT).show()
-                    
-                    // Notify MainActivity that LLM is ready
-                    (activity as? MainActivity)?.setLLMInitialized(ok)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Init error", e)
-                withContext(Dispatchers.Main) {
-                    chatOutput?.append("Init error: ${e.message}\n")
-                }
-            }
-        }
-    }
-
-    private fun downloadModel(dest: File) {
-        URL(modelUrl).openStream().use { input ->
-            dest.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-    }
-
     private fun generateAndDisplay(prompt: String) {
+        val mainActivity = activity as? MainActivity
+        
+        if (mainActivity?.isLLMReady() != true) {
+            chatOutput?.append("\n❌ Model not loaded. Go to Settings to select a model.\n")
+            return
+        }
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = if (initialized) {
-                    LlamaBridge.generateNative(prompt, 256)
-                } else {
-                    "[model not initialized]"
+                chatOutput?.let { output ->
+                    withContext(Dispatchers.Main) {
+                        output.append("\n> $prompt\n")
+                    }
                 }
+                
+                val response = LlamaBridge.generateNative(prompt, 256)
 
                 withContext(Dispatchers.Main) {
-                    chatOutput?.append("\n> $prompt\n$response\n")
-                    // Scroll to bottom
+                    chatOutput?.append("$response\n")
                     chatOutput?.let { textView ->
                         textView.scrollTo(0, textView.bottom)
                     }
@@ -149,21 +97,9 @@ class LLMFragment : Fragment() {
             } catch (e: Exception) {
                 Log.e(TAG, "Generation error", e)
                 withContext(Dispatchers.Main) {
-                    chatOutput?.append("\nError: ${e.message}\n")
+                    chatOutput?.append("\n❌ Error: ${e.message}\n")
                 }
             }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        try {
-            if (initialized) {
-                LlamaBridge.shutdownNative()
-                initialized = false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in onDestroy", e)
         }
     }
 }
