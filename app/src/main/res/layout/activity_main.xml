@@ -6,63 +6,41 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Main content container -->
+    <!-- Main Content -->
     <FrameLayout
-        android:id="@+id/main_content"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/colorBackground">
+        android:layout_height="match_parent">
 
-        <!-- Editor / mode fragments -->
+        <!-- Fragment Container -->
         <FrameLayout
             android:id="@+id/fragment_container"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_marginBottom="200dp" /> <!-- leave space for LLM panel -->
+            android:layout_height="match_parent" />
 
-        <!-- LLM bottom panel -->
-        <FrameLayout
-            android:id="@+id/llm_container"
-            android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom"
-            android:background="@color/colorSurface"
-            android:elevation="4dp"/>
-
-        <!-- Floating menu button -->
+        <!-- Floating Menu Button -->
         <ImageView
             android:id="@+id/floatingMenuButton"
             android:layout_width="56dp"
             android:layout_height="56dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="16dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="16dp"
+            android:src="@android:drawable/ic_menu_sort_by_size"
+            android:background="@android:drawable/dialog_holo_dark_frame"
+            android:padding="12dp"
+            android:elevation="8dp"
             android:contentDescription="Menu"
             android:clickable="true"
-            android:focusable="true"
-            android:elevation="8dp"
-            android:src="@drawable/ic_dynamic_menu"
-            android:background="?attr/selectableItemBackgroundBorderless"/>
-
-        <!-- LLM progress bar -->
-        <ProgressBar
-            android:id="@+id/llm_progress_bar"
-            style="@android:style/Widget.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="8dp"
-            android:layout_gravity="bottom"
-            android:max="100"
-            android:progress="0"
-            android:visibility="gone"/> <!-- hidden until model loads -->
+            android:focusable="true" />
 
     </FrameLayout>
 
-    <!-- Navigation drawer -->
+    <!-- Navigation Drawer -->
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/nav_view"
-        android:layout_width="240dp"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:fitsSystemWindows="true"
-        app:menu="@menu/drawer_menu"/>
+        app:menu="@menu/drawer_menu"
+        app:headerLayout="@layout/nav_header" />
 
 </androidx.drawerlayout.widget.DrawerLayout>
