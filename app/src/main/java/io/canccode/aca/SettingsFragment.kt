@@ -26,16 +26,11 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val TAG = "SettingsFragment"
         const val KEY_MODEL_PATH = "model_path"
-        
-        private const val DEFAULT_MODEL_URL = 
-            "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-        private const val DEFAULT_MODEL_NAME = "tinyllama-1.1b-chat.Q4_K_M.gguf"
     }
 
     private lateinit var prefs: SharedPreferences
     private lateinit var tvStatus: TextView
     private lateinit var progressBar: ProgressBar
-    private lateinit var btnDownload: Button
     private lateinit var btnPickLocal: Button
     private lateinit var btnClear: Button
 
@@ -60,15 +55,10 @@ class SettingsFragment : Fragment() {
 
         tvStatus = view.findViewById(R.id.tv_model_status)
         progressBar = view.findViewById(R.id.progress_model)
-        btnDownload = view.findViewById(R.id.btn_download_model)
         btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
         btnClear = view.findViewById(R.id.btn_clear_model)
 
         updateStatusText()
-
-        btnDownload.setOnClickListener {
-            downloadDefaultModel()
-        }
 
         btnPickLocal.setOnClickListener {
             pickModelLauncher.launch(arrayOf("*/*"))
