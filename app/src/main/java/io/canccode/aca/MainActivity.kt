@@ -7,15 +7,22 @@ import android.util.Log
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
-import android.widget.ImageView
+import android.widget.Button
+import android.widget.EditText
+import android:widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
 import androidx.fragment.app.Fragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
@@ -26,8 +33,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var navView: NavigationView
     private lateinit var toggle: ActionBarDrawerToggle
     private lateinit var floatingMenuButton: ImageView
+    private lateinit var llmInputGlobal: EditText
+    private lateinit var llmSendGlobal: Button
     
     private val projectLoader = ProjectLoader(this)
+    private var llmInitialized = false
     
     // SAF directory picker
     private val directoryPicker = registerForActivityResult(
@@ -43,15 +53,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             Log.d(TAG, "Setting content view")
             setContentView(R.layout.activity_main)
             
-            Log.d(TAG, "Initializing drawer")
             initDrawer()
-            
-            Log.d(TAG, "Initializing floating button")
             initFloatingButton()
+            initGlobalLLM()
             
             // Load initial fragment
             if (savedInstanceState == null) {
-                Log.d(TAG, "Loading initial fragment")
                 loadFragment(LLMFragment())
             }
             
@@ -83,7 +90,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             Log.d(TAG, "Drawer initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing drawer", e)
-            Toast.makeText(this, "Drawer error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -91,9 +97,48 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         try {
             floatingMenuButton = findViewById(R.id.floatingMenuButton)
             enableDragAndClick(floatingMenuButton)
-            Log.d(TAG, "Floating button initialized successfully")
+            Log.d(TAG, "Floating button initialized")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing floating button", e)
+        }
+    }
+
+    private fun initGlobalLLM() {
+        try {
+            llmInputGlobal = findViewById(R.id.llm_input_global)
+            llmSendGlobal = findViewById(R.id.llm_send_global)
+            
+            llmSendGlobal.setOnClickListener {
+                val prompt = llmInputGlobal.text.toString().trim()
+                if (prompt.isNotEmpty()) {
+                    sendToLLM(prompt)
+                    llmInputGlobal.text.clear()
+                }
+            }
+            
+            Log.d(TAG, "Global LLM interface initialized")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing global LLM", e)
+        }
+    }
+
+    private fun sendToLLM(prompt: String) {
+        if (!llmInitialized) {
+            Toast.makeText(this, "LLM not initialized yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val response = LlamaBridge.generateNative(prompt, 256)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, response, Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -117,14 +162,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             drawerLayout.closeDrawer(GravityCompat.START)
         } catch (e: Exception) {
             Log.e(TAG, "Error in navigation", e)
-            Toast.makeText(this, "Navigation error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
         return true
     }
 
     private fun handleProjectLoad(treeUri: Uri) {
         try {
-            // Persist permissions
             contentResolver.takePersistableUriPermission(
                 treeUri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -136,19 +179,17 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 try {
                     projectLoader.loadProject(treeUri)
                     runOnUiThread {
-                        Toast.makeText(this, "Project loaded successfully", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
                         loadFragment(FileBrowserFragment.newInstance(projectLoader))
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error loading project", e)
                     runOnUiThread {
-                        Toast.makeText(this, "Error loading project: ${e.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }.start()
         } catch (e: Exception) {
-            Log.e(TAG, "Error handling project load", e)
-            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e(TAG, "Error loading project", e)
         }
     }
 
@@ -157,31 +198,20 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, fragment)
                 .commit()
-            Log.d(TAG, "Fragment loaded: ${fragment.javaClass.simpleName}")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading fragment", e)
-            Toast.makeText(this, "Fragment error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
-        try {
-            toggle.syncState()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in onPostCreate", e)
-        }
+        toggle.syncState()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return try {
-            if (toggle.onOptionsItemSelected(item)) {
-                true
-            } else {
-                super.onOptionsItemSelected(item)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in options menu", e)
+        return if (toggle.onOptionsItemSelected(item)) {
+            true
+        } else {
             super.onOptionsItemSelected(item)
         }
     }
@@ -194,52 +224,52 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         var isDragging = false
 
         view.setOnTouchListener { v, event ->
-            try {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        dX = v.x - event.rawX
-                        dY = v.y - event.rawY
-                        downX = event.rawX
-                        downY = event.rawY
-                        isDragging = false
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val deltaX = abs(event.rawX - downX)
-                        val deltaY = abs(event.rawY - downY)
-                        
-                        // If moved more than 10px, it's a drag
-                        if (deltaX > 10 || deltaY > 10) {
-                            isDragging = true
-                            v.animate()
-                                .x(event.rawX + dX)
-                                .y(event.rawY + dY)
-                                .setDuration(0)
-                                .start()
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isDragging) {
-                            // It was a click, not a drag
-                            Log.d(TAG, "Floating button clicked")
-                            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                                drawerLayout.closeDrawer(GravityCompat.START)
-                            } else {
-                                drawerLayout.openDrawer(GravityCompat.START)
-                            }
-                            v.performClick()
-                        }
-                        true
-                    }
-                    else -> false
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    dX = v.x - event.rawX
+                    dY = v.y - event.rawY
+                    downX = event.rawX
+                    downY = event.rawY
+                    isDragging = false
+                    true
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in drag handler", e)
-                false
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = abs(event.rawX - downX)
+                    val deltaY = abs(event.rawY - downY)
+                    
+                    if (deltaX > 10 || deltaY > 10) {
+                        isDragging = true
+                        v.animate()
+                            .x(event.rawX + dX)
+                            .y(event.rawY + dY)
+                            .setDuration(0)
+                            .start()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging) {
+                        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                            drawerLayout.closeDrawer(GravityCompat.START)
+                        } else {
+                            drawerLayout.openDrawer(GravityCompat.START)
+                        }
+                        v.performClick()
+                    }
+                    true
+                }
+                else -> false
             }
         }
     }
 
     fun getProjectLoader(): ProjectLoader = projectLoader
+    
+    fun setLLMInitialized(initialized: Boolean) {
+        llmInitialized = initialized
+        runOnUiThread {
+            llmSendGlobal.isEnabled = initialized
+            llmInputGlobal.isEnabled = initialized
+        }
+    }
 }
