@@ -117,7 +117,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun handlePickedModel(uri: Uri) {
-        // Correct fix: pass flags as IntArray, not as single Int
+        // Correct: pass flags as IntArray (not single Int)
         val flags = intArrayOf(
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -125,7 +125,7 @@ class SettingsFragment : Fragment() {
 
         requireContext().contentResolver.takePersistableUriPermission(uri, flags)
 
-        // Copy to internal storage so llama.cpp can read it (content:// URIs not supported natively)
+        // Copy file to app-private directory (llama.cpp cannot read content:// URIs)
         val destFile = File(requireContext().filesDir, "picked_model.gguf")
         try {
             requireContext().contentResolver.openInputStream(uri)?.use { input ->
@@ -134,12 +134,12 @@ class SettingsFragment : Fragment() {
                 }
             }
             saveModelPath(destFile.absolutePath)
-            Toast.makeText(context, "Local model copied and selected", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Local model copied & selected", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.e("SettingsFragment", "Failed to copy picked model", e)
-            // Fallback: save URI (but llama.cpp won't be able to load it until copying is fixed)
+            // Fallback: save URI (but llama.cpp won't load it)
             saveModelUri(uri.toString())
-            Toast.makeText(context, "Selected model (copy failed – may not load)", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Picked model (copy failed – may not load)", Toast.LENGTH_LONG).show()
         }
     }
 
