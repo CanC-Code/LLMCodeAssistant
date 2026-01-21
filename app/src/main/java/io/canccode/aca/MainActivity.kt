@@ -1,7 +1,6 @@
 // app/src/main/java/io/canccode/aca/MainActivity.kt
 package io.canccode.aca
 
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
@@ -22,7 +21,6 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
-import com.llmassistant.utils.ModelDownloader
 import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_PATH
 import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_URI
 import kotlinx.coroutines.Dispatchers
@@ -101,28 +99,33 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             var success = false
             try {
                 success = if (path.startsWith("content://")) {
-                    // SAF URI — note: llama.cpp probably needs a real file path
-                    // For real usage you should copy to cacheDir first
-                    LlamaBridge.initNative(path, 2048)
+                    // SAF URI — llama.cpp does NOT support content:// URIs directly
+                    // TODO: implement copy to filesDir / cacheDir here in future
+                    Log.w(TAG, "SAF content:// URI detected - not supported by llama.cpp yet. Copy not implemented.")
+                    false
                 } else {
                     val file = File(path)
                     if (file.exists() && file.canRead()) {
                         LlamaBridge.initNative(file.absolutePath, 2048)
                     } else {
+                        Log.w(TAG, "Model file not found or unreadable: $path")
                         false
                     }
                 }
             } catch (e: Throwable) {
-                Log.e(TAG, "Model init failed", e)
+                Log.e(TAG, "Model initialization failed", e)
             }
 
             withContext(Dispatchers.Main) {
                 setLLMInitialized(success)
                 if (success) {
                     Toast.makeText(this@MainActivity, "Model loaded successfully", Toast.LENGTH_SHORT).show()
-                } else if (path.isNotEmpty()) {
-                    Toast.makeText(this@MainActivity,
-                        "Failed to load model:\n$path", Toast.LENGTH_LONG).show()
+                } else if (!path.isNullOrEmpty()) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Failed to load model:\n$path",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -173,7 +176,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             try {
                 val response = LlamaBridge.generateNative(prompt, 256)
                 withContext(Dispatchers.Main) {
-                    // For now just toast — you might want to show in LLMFragment instead
+                    // For now just toast — later route to LLMFragment chat
                     Toast.makeText(this@MainActivity, response.take(200), Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
