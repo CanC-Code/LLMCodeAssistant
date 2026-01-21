@@ -21,7 +21,7 @@
         <item
             android:id="@+id/nav_settings"
             android:icon="@android:drawable/ic_menu_preferences"
-            android:title="Settings & Model" />
+            android:title="Settings &amp; Model" />
 
     </group>
 
