@@ -169,34 +169,42 @@ class SettingsFragment : Fragment() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val context = requireContext()
-                val filename = uri.lastPathSegment?.substringAfterLast("/") ?: "picked_model.gguf"
                 
-                if (!filename.lowercase().endsWith(".gguf")) {
+                // Get the real file path from URI
+                val realPath = getRealPathFromURI(uri)
+                
+                if (realPath == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Cannot access file path. Please select a file from device storage.", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                
+                val file = File(realPath)
+                
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "File not found: ${file.name}", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+                
+                if (!file.name.lowercase().endsWith(".gguf")) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Please select a .gguf model file", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
 
-                val destFile = File(context.filesDir, filename)
-
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                } ?: throw IllegalStateException("Cannot open input stream from URI")
-
-                // Take persistable URI permission
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
+                Log.i(TAG, "Selected model: ${file.absolutePath}")
+                Log.i(TAG, "Model size: ${file.length() / (1024 * 1024)}MB")
 
                 withContext(Dispatchers.Main) {
-                    saveModelPath(destFile.absolutePath)
+                    // Use the file directly - no copying
+                    saveModelPath(file.absolutePath)
                     progressBar.visibility = View.VISIBLE
                     progressBar.isIndeterminate = true
-                    Toast.makeText(context, "Model copied, initializing...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Model selected, initializing...", Toast.LENGTH_SHORT).show()
                 }
                 
             } catch (e: Exception) {
@@ -204,11 +212,43 @@ class SettingsFragment : Fragment() {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         requireContext(), 
-                        "Error copying model: ${e.localizedMessage ?: "Unknown error"}", 
+                        "Error selecting model: ${e.localizedMessage ?: "Unknown error"}", 
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
+        }
+    }
+
+    private fun getRealPathFromURI(uri: Uri): String? {
+        return try {
+            // Try to get the path directly from the URI
+            if (uri.scheme == "file") {
+                uri.path
+            } else if (uri.scheme == "content") {
+                // Query the content provider for the real path
+                val cursor = requireContext().contentResolver.query(
+                    uri,
+                    arrayOf(android.provider.MediaStore.Images.Media.DATA),
+                    null,
+                    null,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val columnIndex = it.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DATA)
+                        it.getString(columnIndex)
+                    } else {
+                        // Fallback: try to extract path from URI
+                        uri.path
+                    }
+                } ?: uri.path
+            } else {
+                uri.path
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting real path from URI", e)
+            null
         }
     }
 
