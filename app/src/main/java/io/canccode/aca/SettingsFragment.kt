@@ -1,6 +1,5 @@
 package io.canccode.aca
 
-import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
@@ -19,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 
 class SettingsFragment : Fragment() {
 
@@ -80,77 +78,6 @@ class SettingsFragment : Fragment() {
                 tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB\nPath: $path"
             } else {
                 tvStatus.text = "Model path set but file not found:\n$path"
-            }
-        }
-    }
-
-    private fun downloadDefaultModel() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.VISIBLE
-                    progressBar.progress = 0
-                    btnDownload.isEnabled = false
-                }
-
-                val destFile = File(requireContext().filesDir, DEFAULT_MODEL_NAME)
-
-                if (destFile.exists()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(requireContext(), "Model already exists", Toast.LENGTH_SHORT).show()
-                        saveModelPath(destFile.absolutePath)
-                        progressBar.visibility = View.GONE
-                        btnDownload.isEnabled = true
-                    }
-                    return@launch
-                }
-
-                val url = java.net.URL(DEFAULT_MODEL_URL)
-                val connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15000
-                connection.readTimeout = 60000
-                connection.connect()
-
-                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                    throw RuntimeException("HTTP ${connection.responseCode}")
-                }
-
-                val contentLength = connection.contentLength
-                var downloaded = 0L
-
-                connection.inputStream.use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        val buffer = ByteArray(8 * 1024)
-                        var bytesRead: Int
-
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-
-                            if (contentLength > 0) {
-                                val progress = (downloaded * 100 / contentLength).toInt()
-                                withContext(Dispatchers.Main) {
-                                    progressBar.progress = progress
-                                }
-                            }
-                        }
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    saveModelPath(destFile.absolutePath)
-                    Toast.makeText(requireContext(), "Model downloaded successfully", Toast.LENGTH_SHORT).show()
-                    progressBar.visibility = View.GONE
-                    btnDownload.isEnabled = true
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(requireContext(), "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
-                    progressBar.visibility = View.GONE
-                    btnDownload.isEnabled = true
-                }
             }
         }
     }
