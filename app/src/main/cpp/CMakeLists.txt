@@ -27,6 +27,10 @@ set(GGML_USE_METAL OFF CACHE BOOL "" FORCE)
 set(GGML_USE_VULKAN OFF CACHE BOOL "" FORCE)
 set(GGML_USE_CUDA OFF CACHE BOOL "" FORCE)
 
+# CRITICAL: Disable llamafile (uses FP16 intrinsics not available in ARMv7)
+set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE)
+set(GGML_USE_CPU_REPACK OFF CACHE BOOL "" FORCE)
+
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
 
 # ----------------------------
