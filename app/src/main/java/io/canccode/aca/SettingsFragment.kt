@@ -30,7 +30,7 @@ class SettingsFragment : Fragment() {
         private const val PREF_NAME = "model_prefs"
         const val KEY_MODEL_PATH = "selected_model_path"
 
-        // Default remote model (you can move this to strings.xml later)
+        // Default remote model
         private const val DEFAULT_MODEL_NAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
         private const val DEFAULT_MODEL_URL =
             "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
@@ -65,7 +65,7 @@ class SettingsFragment : Fragment() {
         updateModelStatus()
 
         btnDownload.setOnClickListener  { startDownloadDefaultModel() }
-        btnPickLocal.setOnClickListener { pickModelFile.launch("application/octet-stream") } // better mime than */*
+        btnPickLocal.setOnClickListener { pickModelFile.launch("application/octet-stream") }
         btnClear.setOnClickListener     { clearModel() }
 
         return view
@@ -105,17 +105,14 @@ class SettingsFragment : Fragment() {
         (activity as? MainActivity)?.onModelSelectionChanged()
     }
 
-    // ────────────────────────────────────────────────
-    // Pick local GGUF → copy to app-private storage
-    // ────────────────────────────────────────────────
     private fun handlePickedModelUri(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val context = requireContext()
                 val filename = uri.lastPathSegment?.substringAfterLast("/") ?: "picked_model.gguf"
-                if (!filename.endsWith(".gguf", ignoreCase = true)) {
+                if (!filename.lowercase().endsWith(".gguf")) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Selected file does not appear to be a .gguf model", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Please select a .gguf model file", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
@@ -126,30 +123,25 @@ class SettingsFragment : Fragment() {
                     FileOutputStream(destFile).use { output ->
                         input.copyTo(output)
                     }
-                } ?: throw Exception("Cannot open input stream")
+                } ?: throw IllegalStateException("Cannot open input stream from URI")
 
-                // Persist permission (good practice even after copy)
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
+                // Persist read permission (copy already done, write not needed long-term)
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
 
                 withContext(Dispatchers.Main) {
                     saveModelPath(destFile.absolutePath)
                     Toast.makeText(context, "Model copied and selected", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("SettingsFragment", "Failed to copy picked model", e)
+                Log.e("SettingsFragment", "Failed to handle picked model", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Failed to copy model: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Error copying model: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    // ────────────────────────────────────────────────
-    // Download default model
-    // ────────────────────────────────────────────────
     private fun startDownloadDefaultModel() {
         btnDownload.isEnabled = false
         btnPickLocal.isEnabled = false
@@ -163,7 +155,7 @@ class SettingsFragment : Fragment() {
                 val file = downloader.downloadModel(
                     modelUrl = DEFAULT_MODEL_URL,
                     filename = DEFAULT_MODEL_NAME,
-                    expectedSha256 = null, // add real SHA if you want verification
+                    expectedSha256 = null,
                     onProgress = { pct ->
                         lifecycleScope.launch(Dispatchers.Main) {
                             progressBar.progress = pct
@@ -179,8 +171,8 @@ class SettingsFragment : Fragment() {
             } catch (e: Exception) {
                 Log.e("SettingsFragment", "Download failed", e)
                 withContext(Dispatchers.Main) {
-                    tvStatus.text = "Download failed: ${e.message?.take(80)}"
-                    Toast.makeText(context, "Download error: ${e.message}", Toast.LENGTH_LONG).show()
+                    tvStatus.text = "Download failed: ${e.localizedMessage?.take(80)}"
+                    Toast.makeText(context, "Download error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                 }
             } finally {
                 withContext(Dispatchers.Main) {
