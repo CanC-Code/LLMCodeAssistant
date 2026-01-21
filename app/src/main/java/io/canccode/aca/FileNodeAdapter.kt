@@ -3,6 +3,7 @@ package io.canccode.aca
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
@@ -11,7 +12,7 @@ class FileNodeAdapter(
     private val onClick: (FileNode) -> Unit
 ) : RecyclerView.Adapter<FileNodeAdapter.NodeViewHolder>() {
 
-    private val flatList = mutableListOf<FileNode>()
+    private val flatList = mutableListOf<Pair<FileNode, Int>>() // Node + depth
 
     init {
         rebuildFlatList()
@@ -19,24 +20,23 @@ class FileNodeAdapter(
 
     private fun rebuildFlatList() {
         flatList.clear()
-        fun addNodes(node: FileNode, depth: Int) {
-            node.children.forEach {
-                it.path.let {
-                    it
-                }
-                it.let {}
-            }
-            node.children.forEach {
-                flatList.add(it)
-                if (it.isDirectory && it.expanded) {
-                    addNodes(it, depth + 1)
-                }
+        addNodes(rootNode, -1) // Start at -1 so root children are at depth 0
+    }
+
+    private fun addNodes(node: FileNode, depth: Int) {
+        // Add children of current node
+        node.children.sortedWith(compareBy({ !it.isDirectory }, { it.name })).forEach { child ->
+            flatList.add(Pair(child, depth + 1))
+            
+            // If directory is expanded, add its children recursively
+            if (child.isDirectory && child.expanded) {
+                addNodes(child, depth + 1)
             }
         }
-        addNodes(rootNode, 0)
     }
 
     inner class NodeViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val icon: ImageView = view.findViewById(R.id.fileIcon)
         val textView: TextView = view.findViewById(R.id.fileName)
     }
 
@@ -47,23 +47,35 @@ class FileNodeAdapter(
     }
 
     override fun onBindViewHolder(holder: NodeViewHolder, position: Int) {
-        val node = flatList[position]
+        val (node, depth) = flatList[position]
 
-        val depth = node.path.count { it == '/' }
+        // Indentation based on depth
+        val padding = depth * 40
+        holder.itemView.setPadding(padding, 8, 8, 8)
+
         holder.textView.text = node.name
-        holder.textView.setPadding(20 * depth, 0, 0, 0)
 
-        // Simple folder/file indicator
-        holder.textView.text = if (node.isDirectory) {
-            if (node.expanded) "📂 ${node.name}" else "📁 ${node.name}"
+        // Set icon based on type
+        if (node.isDirectory) {
+            holder.icon.setImageResource(
+                if (node.expanded) 
+                    android.R.drawable.arrow_down_float
+                else 
+                    android.R.drawable.ic_menu_more
+            )
+            
+            holder.itemView.setOnClickListener {
+                node.expanded = !node.expanded
+                onClick(node)
+                rebuildFlatList()
+                notifyDataSetChanged()
+            }
         } else {
-            "📄 ${node.name}"
-        }
-
-        holder.itemView.setOnClickListener {
-            onClick(node)
-            rebuildFlatList()
-            notifyDataSetChanged()
+            holder.icon.setImageResource(android.R.drawable.ic_menu_edit)
+            
+            holder.itemView.setOnClickListener {
+                onClick(node)
+            }
         }
     }
 
