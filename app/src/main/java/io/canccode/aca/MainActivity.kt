@@ -16,6 +16,7 @@ import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import androidx.fragment.app.Fragment
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
@@ -89,20 +90,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private fun initFloatingButton() {
         try {
             floatingMenuButton = findViewById(R.id.floatingMenuButton)
-            
-            floatingMenuButton.setOnClickListener {
-                try {
-                    if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                        drawerLayout.closeDrawer(GravityCompat.START)
-                    } else {
-                        drawerLayout.openDrawer(GravityCompat.START)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error toggling drawer", e)
-                }
-            }
-            
-            enableDrag(floatingMenuButton)
+            enableDragAndClick(floatingMenuButton)
             Log.d(TAG, "Floating button initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing floating button", e)
@@ -198,10 +186,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    private fun enableDrag(view: View) {
+    private fun enableDragAndClick(view: View) {
         var dX = 0f
         var dY = 0f
-        var lastAction = MotionEvent.ACTION_UP
+        var downX = 0f
+        var downY = 0f
+        var isDragging = false
 
         view.setOnTouchListener { v, event ->
             try {
@@ -209,20 +199,35 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     MotionEvent.ACTION_DOWN -> {
                         dX = v.x - event.rawX
                         dY = v.y - event.rawY
-                        lastAction = MotionEvent.ACTION_DOWN
+                        downX = event.rawX
+                        downY = event.rawY
+                        isDragging = false
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        v.animate()
-                            .x(event.rawX + dX)
-                            .y(event.rawY + dY)
-                            .setDuration(0)
-                            .start()
-                        lastAction = MotionEvent.ACTION_MOVE
+                        val deltaX = abs(event.rawX - downX)
+                        val deltaY = abs(event.rawY - downY)
+                        
+                        // If moved more than 10px, it's a drag
+                        if (deltaX > 10 || deltaY > 10) {
+                            isDragging = true
+                            v.animate()
+                                .x(event.rawX + dX)
+                                .y(event.rawY + dY)
+                                .setDuration(0)
+                                .start()
+                        }
                         true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (lastAction == MotionEvent.ACTION_DOWN) {
+                        if (!isDragging) {
+                            // It was a click, not a drag
+                            Log.d(TAG, "Floating button clicked")
+                            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                                drawerLayout.closeDrawer(GravityCompat.START)
+                            } else {
+                                drawerLayout.openDrawer(GravityCompat.START)
+                            }
                             v.performClick()
                         }
                         true
