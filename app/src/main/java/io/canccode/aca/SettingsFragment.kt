@@ -28,10 +28,11 @@ class SettingsFragment : Fragment() {
     companion object {
         private const val PREF_NAME = "model_prefs"
 
-        // Made public so MainActivity can access them
+        // Made public so MainActivity can read them
         const val KEY_MODEL_PATH = "selected_model_path"
         const val KEY_MODEL_URI = "selected_model_uri"
 
+        // Default remote model
         const val DEFAULT_MODEL_NAME = "mistral-7b-instruct-v0.2.Q4_K_M.gguf"
         const val DEFAULT_MODEL_URL =
             "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
@@ -117,7 +118,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun handlePickedModel(uri: Uri) {
-        // Correct: pass flags as IntArray (not single Int)
+        // FIXED: pass flags as IntArray (required by takePersistableUriPermission)
         val flags = intArrayOf(
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -125,7 +126,7 @@ class SettingsFragment : Fragment() {
 
         requireContext().contentResolver.takePersistableUriPermission(uri, flags)
 
-        // Copy file to app-private directory (llama.cpp cannot read content:// URIs)
+        // Copy to app-private storage (llama.cpp cannot read content:// URIs directly)
         val destFile = File(requireContext().filesDir, "picked_model.gguf")
         try {
             requireContext().contentResolver.openInputStream(uri)?.use { input ->
@@ -137,7 +138,7 @@ class SettingsFragment : Fragment() {
             Toast.makeText(context, "Local model copied & selected", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Log.e("SettingsFragment", "Failed to copy picked model", e)
-            // Fallback: save URI (but llama.cpp won't load it)
+            // Fallback: save URI (but won't work with llama.cpp until copied)
             saveModelUri(uri.toString())
             Toast.makeText(context, "Picked model (copy failed – may not load)", Toast.LENGTH_LONG).show()
         }
