@@ -156,7 +156,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     tokens.resize(n);
     LOGI("Prompt tokenized: %d tokens", n);
 
-    // Clear KV cache for fresh generation
+    // Clear KV cache for fresh generation using correct API
     llama_kv_cache_seq_rm(llama_get_kv_cache(g_ctx), 0, -1, -1);
 
     // Process prompt batch
