@@ -29,7 +29,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    // Clean up previous session
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
     if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
     if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
@@ -57,9 +56,8 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     cparams.n_threads = 0;
     cparams.n_threads_batch = 0;
 
-    // Use deprecated-but-still-working function for older llama.cpp
-    g_ctx = llama_new_context_with_model(g_model, cparams);
-    // If your llama.cpp is very new, you can switch to: llama_init_from_model(g_model, cparams);
+    g_ctx = llama_init_from_model(g_model, cparams);  // Prefer new name (warning ok)
+    // If compile error: fallback to llama_new_context_with_model(g_model, cparams);
 
     if (!g_ctx) {
         llama_model_free(g_model);
@@ -71,11 +69,9 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     g_sampler = llama_sampler_chain_init(sparams);
 
-    // Safe sampling chain (works on older & newer versions)
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.72f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.92f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_min_p(0.05f, 1));
-    // Typical sampler — use safe version (p + min_keep)
     llama_sampler_chain_add(g_sampler, llama_sampler_init_typical(0.95f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
@@ -119,20 +115,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     tokens.resize(n);
     LOGI("Prompt tokenized to %d tokens", n);
 
-    // ───────────────────────────────────────────────────────
-    // For older llama.cpp: use llama_kv_cache_tokens_clear or seq_rm fallback
-    // Most versions before ~late 2024 use this pattern to clear cache:
-    // ───────────────────────────────────────────────────────
-    if (llama_kv_cache_seq_rm) {  // if function exists
-        llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
-    } else {
-        // Fallback for very old versions: reset context entirely (less efficient)
-        llama_kv_cache_clear(g_ctx);  // may not exist either → comment out if error
-        // Alternative safe fallback: just start from pos 0 every time (no history)
-        // (already done by not preserving KV across calls)
-    }
+    // NO KV cache clear — forces fresh decode every time (safe, but slower on long chats)
 
-    // Process prompt
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (int i = 0; i < n; ++i) {
         batch.token[i] = tokens[i];
@@ -156,7 +140,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
-        // Use non-deprecated functions
         if (tok == llama_vocab_eos(vocab) || tok == llama_vocab_eot(vocab)) {
             LOGI("EOS/EOT at position %d", i);
             break;
