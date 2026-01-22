@@ -11,7 +11,6 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -45,7 +44,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private var currentModelPath: String? = null
     private lateinit var prefs: SharedPreferences
 
-    // SAF directory picker for projects
     private val directoryPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -56,7 +54,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         super.onCreate(savedInstanceState)
 
         try {
-            Log.d(TAG, "Setting content view")
             setContentView(R.layout.activity_main)
 
             prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
@@ -67,13 +64,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             initGlobalLLM()
 
             if (savedInstanceState == null) {
-                loadFragment(LLMFragment())
+                loadFragment(SettingsFragment())
             }
 
-            // Auto-init LLM if model path exists
             tryAutoInitLLM()
-
-            Log.d(TAG, "MainActivity onCreate complete")
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -82,11 +76,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun loadLastModelPath() {
         currentModelPath = prefs.getString(KEY_MODEL_PATH, null)
-        Log.i(TAG, "Loaded last model path: $currentModelPath")
+        Log.i(TAG, "Loaded model path: $currentModelPath")
     }
 
     fun onModelSelectionChanged() {
-        Log.d(TAG, "Model selection changed, reloading...")
         loadLastModelPath()
         tryAutoInitLLM()
     }
@@ -95,22 +88,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         val path = currentModelPath
         
         if (path.isNullOrEmpty()) {
-            Log.i(TAG, "No model path configured")
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "No model selected. Go to Settings to choose a model.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            Log.i(TAG, "No model configured")
+            setLLMInitialized(false)
             return
         }
 
-        Log.i(TAG, "Attempting to initialize model: $path")
-        
-        runOnUiThread {
-            Toast.makeText(this, "Initializing model...", Toast.LENGTH_SHORT).show()
-        }
+        Log.i(TAG, "Initializing model: $path")
 
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
@@ -120,59 +103,43 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 val file = File(path)
                 
                 if (!file.exists()) {
-                    errorMsg = "Model file not found:\n${file.name}"
-                    Log.e(TAG, "Model file does not exist: $path")
+                    errorMsg = "Model file not found"
+                    Log.e(TAG, "File does not exist: $path")
                 } else if (!file.canRead()) {
-                    errorMsg = "Cannot read model file:\n${file.name}"
-                    Log.e(TAG, "Cannot read model file: $path")
+                    errorMsg = "Cannot read model file"
+                    Log.e(TAG, "Cannot read: $path")
                 } else {
-                    Log.i(TAG, "Loading model from: ${file.absolutePath}")
-                    Log.i(TAG, "Model file size: ${file.length() / (1024 * 1024)}MB")
+                    Log.i(TAG, "Loading ${file.length() / (1024 * 1024)}MB model...")
                     
-                    // Shutdown any existing model first
                     try {
                         LlamaBridge.shutdownNative()
-                        Log.d(TAG, "Shut down previous model instance")
                     } catch (e: Exception) {
-                        Log.d(TAG, "No previous model to shutdown")
+                        Log.d(TAG, "No previous model")
                     }
                     
                     success = LlamaBridge.initNative(file.absolutePath, 2048)
                     
                     if (success) {
-                        Log.i(TAG, "Model initialized successfully!")
+                        Log.i(TAG, "Model loaded!")
                     } else {
-                        errorMsg = "Model initialization failed (returned false)"
-                        Log.e(TAG, errorMsg)
+                        errorMsg = "Model init returned false"
+                        Log.e(TAG, errorMsg!!)
                     }
                 }
             } catch (e: Throwable) {
-                errorMsg = "Model initialization error: ${e.message}"
-                Log.e(TAG, "Model initialization failed", e)
+                errorMsg = e.message
+                Log.e(TAG, "Model init failed", e)
             }
 
             withContext(Dispatchers.Main) {
                 setLLMInitialized(success)
                 
                 if (success) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "✓ Model loaded successfully!",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    
-                    // Hide progress bar in SettingsFragment if visible
-                    val settingsFragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment
-                    settingsFragment?.onModelInitComplete(true)
+                    Toast.makeText(this@MainActivity, "✓ Model ready!", Toast.LENGTH_LONG).show()
+                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)?.onModelInitComplete(true)
                 } else {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "✗ Failed to load model\n${errorMsg ?: "Unknown error"}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    
-                    val settingsFragment = supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment
-                    settingsFragment?.onModelInitComplete(false)
+                    Toast.makeText(this@MainActivity, "✗ Failed: $errorMsg", Toast.LENGTH_LONG).show()
+                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)?.onModelInitComplete(false)
                 }
             }
         }
@@ -182,12 +149,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
 
-        toggle = ActionBarDrawerToggle(
-            this,
-            drawerLayout,
-            R.string.drawer_open,
-            R.string.drawer_close
-        )
+        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
@@ -215,7 +177,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "LLM not initialized. Load a model in Settings first.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Load a model in Settings first", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -279,12 +241,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runOnUiThread {
             llmSendGlobal.isEnabled = initialized
             llmInputGlobal.isEnabled = initialized
-            
-            if (initialized) {
-                llmInputGlobal.hint = "Ask LLM..."
-            } else {
-                llmInputGlobal.hint = "No model loaded - go to Settings"
-            }
+            llmInputGlobal.hint = if (initialized) "Ask LLM..." else "No model - go to Settings"
         }
     }
 
@@ -315,11 +272,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
                     if (deltaX > 10 || deltaY > 10) {
                         isDragging = true
-                        v.animate()
-                            .x(event.rawX + dX)
-                            .y(event.rawY + dY)
-                            .setDuration(0)
-                            .start()
+                        v.animate().x(event.rawX + dX).y(event.rawY + dY).setDuration(0).start()
                     }
                     true
                 }
