@@ -7,55 +7,66 @@
     android:layout_height="match_parent"
     android:background="#FFFFFF">
 
-    <!-- LLM chat output -->
-    <TextView
-        android:id="@+id/chatOutput"
+    <!-- Chat Output (Scrollable) -->
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="#F5F5F5"
-        android:textColor="#000000"
-        android:textSize="14sp"
-        android:scrollbars="vertical"
-        android:textIsSelectable="true"
-        android:padding="8dp" />
+        android:padding="8dp">
 
-    <!-- Input row -->
+        <TextView
+            android:id="@+id/chatOutput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#000000"
+            android:textSize="14sp"
+            android:textIsSelectable="true"
+            android:lineSpacingMultiplier="1.2"
+            android:fontFamily="sans-serif" />
+
+    </ScrollView>
+
+    <!-- Input Row -->
     <LinearLayout
         android:orientation="horizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingTop="6dp">
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp">
 
-        <!-- Prompt input -->
         <EditText
             android:id="@+id/inputBox"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:hint="Ask LLM about project"
+            android:hint="Type your message..."
             android:textColor="#000000"
             android:textColorHint="#666666"
             android:background="#FFFFFF"
-            android:padding="10dp"
-            android:inputType="textMultiLine" />
+            android:padding="12dp"
+            android:inputType="textMultiLine"
+            android:maxLines="4"
+            android:minHeight="48dp" />
 
-        <!-- Send / Generate button -->
         <Button
             android:id="@+id/sendBtn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Send"
-            android:layout_marginStart="6dp" />
+            android:layout_marginStart="6dp"
+            android:minWidth="80dp" />
+
     </LinearLayout>
 
-    <!-- Progress bar for LLM initialization -->
-    <ProgressBar
-        android:id="@+id/llmProgressBar"
-        style="@android:style/Widget.ProgressBar.Horizontal"
+    <!-- Clear Button -->
+    <Button
+        android:id="@+id/clearBtn"
         android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginTop="6dp"
-        android:visibility="gone"
-        android:max="100"/>
+        android:layout_height="wrap_content"
+        android:text="Clear Chat"
+        android:textColor="#B00020"
+        android:background="@android:color/transparent"
+        style="?android:attr/borderlessButtonStyle" />
+
 </LinearLayout>
