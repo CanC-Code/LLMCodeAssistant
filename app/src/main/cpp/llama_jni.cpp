@@ -11,7 +11,7 @@ extern "C" {
 #define LOG_TAG "LLAMA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
 
 static std::mutex g_mutex;
 
@@ -66,8 +66,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(
         return JNI_FALSE;
     }
 
-    LOGI("Context created - n_ctx = %d, kv_size = %zu", 
-         llama_n_ctx(g_ctx), llama_get_kv_cache_token_count(g_ctx));
+    LOGI("Context created - n_ctx = %d", llama_n_ctx(g_ctx));
 
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     g_sampler = llama_sampler_chain_init(sparams);
@@ -100,7 +99,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
 
     size_t len = strlen(c_prompt);
-    LOGI("Tokenizing prompt (len=%zu): %s", len, c_prompt);
+    LOGI("Tokenizing prompt (len=%zu):", len);
+    LOGI("%s", c_prompt);
 
     std::vector<llama_token> tokens(len + 64);
     int n = llama_tokenize(vocab, c_prompt, len, tokens.data(), tokens.size(), true, false);
@@ -115,10 +115,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     tokens.resize(n);
     LOGI("Tokenized to %d tokens", n);
 
-    // Debug KV cache state
-    LOGI("Before prompt decode - used KV cells: %zu / %zu",
-         llama_get_kv_cache_used_cells(g_ctx),
-         llama_n_ctx(g_ctx));
+    LOGI("Prompt batch ready - %zu tokens", tokens.size());
 
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (int i = 0; i < n; ++i) {
@@ -134,10 +131,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     if (decode_ret != 0) {
         LOGE("llama_decode failed on prompt: ret=%d", decode_ret);
-        LOGE("  tokens=%zu  n_ctx=%d  used_kv=%zu",
-             tokens.size(),
-             llama_n_ctx(g_ctx),
-             llama_get_kv_cache_used_cells(g_ctx));
+        LOGE("  → tokens=%zu  n_ctx=%d", tokens.size(), llama_n_ctx(g_ctx));
         return env->NewStringUTF("[Failed to process prompt]");
     }
 
@@ -167,7 +161,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         b.logits[0] = true;
 
         if (llama_decode(g_ctx, b) != 0) {
-            LOGE("Decode failed at token %d", i);
+            LOGE("Decode failed at generated token %d", i);
             llama_batch_free(b);
             break;
         }
