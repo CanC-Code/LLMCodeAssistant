@@ -114,32 +114,44 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     try {
                         LlamaBridge.shutdownNative()
                     } catch (e: Exception) {
-                        Log.d(TAG, "No previous model")
+                        Log.d(TAG, "No previous model to shutdown")
                     }
                     
-                    success = LlamaBridge.initNative(file.absolutePath, 2048)
+                    // Use 4096 context for Mistral-7B (it supports up to 8192)
+                    // Reduce if you have memory issues
+                    success = LlamaBridge.initNative(file.absolutePath, 4096)
                     
                     if (success) {
-                        Log.i(TAG, "Model loaded!")
+                        Log.i(TAG, "✓ Model loaded successfully!")
                     } else {
-                        errorMsg = "Model init returned false"
+                        errorMsg = "Model init returned false - check logcat for details"
                         Log.e(TAG, errorMsg!!)
                     }
                 }
             } catch (e: Throwable) {
                 errorMsg = e.message
-                Log.e(TAG, "Model init failed", e)
+                Log.e(TAG, "Model init exception", e)
             }
 
             withContext(Dispatchers.Main) {
                 setLLMInitialized(success)
                 
                 if (success) {
-                    Toast.makeText(this@MainActivity, "✓ Model ready!", Toast.LENGTH_LONG).show()
-                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)?.onModelInitComplete(true)
+                    Toast.makeText(
+                        this@MainActivity, 
+                        "✓ Mistral-7B ready! You can now chat.", 
+                        Toast.LENGTH_LONG
+                    ).show()
+                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)
+                        ?.onModelInitComplete(true)
                 } else {
-                    Toast.makeText(this@MainActivity, "✗ Failed: $errorMsg", Toast.LENGTH_LONG).show()
-                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)?.onModelInitComplete(false)
+                    Toast.makeText(
+                        this@MainActivity, 
+                        "✗ Init failed: $errorMsg\nCheck Settings", 
+                        Toast.LENGTH_LONG
+                    ).show()
+                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)
+                        ?.onModelInitComplete(false)
                 }
             }
         }
@@ -177,19 +189,43 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "Load a model in Settings first", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "⚠️ Load a model in Settings first", Toast.LENGTH_LONG).show()
             return
         }
+
+        Toast.makeText(this, "Generating response...", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val response = LlamaBridge.generateNative(prompt, 256)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, response.take(200), Toast.LENGTH_LONG).show()
+                    if (response.startsWith("[Error:")) {
+                        Toast.makeText(
+                            this@MainActivity, 
+                            response, 
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } else {
+                        // Show first 150 chars
+                        val preview = if (response.length > 150) {
+                            response.take(150) + "..."
+                        } else {
+                            response
+                        }
+                        Toast.makeText(
+                            this@MainActivity, 
+                            "Response: $preview", 
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity, 
+                        "Error: ${e.message}", 
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -219,7 +255,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             try {
                 projectLoader.loadProject(treeUri)
                 runOnUiThread {
-                    Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✓ Project loaded", Toast.LENGTH_SHORT).show()
                     loadFragment(FileBrowserFragment.newInstance(projectLoader))
                 }
             } catch (e: Exception) {
@@ -241,7 +277,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runOnUiThread {
             llmSendGlobal.isEnabled = initialized
             llmInputGlobal.isEnabled = initialized
-            llmInputGlobal.hint = if (initialized) "Ask LLM..." else "No model - go to Settings"
+            llmInputGlobal.hint = if (initialized) {
+                "Ask Mistral anything..."
+            } else {
+                "⚙️ Configure model in Settings first"
+            }
         }
     }
 
@@ -305,6 +345,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         super.onDestroy()
         if (llmInitialized) {
             LlamaBridge.shutdownNative()
+            Log.i(TAG, "Model shutdown on activity destroy")
         }
     }
 }
