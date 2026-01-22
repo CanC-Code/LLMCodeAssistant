@@ -59,7 +59,7 @@ class LLMFragment : Fragment() {
             Toast.makeText(context, "Conversation reset", Toast.LENGTH_SHORT).show()
         }
 
-        // Initial message
+        // Initial status message
         val main = activity as? MainActivity
         chatOutput?.text = if (main?.isLLMReady() == true) {
             "✓ Model loaded and ready.\nAsk me anything!\n\n"
@@ -76,27 +76,29 @@ class LLMFragment : Fragment() {
             return
         }
 
-        // Add user message to history (response placeholder)
-        conversationHistory.add(Pair(userPrompt, ""))
+        // Add user message (response placeholder)
+        conversationHistory.add(userPrompt to "")
 
         // Show user message immediately
         chatOutput?.append("👤 You: $userPrompt\n")
         chatOutput?.let { scrollToBottom(it) }
 
-        // Disable input during generation
+        // Disable UI during generation
         sendBtn?.isEnabled = false
         inputBox?.isEnabled = false
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val formattedPrompt = buildMistralPrompt(userPrompt)
-                Log.d(TAG, "Formatted prompt:\n$formattedPrompt")
+                Log.d(TAG, "=== Prompt sent to model ===\n$formattedPrompt\n===================")
 
                 val rawResponse = LlamaBridge.generateNative(formattedPrompt, 768)
 
+                Log.d(TAG, "Raw model response: [$rawResponse]")
+
                 val cleanResponse = cleanResponse(rawResponse)
 
-                // Save assistant reply
+                // Save assistant's reply
                 if (conversationHistory.isNotEmpty()) {
                     conversationHistory[conversationHistory.lastIndex] =
                         conversationHistory.last().first to cleanResponse
@@ -124,36 +126,53 @@ class LLMFragment : Fragment() {
     }
 
     private fun buildMistralPrompt(currentUserMessage: String): String {
-        val sb = StringBuilder("<s>")  // BOS token - very important for Mistral
+        val sb = StringBuilder("<s>")  // BOS is required for Mistral-Instruct
 
         if (conversationHistory.isEmpty()) {
-            sb.append("[INST] $currentUserMessage [/INST]")
+            // Single-turn: <s>[INST] message [/INST]
+            sb.append("[INST] ")
+                .append(currentUserMessage.trim())
+                .append(" [/INST]")
         } else {
-            // All previous complete turns
+            // Multi-turn: previous full turns end with </s>
             for (i in 0 until conversationHistory.size - 1) {
                 val (user, assistant) = conversationHistory[i]
-                sb.append("[INST] $user [/INST] $assistant</s>")
+                sb.append("[INST] ")
+                    .append(user.trim())
+                    .append(" [/INST] ")
+                    .append(assistant.trim())
+                    .append("</s>")
             }
-            // Current (incomplete) turn
-            sb.append("[INST] $currentUserMessage [/INST]")
+            // Current turn (incomplete)
+            sb.append("[INST] ")
+                .append(currentUserMessage.trim())
+                .append(" [/INST]")
         }
 
-        return sb.toString()
+        val final = sb.toString()
+        Log.d(TAG, "Generated Mistral prompt (length=${final.length}):\n$final")
+        return final
     }
 
     private fun cleanResponse(raw: String): String {
         var text = raw.trim()
-            .replace("</s>", "")
+
+        // Remove common leftover tokens / tags
+        text = text.replace("</s>", "")
+            .replace("<s>", "")
             .replace("[INST]", "")
             .replace("[/INST]", "")
-            .replace("<s>", "")
+            .replace("</INST>", "")  // sometimes malformed
             .trim()
 
-        if (text.isBlank()) {
-            text = "[No meaningful response generated]"
-        }
+        // Remove leading assistant prefix if model repeats it
+        text = text.removePrefix("Assistant:").removePrefix("assistant:").trim()
 
-        return text
+        return if (text.isBlank()) {
+            "[Empty or invalid response from model]"
+        } else {
+            text
+        }
     }
 
     private fun trimHistory(maxTurns: Int = 10) {
@@ -164,13 +183,17 @@ class LLMFragment : Fragment() {
 
     private fun scrollToBottom(textView: TextView) {
         textView.post {
-            val scrollAmount = textView.layout?.getLineTop(textView.lineCount) ?: 0
-            textView.scrollTo(0, scrollAmount)
+            if (textView.layout != null) {
+                val scrollAmount = textView.layout.getLineTop(textView.lineCount)
+                textView.scrollTo(0, scrollAmount)
+            } else {
+                textView.scrollTo(0, textView.bottom)
+            }
         }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
-        conversationHistory.clear() // optional - prevents memory leak on config change
+        conversationHistory.clear()
     }
 }
