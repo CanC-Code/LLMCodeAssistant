@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 class SettingsFragment : Fragment() {
 
@@ -75,9 +76,9 @@ class SettingsFragment : Fragment() {
             val file = File(path)
             if (file.exists()) {
                 val sizeMB = file.length() / (1024 * 1024)
-                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB\nPath: $path"
+                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB"
             } else {
-                tvStatus.text = "Model path set but file not found:\n$path"
+                tvStatus.text = "Model path set but file not found:\n${file.name}"
             }
         }
     }
@@ -87,85 +88,74 @@ class SettingsFragment : Fragment() {
             try {
                 val context = requireContext()
                 
-                // Get the real file path from URI
-                val realPath = getRealPathFromURI(uri)
+                // Get filename from URI
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                val filename = cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) it.getString(nameIndex) else "model.gguf"
+                    } else "model.gguf"
+                } ?: "model.gguf"
                 
-                if (realPath == null) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Cannot access file path. Please select a file from device storage.", Toast.LENGTH_LONG).show()
-                    }
-                    return@launch
-                }
-                
-                val file = File(realPath)
-                
-                if (!file.exists()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "File not found: ${file.name}", Toast.LENGTH_LONG).show()
-                    }
-                    return@launch
-                }
-                
-                if (!file.name.lowercase().endsWith(".gguf")) {
+                if (!filename.lowercase().endsWith(".gguf")) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Please select a .gguf model file", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
 
-                Log.i(TAG, "Selected model: ${file.absolutePath}")
-                Log.i(TAG, "Model size: ${file.length() / (1024 * 1024)}MB")
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.isIndeterminate = false
+                    progressBar.max = 100
+                    progressBar.progress = 0
+                    Toast.makeText(context, "Copying model to app storage...", Toast.LENGTH_SHORT).show()
+                }
+
+                // Copy file to internal storage
+                val destFile = File(context.filesDir, filename)
+                
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        var totalRead = 0L
+                        val fileSize = input.available().toLong()
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalRead += bytesRead
+                            
+                            if (fileSize > 0) {
+                                val progress = (totalRead * 100 / fileSize).toInt()
+                                withContext(Dispatchers.Main) {
+                                    progressBar.progress = progress
+                                }
+                            }
+                        }
+                    }
+                } ?: throw IllegalStateException("Cannot open input stream from URI")
+
+                Log.i(TAG, "Model copied to: ${destFile.absolutePath}")
+                Log.i(TAG, "Model size: ${destFile.length() / (1024 * 1024)}MB")
 
                 withContext(Dispatchers.Main) {
-                    // Use the file directly - no copying
-                    saveModelPath(file.absolutePath)
-                    progressBar.visibility = View.VISIBLE
+                    saveModelPath(destFile.absolutePath)
                     progressBar.isIndeterminate = true
-                    Toast.makeText(context, "Model selected, initializing...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Model copied, initializing...", Toast.LENGTH_SHORT).show()
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to handle picked model", e)
+                Log.e(TAG, "Failed to copy model", e)
                 withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
                     Toast.makeText(
                         requireContext(), 
-                        "Error selecting model: ${e.localizedMessage ?: "Unknown error"}", 
+                        "Error: ${e.message}", 
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
-        }
-    }
-
-    private fun getRealPathFromURI(uri: Uri): String? {
-        return try {
-            // Try to get the path directly from the URI
-            if (uri.scheme == "file") {
-                uri.path
-            } else if (uri.scheme == "content") {
-                // Query the content provider for the real path
-                val cursor = requireContext().contentResolver.query(
-                    uri,
-                    arrayOf(android.provider.MediaStore.Images.Media.DATA),
-                    null,
-                    null,
-                    null
-                )
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        val columnIndex = it.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DATA)
-                        it.getString(columnIndex)
-                    } else {
-                        // Fallback: try to extract path from URI
-                        uri.path
-                    }
-                } ?: uri.path
-            } else {
-                uri.path
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting real path from URI", e)
-            null
         }
     }
 
@@ -178,6 +168,20 @@ class SettingsFragment : Fragment() {
     }
 
     private fun clearModelSelection() {
+        val path = prefs.getString(KEY_MODEL_PATH, null)
+        if (!path.isNullOrEmpty()) {
+            // Delete the copied model file
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    file.delete()
+                    Log.i(TAG, "Deleted model file: $path")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error deleting model file", e)
+            }
+        }
+        
         prefs.edit().remove(KEY_MODEL_PATH).apply()
         updateStatusText()
         Toast.makeText(requireContext(), "Model selection cleared", Toast.LENGTH_SHORT).show()
