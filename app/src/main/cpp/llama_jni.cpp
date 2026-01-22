@@ -29,19 +29,10 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    // Clean up any previous session first
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
-    }
+    // Clean up previous session
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
+    if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
 
     if (!g_backend_initialized) {
         llama_backend_init();
@@ -63,10 +54,10 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
-    cparams.n_threads = 0;           // let llama.cpp decide
+    cparams.n_threads = 0;
     cparams.n_threads_batch = 0;
 
-    g_ctx = llama_init_from_model(g_model, cparams);
+    g_ctx = llama_new_context_with_model(g_model, cparams);
     if (!g_ctx) {
         llama_model_free(g_model);
         g_model = nullptr;
@@ -77,11 +68,12 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     g_sampler = llama_sampler_chain_init(sparams);
 
-    // Better sampling chain (temperature + top-p + repetition penalty)
+    // Reasonable modern sampling chain
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.72f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.92f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_min_p(0.05f, 1));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_typical(0.0f)); // optional
+    // typical sampler now requires p + min_keep
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_typical(0.95f, 1));  // ← fixed
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     LOGI("Model initialized successfully (ctx size = %d)", nCtx);
@@ -109,13 +101,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     std::vector<llama_token> tokens(strlen(c_prompt) + 32);
     int n = llama_tokenize(
-        vocab,
-        c_prompt,
-        strlen(c_prompt),
-        tokens.data(),
-        tokens.size(),
+        vocab, c_prompt, strlen(c_prompt),
+        tokens.data(), tokens.size(),
         true,   // add_special
-        false   // parse_special ← usually correct for instruct templates
+        false   // parse_special
     );
 
     env->ReleaseStringUTFChars(prompt, c_prompt);
@@ -128,8 +117,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     tokens.resize(n);
     LOGI("Prompt tokenized to %d tokens", n);
 
-    // Clear KV cache → fresh generation every time
-    llama_kv_cache_clear(g_ctx);
+    // ────────────────────────────────────────────────
+    // Fix: replaced non-existing llama_kv_cache_clear
+    // ────────────────────────────────────────────────
+    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);   // clear entire cache
 
     // Process prompt
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
@@ -155,14 +146,13 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
-        if (tok == llama_vocab_eos(vocab) || tok == llama_vocab_eot(vocab)) {
-            LOGI("EOS/EOT token at position %d", i);
+        if (tok == llama_token_eos(vocab) || tok == llama_token_eot(vocab)) {
+            LOGI("EOS/EOT at position %d", i);
             break;
         }
 
         std::vector<char> buf(32);
         int len = llama_token_to_piece(vocab, tok, buf.data(), buf.size(), 0, true);
-
         if (len > 0) {
             output.append(buf.data(), len);
         }
@@ -196,18 +186,9 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
-    }
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
+    if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
     if (g_backend_initialized) {
         llama_backend_free();
         g_backend_initialized = false;
