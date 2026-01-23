@@ -1,7 +1,3 @@
-// File: app/src/main/cpp/llama_jni.cpp
-// Author: CCVO
-// Purpose: JNI bridge for llama.cpp with streaming callbacks
-
 #include <jni.h>
 #include <string>
 #include <mutex>
