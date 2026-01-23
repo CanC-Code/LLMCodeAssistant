@@ -1,158 +1,223 @@
-package io.canccode.aca
+#include <jni.h>
+#include <string>
+#include <vector>
+#include <mutex>
+#include <android/log.h>
 
-import android.os.Bundle
-import android.util.Log
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
-import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+#include "llama.h"
 
-class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
+#define LOG_TAG "llama_jni"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-    private val TAG = "LLMFragment"
+static std::mutex g_mutex;
+static llama_context * g_ctx = nullptr;
+static llama_model * g_model = nullptr;
+static llama_sampler * g_sampler = nullptr;
 
-    private lateinit var chatOutput: TextView
-    private lateinit var chatScroll: ScrollView
-    private lateinit var inputBox: EditText
-    private lateinit var sendBtn: Button
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_io_canccode_aca_LlamaBridge_initNative(
+        JNIEnv * env,
+        jobject,
+        jstring modelPath,
+        jint nCtx) {
 
-    private val responseBuilder = StringBuilder()
-    private var thinkingJob: Job? = null
-    private var lastResponseStartPos = 0
+    std::lock_guard<std::mutex> lock(g_mutex);
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        return inflater.inflate(R.layout.fragment_llm, container, false)
+    const char * path = env->GetStringUTFChars(modelPath, nullptr);
+    LOGI("Initializing model from: %s", path);
+
+    // Use new API
+    llama_model_params mparams = llama_model_default_params();
+    g_model = llama_model_load_from_file(path, mparams);
+    
+    if (!g_model) {
+        LOGE("Failed to load model");
+        env->ReleaseStringUTFChars(modelPath, path);
+        return JNI_FALSE;
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx = nCtx;
+    cparams.n_batch = 512;
+    cparams.n_threads = 4;
 
-        chatOutput = view.findViewById(R.id.chatOutput)
-        chatScroll  = view.findViewById(R.id.chatScroll)
-        inputBox    = view.findViewById(R.id.inputBox)
-        sendBtn     = view.findViewById(R.id.sendBtn)
+    g_ctx = llama_init_from_model(g_model, cparams);
+    if (!g_ctx) {
+        LOGE("Failed to create context");
+        llama_model_free(g_model);
+        g_model = nullptr;
+        env->ReleaseStringUTFChars(modelPath, path);
+        return JNI_FALSE;
+    }
 
-        chatOutput.text = "LLM ready. Type a message.\n\n"
+    // Create sampler chain with modern API
+    g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(1234));
 
-        sendBtn.setOnClickListener {
-            val text = inputBox.text.toString().trim()
-            if (text.isEmpty()) return@setOnClickListener
+    env->ReleaseStringUTFChars(modelPath, path);
+    LOGI("Model initialized successfully");
+    return JNI_TRUE;
+}
 
-            appendMessage("You: $text\n\n")
-            inputBox.text.clear()
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaBridge_generateNative(
+        JNIEnv * env,
+        jobject,
+        jstring prompt,
+        jint maxTokens,
+        jobject callback) {
 
-            startThinkingAnimation()
-            sendBtn.isEnabled = false
-            inputBox.isEnabled = false
+    std::lock_guard<std::mutex> lock(g_mutex);
 
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    LlamaBridge.generateNative(text, 768, this@LLMFragment)
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        stopThinking()
-                        appendMessage("Error: ${e.message}\n\n")
-                        sendBtn.isEnabled = true
-                        inputBox.isEnabled = true
-                    }
-                }
-            }
+    if (!g_ctx || !g_model || !g_sampler) {
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        env->CallVoidMethod(callback, onError,
+                            env->NewStringUTF("Model not initialized"));
+        return;
+    }
+
+    const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
+    LOGI("Generating response for: %s", c_prompt);
+
+    // Tokenize with new API
+    const int n_prompt_tokens = -llama_tokenize(
+        llama_model_get_vocab(g_model),
+        c_prompt,
+        strlen(c_prompt),
+        nullptr,
+        0,
+        true,
+        false
+    );
+
+    std::vector<llama_token> tokens(n_prompt_tokens);
+    
+    llama_tokenize(
+        llama_model_get_vocab(g_model),
+        c_prompt,
+        strlen(c_prompt),
+        tokens.data(),
+        tokens.size(),
+        true,
+        false
+    );
+
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+
+    if (tokens.empty()) {
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        env->CallVoidMethod(callback, onError,
+                            env->NewStringUTF("Tokenization failed"));
+        return;
+    }
+
+    // Process prompt with manual batch setup
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    batch.n_tokens = tokens.size();
+    
+    for (size_t i = 0; i < tokens.size(); i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = false;
+    }
+    batch.logits[tokens.size() - 1] = true;
+
+    if (llama_decode(g_ctx, batch) != 0) {
+        llama_batch_free(batch);
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        env->CallVoidMethod(callback, onError,
+                            env->NewStringUTF("Prompt decode failed"));
+        return;
+    }
+
+    llama_batch_free(batch);
+
+    const llama_vocab * vocab = llama_model_get_vocab(g_model);
+    llama_token eos = llama_vocab_eos(vocab);
+
+    jclass cls = env->GetObjectClass(callback);
+    jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onComplete = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+
+    std::string output;
+    int n_cur = tokens.size();
+
+    // Generation loop
+    for (int i = 0; i < maxTokens; i++) {
+        llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
+        
+        if (llama_vocab_is_eog(vocab, tok)) {
+            LOGI("EOS token reached");
+            break;
         }
-    }
 
-    // ────────────────────────────────────────────────
-    //  LlamaBridge.GenerateCallback implementation
-    // ────────────────────────────────────────────────
-
-    override fun onToken(piece: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            stopThinking()
-            responseBuilder.append(piece)
-            chatOutput.text = chatOutput.text.toString() + piece
-            scrollToBottom()
+        char buf[256];
+        int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
+        
+        if (len > 0) {
+            std::string piece(buf, len);
+            output += piece;
+            env->CallVoidMethod(callback, onToken,
+                                env->NewStringUTF(piece.c_str()));
         }
-    }
 
-    override fun onComplete(fullResponse: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            stopThinking()
-            appendMessage("LLM: ${responseBuilder}\n\n")
-            responseBuilder.clear()
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            inputBox.requestFocus()
-            scrollToBottom()
+        // Prepare next batch manually
+        llama_batch next = llama_batch_init(1, 0, 1);
+        next.n_tokens = 1;
+        next.token[0] = tok;
+        next.pos[0] = n_cur;
+        next.n_seq_id[0] = 1;
+        next.seq_id[0][0] = 0;
+        next.logits[0] = true;
+
+        if (llama_decode(g_ctx, next) != 0) {
+            llama_batch_free(next);
+            env->CallVoidMethod(callback, onError,
+                                env->NewStringUTF("Generation decode failed"));
+            return;
         }
+        
+        llama_batch_free(next);
+        n_cur++;
     }
 
-    override fun onError(error: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            stopThinking()
-            appendMessage("Error: $error\n\n")
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            Toast.makeText(requireContext(), error, Toast.LENGTH_LONG).show()
-        }
+    LOGI("Generation complete: %d tokens", (int)output.length());
+    env->CallVoidMethod(callback, onComplete,
+                        env->NewStringUTF(output.c_str()));
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaBridge_shutdownNative(
+        JNIEnv *,
+        jobject) {
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    if (g_sampler) {
+        llama_sampler_free(g_sampler);
+        g_sampler = nullptr;
     }
-
-    // ────────────────────────────────────────────────
-    //  Helpers
-    // ────────────────────────────────────────────────
-
-    private fun appendMessage(msg: String) {
-        chatOutput.append(msg)
-        scrollToBottom()
+    if (g_ctx) {
+        llama_free(g_ctx);
+        g_ctx = nullptr;
     }
-
-    private fun startThinkingAnimation() {
-        stopThinking()
-        lastResponseStartPos = chatOutput.text.length
-        responseBuilder.clear()
-
-        thinkingJob = lifecycleScope.launch {
-            var dots = ""
-            while (true) {
-                dots = when (dots) {
-                    "" -> "."; "." -> ".."; ".." -> "..."; else -> ""
-                }
-                withContext(Dispatchers.Main) {
-                    val base = chatOutput.text.substring(0, lastResponseStartPos)
-                    chatOutput.text = base + "Thinking$dots"
-                    scrollToBottom()
-                }
-                delay(450)
-            }
-        }
+    if (g_model) {
+        llama_model_free(g_model);
+        g_model = nullptr;
     }
-
-    private fun stopThinking() {
-        thinkingJob?.cancel()
-        thinkingJob = null
-    }
-
-    private fun scrollToBottom() {
-        chatScroll.post {
-            chatScroll.fullScroll(View.FOCUS_DOWN)
-        }
-    }
-
-    override fun onDestroyView() {
-        stopThinking()
-        super.onDestroyView()
-    }
+    
+    LOGI("Native resources freed");
 }
