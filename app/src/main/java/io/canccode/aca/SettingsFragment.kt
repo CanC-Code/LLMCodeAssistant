@@ -24,7 +24,7 @@ class SettingsFragment : Fragment() {
 
     companion object {
         private const val TAG = "SettingsFragment"
-        const val KEY_MODEL_PATH = "model_path"
+        const val KEY_MODEL_PATH = "selected_model_path"
     }
 
     private lateinit var prefs: SharedPreferences
@@ -71,14 +71,14 @@ class SettingsFragment : Fragment() {
     private fun updateStatusText() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
         if (path.isNullOrEmpty()) {
-            tvStatus.text = "No model selected"
+            tvStatus.text = "No model selected\n\nSelect a .gguf model file to enable LLM features"
         } else {
             val file = File(path)
             if (file.exists()) {
                 val sizeMB = file.length() / (1024 * 1024)
-                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB"
+                tvStatus.text = "✓ Model loaded\n\nFile: ${file.name}\nSize: ${sizeMB}MB\nPath: ${file.parent}"
             } else {
-                tvStatus.text = "Model path set but file not found:\n${file.name}"
+                tvStatus.text = "⚠ Model file not found\n\n${file.name}\n\nPlease select a new model"
             }
         }
     }
@@ -109,18 +109,21 @@ class SettingsFragment : Fragment() {
                     progressBar.isIndeterminate = false
                     progressBar.max = 100
                     progressBar.progress = 0
-                    Toast.makeText(context, "Copying model to app storage...", Toast.LENGTH_SHORT).show()
+                    tvStatus.text = "Copying model to app storage...\n\n0%"
                 }
 
                 // Copy file to internal storage
                 val destFile = File(context.filesDir, filename)
                 
+                val fileSize = context.contentResolver.openInputStream(uri)?.use { 
+                    it.available().toLong() 
+                } ?: 0L
+
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(8 * 1024)
                         var bytesRead: Int
                         var totalRead = 0L
-                        val fileSize = input.available().toLong()
 
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
@@ -130,6 +133,7 @@ class SettingsFragment : Fragment() {
                                 val progress = (totalRead * 100 / fileSize).toInt()
                                 withContext(Dispatchers.Main) {
                                     progressBar.progress = progress
+                                    tvStatus.text = "Copying model to app storage...\n\n$progress%"
                                 }
                             }
                         }
@@ -140,15 +144,35 @@ class SettingsFragment : Fragment() {
                 Log.i(TAG, "Model size: ${destFile.length() / (1024 * 1024)}MB")
 
                 withContext(Dispatchers.Main) {
-                    saveModelPath(destFile.absolutePath)
                     progressBar.isIndeterminate = true
-                    Toast.makeText(context, "Model copied, initializing...", Toast.LENGTH_SHORT).show()
+                    tvStatus.text = "Model copied, initializing..."
+                }
+                
+                // Initialize model
+                val success = try {
+                    LlamaBridge.initNative(destFile.absolutePath, 2048)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Model init failed", e)
+                    false
+                }
+                
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    
+                    if (success) {
+                        saveModelPath(destFile.absolutePath)
+                        Toast.makeText(context, "✓ Model ready to use!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        destFile.delete()
+                        Toast.makeText(context, "✗ Model initialization failed", Toast.LENGTH_LONG).show()
+                    }
                 }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to copy model", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
+                    tvStatus.text = "Error: ${e.message}"
                     Toast.makeText(
                         requireContext(), 
                         "Error: ${e.message}", 
@@ -162,9 +186,6 @@ class SettingsFragment : Fragment() {
     private fun saveModelPath(path: String) {
         prefs.edit().putString(KEY_MODEL_PATH, path).apply()
         updateStatusText()
-        
-        // Notify MainActivity to reinitialize LLM with new model
-        (activity as? MainActivity)?.onModelSelectionChanged()
     }
 
     private fun clearModelSelection() {
@@ -182,19 +203,15 @@ class SettingsFragment : Fragment() {
             }
         }
         
+        // Shutdown native resources
+        try {
+            LlamaBridge.shutdownNative()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error shutting down native bridge", e)
+        }
+        
         prefs.edit().remove(KEY_MODEL_PATH).apply()
         updateStatusText()
         Toast.makeText(requireContext(), "Model selection cleared", Toast.LENGTH_SHORT).show()
-        
-        (activity as? MainActivity)?.onModelSelectionChanged()
-    }
-
-    fun onModelInitComplete(success: Boolean) {
-        progressBar.visibility = View.GONE
-        updateStatusText()
-        
-        if (success) {
-            Toast.makeText(requireContext(), "Model ready to use!", Toast.LENGTH_SHORT).show()
-        }
     }
 }
