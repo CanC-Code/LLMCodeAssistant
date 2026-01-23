@@ -1,3 +1,5 @@
+package io.canccode.aca
+
 import android.os.Bundle
 import android.text.InputType
 import android.util.Log
@@ -7,6 +9,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -20,11 +24,11 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var sendBtn: Button
     private lateinit var clearBtn: Button
 
-    // Chat history stored in memory
     private val chatMessages = mutableListOf<Pair<String, String>>()
 
     private var thinkingStart: Int = 0
     private var currentResponse = StringBuilder()
+    private var thinkingJob: Job? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -36,6 +40,8 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
         chatOutput = view.findViewById(R.id.chatOutput)
         chatScroll = view.findViewById(R.id.chatScroll)
         inputBox = view.findViewById(R.id.inputBox)
@@ -91,11 +97,12 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     }
 
     private fun showModelRulesDialog() {
-        val input = EditText(requireContext())
-        input.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-        input.hint = "Enter system rules for the model...\n\nExample:\nYou are a helpful coding assistant. Always provide complete, working code. Format code in markdown blocks."
-        input.minLines = 5
-        
+        val input = EditText(requireContext()).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            hint = "Enter system rules for the model...\n\nExample:\nYou are a helpful coding assistant. Always provide complete, working code. Format code in markdown blocks."
+            minLines = 5
+        }
+
         AlertDialog.Builder(requireContext())
             .setTitle("Model Rules (System Prompt)")
             .setView(input)
@@ -111,7 +118,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private fun showHistorySettingsDialog() {
         val options = arrayOf("1 turn", "3 turns", "5 turns", "10 turns", "15 turns")
         val values = intArrayOf(1, 3, 5, 10, 15)
-        
+
         AlertDialog.Builder(requireContext())
             .setTitle("Max Chat History")
             .setItems(options) { _, which ->
@@ -137,11 +144,13 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private fun generate(prompt: String) {
         sendBtn.isEnabled = false
         inputBox.isEnabled = false
-        
+
         chatOutput.append("👤 You: $prompt\n\n")
         chatOutput.append("🤖 Mistral: ")
         thinkingStart = chatOutput.text.length
-        currentResponse = StringBuilder()
+        currentResponse.clear()
+
+        startThinkingAnimation()
 
         scrollToBottom()
 
@@ -151,6 +160,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
             } catch (e: Throwable) {
                 Log.e(TAG, "Generation failed", e)
                 withContext(Dispatchers.Main) {
+                    stopThinkingAnimation()
                     chatOutput.append("❌ Error: ${e.message}\n\n")
                     sendBtn.isEnabled = true
                     inputBox.isEnabled = true
@@ -161,18 +171,22 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         }
     }
 
+    // Callback: called for each new token
     override fun onToken(piece: String) {
         activity?.runOnUiThread {
+            stopThinkingAnimation()
             currentResponse.append(piece)
             chatOutput.text = chatOutput.text.substring(0, thinkingStart) + currentResponse.toString()
             scrollToBottom()
         }
     }
 
+    // Callback: called when generation is fully done
     override fun onComplete(fullResponse: String) {
         activity?.runOnUiThread {
-            chatOutput.append("\n\n")
-            chatMessages.add(Pair(inputBox.text.toString(), fullResponse))  // Note: inputBox is cleared, but use the prompt from history if needed
+            stopThinkingAnimation()
+            chatOutput.append("\n\n")  // extra line break for readability
+            chatMessages.add(Pair(/* original prompt is lost here, but you can store it differently if needed */ "User", fullResponse))
             sendBtn.isEnabled = true
             inputBox.isEnabled = true
             inputBox.requestFocus()
@@ -180,8 +194,10 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         }
     }
 
+    // Callback: called on error
     override fun onError(error: String) {
         activity?.runOnUiThread {
+            stopThinkingAnimation()
             chatOutput.text = chatOutput.text.substring(0, thinkingStart)
             chatOutput.append("❌ $error\n\n")
             sendBtn.isEnabled = true
@@ -191,7 +207,35 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         }
     }
 
+    private fun startThinkingAnimation() {
+        thinkingJob?.cancel()
+        thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
+            var dots = ""
+            while (true) {
+                dots = when (dots) {
+                    "" -> "."
+                    "." -> ".."
+                    ".." -> "..."
+                    else -> ""
+                }
+                chatOutput.text = chatOutput.text.substring(0, thinkingStart) + "Thinking$dots"
+                scrollToBottom()
+                delay(500)
+            }
+        }
+    }
+
+    private fun stopThinkingAnimation() {
+        thinkingJob?.cancel()
+        thinkingJob = null
+    }
+
     private fun scrollToBottom() {
         chatScroll.post { chatScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        stopThinkingAnimation()
     }
 }
