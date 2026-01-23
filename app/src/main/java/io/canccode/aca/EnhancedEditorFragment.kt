@@ -21,7 +21,7 @@ class EnhancedEditorFragment : Fragment() {
 
     private var filePath: String = ""
     private var fileUriString: String = ""
-    private var projectLoader: ProjectLoader? = null   // now nullable & optional
+    private var projectLoader: ProjectLoader? = null   // optional
 
     private val undoStack = Stack<String>()
     private val redoStack = Stack<String>()
@@ -32,7 +32,6 @@ class EnhancedEditorFragment : Fragment() {
         private const val ARG_FILE_PATH = "file_path"
         private const val ARG_FILE_URI = "file_uri"
 
-        // No longer requires ProjectLoader – can be null / fallback
         fun newInstance(
             path: String,
             uri: String = "",
@@ -57,7 +56,7 @@ class EnhancedEditorFragment : Fragment() {
             fileUriString = it.getString(ARG_FILE_URI, "")
         }
 
-        // Optional: try to get from activity if still exists in future versions
+        // Optional: try to get from activity if restored later
         if (projectLoader == null) {
             projectLoader = (activity as? MainActivity)?.getProjectLoader()
         }
@@ -81,7 +80,6 @@ class EnhancedEditorFragment : Fragment() {
     }
 
     private fun setupEditor() {
-        // Dark theme styling
         editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))
         editorView.setTextColor(Color.parseColor("#D4D4D4"))
         editorView.textSize = 14f
@@ -92,12 +90,9 @@ class EnhancedEditorFragment : Fragment() {
         lineNumbersView.textSize = 14f
         lineNumbersView.setPadding(16, 0, 16, 0)
 
-        // Line numbers & undo/redo tracking
         editorView.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-
             override fun afterTextChanged(s: Editable?) {
                 updateLineNumbers()
 
@@ -107,11 +102,7 @@ class EnhancedEditorFragment : Fragment() {
                         undoStack.push(currentContent)
                         redoStack.clear()
                         currentContent = newContent
-
-                        // Prevent memory explosion
-                        if (undoStack.size > 80) {
-                            undoStack.removeAt(0)
-                        }
+                        if (undoStack.size > 80) undoStack.removeAt(0)
                     }
                 }
             }
@@ -123,9 +114,7 @@ class EnhancedEditorFragment : Fragment() {
             fileUriString.isNotBlank() -> {
                 try {
                     val uri = Uri.parse(fileUriString)
-                    requireContext().contentResolver.openInputStream(uri)?.use { input ->
-                        input.bufferedReader().use { it.readText() }
-                    } ?: ""
+                    requireContext().contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
                 } catch (e: Exception) {
                     Toast.makeText(requireContext(), "Cannot read file: ${e.message}", Toast.LENGTH_SHORT).show()
                     ""
@@ -140,14 +129,13 @@ class EnhancedEditorFragment : Fragment() {
                 }
             }
             else -> {
-                Toast.makeText(requireContext(), "No file path or project loaded", Toast.LENGTH_SHORT).show()
-                "// Empty file\n"
+                "// No file loaded\n"
             }
         }
 
         currentContent = content
         undoStack.clear()
-        undoStack.push(content)  // initial state for undo
+        undoStack.push(content)
         redoStack.clear()
         editorView.setText(content)
         editorView.setSelection(0)
@@ -157,12 +145,9 @@ class EnhancedEditorFragment : Fragment() {
     private fun updateLineNumbers() {
         val text = editorView.text.toString()
         val lineCount = text.lines().size.coerceAtLeast(1)
-        val numbers = buildString {
-            for (i in 1..lineCount) {
-                append(i).append("\n")
-            }
+        lineNumbersView.text = buildString {
+            repeat(lineCount) { i -> append("${i + 1}\n") }
         }
-        lineNumbersView.text = numbers
     }
 
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
@@ -172,22 +157,13 @@ class EnhancedEditorFragment : Fragment() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.action_save -> {
-                saveFile()
-                true
-            }
+            R.id.action_save -> { saveFile(); true }
             R.id.action_save_as -> {
-                Toast.makeText(requireContext(), "Save As - not implemented yet", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Save As - not implemented", Toast.LENGTH_SHORT).show()
                 true
             }
-            R.id.action_undo -> {
-                performUndo()
-                true
-            }
-            R.id.action_redo -> {
-                performRedo()
-                true
-            }
+            R.id.action_undo -> { performUndo(); true }
+            R.id.action_redo -> { performRedo(); true }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -199,10 +175,8 @@ class EnhancedEditorFragment : Fragment() {
             fileUriString.isNotBlank() -> {
                 try {
                     val uri = Uri.parse(fileUriString)
-                    requireContext().contentResolver.openOutputStream(uri)?.use { output ->
-                        output.write(content.toByteArray())
-                    }
-                    Toast.makeText(requireContext(), "File saved via URI", Toast.LENGTH_SHORT).show()
+                    requireContext().contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                    Toast.makeText(requireContext(), "Saved via URI", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
                     Toast.makeText(requireContext(), "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
@@ -212,11 +186,11 @@ class EnhancedEditorFragment : Fragment() {
                     projectLoader!!.updateFile(filePath, content)
                     Toast.makeText(requireContext(), "File updated in project", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
-                    Toast.makeText(requireContext(), "Project save failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), "Project save failed", Toast.LENGTH_LONG).show()
                 }
             }
             else -> {
-                Toast.makeText(requireContext(), "No valid save location (no URI or project)", Toast.LENGTH_LONG).show()
+                Toast.makeText(requireContext(), "No save location available", Toast.LENGTH_LONG).show()
             }
         }
     }
