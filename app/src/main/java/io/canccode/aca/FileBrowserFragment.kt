@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -12,16 +13,11 @@ class FileBrowserFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
 
-    // We'll create a fallback / dummy loader when no real project is loaded
-    private val projectLoader: ProjectLoader by lazy {
-        // Try to get from activity first (if MainActivity still has it in future)
+    // No longer forcing ProjectLoader – use fallback or empty state
+    private val projectLoader: ProjectLoader? by lazy(LazyThreadSafetyMode.NONE) {
+        // If you later restore it in MainActivity, it can be used here
         (activity as? MainActivity)?.getProjectLoader()
-            ?: ProjectLoader(requireContext()) // fallback - creates empty/in-memory state
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // No arguments needed anymore
+        // or return null / create dummy
     }
 
     override fun onCreateView(
@@ -34,14 +30,18 @@ class FileBrowserFragment : Fragment() {
         recyclerView = view.findViewById(R.id.file_list_recycler)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        // Get root — fallback to dummy root if loading fails or no project
         val rootNode = try {
-            projectLoader.getRootNode()
+            projectLoader?.getRootNode() ?: FileNode("No project loaded", "", null, true)
         } catch (e: Exception) {
-            // Fallback: empty root node
-            FileNode("No project loaded", "", null, true).also {
-                // Optional: show message to user
-                view.findViewById<TextView>(android.R.id.empty)?.text = "No project loaded.\nUse Settings → Load Project"
+            // Fallback empty root
+            FileNode("Error loading project", "", null, true)
+        }
+
+        // Show hint if no project
+        if (projectLoader == null) {
+            view.findViewById<TextView>(android.R.id.empty)?.apply {
+                text = "No project loaded\nLoad a project in Settings first"
+                visibility = View.VISIBLE
             }
         }
 
@@ -54,16 +54,15 @@ class FileBrowserFragment : Fragment() {
 
     private fun handleNodeClick(node: FileNode) {
         if (node.isDirectory) {
-            // Directory - let adapter handle expand/collapse
+            // Directory - adapter should handle expand/collapse
             return
         }
 
-        // File - open in editor
+        // File clicked → open editor
         val editorFragment = EnhancedEditorFragment.newInstance(
-            filePath = node.path,
-            fileUriString = node.uri?.toString() ?: "",
-            // Pass the same loader reference (or null if you refactor later)
-            projectLoader = projectLoader
+            path = node.path,
+            uri = node.uri?.toString() ?: ""
+            // loader = projectLoader   ← optional, can be passed if you want
         )
 
         parentFragmentManager.beginTransaction()
@@ -73,7 +72,6 @@ class FileBrowserFragment : Fragment() {
     }
 
     companion object {
-        // No arguments needed anymore - simpler instantiation
         fun newInstance(): FileBrowserFragment = FileBrowserFragment()
     }
 }
