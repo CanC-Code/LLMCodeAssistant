@@ -32,9 +32,9 @@ static int g_max_history_turns = 3;
 // Apply Mistral chat template with system rules
 static std::vector<llama_token> apply_mistral_template(const std::string& user_prompt, const struct llama_model * model) {
     std::vector<llama_token> tokens;
-    const auto vocab = llama_model_get_vocab(model);
-    const auto bos = llama_token_bos(model);
-    const auto eos = llama_token_eos(model);
+    const auto * vocab = llama_model_get_vocab(model);
+    const auto bos = llama_vocab_bos(vocab);
+    const auto eos = llama_vocab_eos(vocab);
 
     auto add_bos = [&tokens, bos]() {
         if (bos != -1) {
@@ -193,7 +193,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     // Generate
     std::string output;
     int pos = n_tokens;
-    const auto eos = llama_token_eos(g_model);
+    const auto * vocab = llama_model_get_vocab(g_model);
+    const auto eos = llama_vocab_eos(vocab);
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
@@ -204,7 +205,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         }
 
         char buf[128];
-        int len = llama_token_to_piece(llama_model_get_vocab(g_model), tok, buf, sizeof(buf), 0, true);
+        int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
             output.append(buf, len);
         }
