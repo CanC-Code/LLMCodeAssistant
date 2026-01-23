@@ -11,24 +11,17 @@ import androidx.recyclerview.widget.RecyclerView
 class FileBrowserFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
-    private lateinit var projectLoader: ProjectLoader
 
-    companion object {
-        fun newInstance(loader: ProjectLoader): FileBrowserFragment {
-            return FileBrowserFragment().apply {
-                this.projectLoader = loader
-            }
-        }
+    // We'll create a fallback / dummy loader when no real project is loaded
+    private val projectLoader: ProjectLoader by lazy {
+        // Try to get from activity first (if MainActivity still has it in future)
+        (activity as? MainActivity)?.getProjectLoader()
+            ?: ProjectLoader(requireContext()) // fallback - creates empty/in-memory state
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Get loader from activity if not set
-        if (!::projectLoader.isInitialized) {
-            projectLoader = (activity as? MainActivity)?.getProjectLoader() 
-                ?: ProjectLoader(requireContext())
-        }
+        // No arguments needed anymore
     }
 
     override fun onCreateView(
@@ -41,11 +34,15 @@ class FileBrowserFragment : Fragment() {
         recyclerView = view.findViewById(R.id.file_list_recycler)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
+        // Get root — fallback to dummy root if loading fails or no project
         val rootNode = try {
             projectLoader.getRootNode()
         } catch (e: Exception) {
-            // Create empty root if no project loaded
-            FileNode("root", "", null, true)
+            // Fallback: empty root node
+            FileNode("No project loaded", "", null, true).also {
+                // Optional: show message to user
+                view.findViewById<TextView>(android.R.id.empty)?.text = "No project loaded.\nUse Settings → Load Project"
+            }
         }
 
         recyclerView.adapter = FileNodeAdapter(rootNode) { node ->
@@ -57,20 +54,26 @@ class FileBrowserFragment : Fragment() {
 
     private fun handleNodeClick(node: FileNode) {
         if (node.isDirectory) {
-            // Directory - adapter handles expand/collapse
+            // Directory - let adapter handle expand/collapse
             return
         }
-        
+
         // File - open in editor
         val editorFragment = EnhancedEditorFragment.newInstance(
-            node.path,
-            node.uri?.toString() ?: "",
-            projectLoader
+            filePath = node.path,
+            fileUriString = node.uri?.toString() ?: "",
+            // Pass the same loader reference (or null if you refactor later)
+            projectLoader = projectLoader
         )
 
         parentFragmentManager.beginTransaction()
             .replace(R.id.fragment_container, editorFragment)
             .addToBackStack(null)
             .commit()
+    }
+
+    companion object {
+        // No arguments needed anymore - simpler instantiation
+        fun newInstance(): FileBrowserFragment = FileBrowserFragment()
     }
 }
