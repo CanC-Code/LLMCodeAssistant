@@ -3,11 +3,7 @@ package io.canccode.aca
 object LlamaBridge {
 
     init {
-        try {
-            System.loadLibrary("llama_jni")
-        } catch (e: UnsatisfiedLinkError) {
-            android.util.Log.e("LlamaBridge", "Failed to load native library", e)
-        }
+        System.loadLibrary("llama_jni")
     }
 
     interface GenerateCallback {
@@ -23,12 +19,6 @@ object LlamaBridge {
         maxTokens: Int,
         callback: GenerateCallback
     )
-
-    external fun setModelRulesNative(rules: String?)
-
-    external fun setMaxHistoryTurnsNative(turns: Int)
-
-    external fun clearHistoryNative()
 
     external fun shutdownNative()
 }
