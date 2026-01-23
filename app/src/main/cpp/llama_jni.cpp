@@ -1,3 +1,4 @@
+==== app/src/main/cpp/llama_jni.cpp ====
 // File: app/src/main/cpp/llama_jni.cpp
 // Author: CCVO
 // Purpose: JNI bridge for llama.cpp with Mistral chat template and model rules
@@ -164,15 +165,23 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         return env->NewStringUTF("[Error: Prompt too long]");
     }
 
-    // Process prompt tokens
-    for (int i = 0; i < n_tokens; ++i) {
-        llama_batch batch = llama_batch_get_one(&tokens[i], 1, i, 0);
-        
-        if (llama_decode(g_ctx, batch) != 0) {
-            LOGE("Decode failed at token %d", i);
-            return env->NewStringUTF("[Error: Decode failed]");
-        }
+    // Process prompt tokens in one batch
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    batch.n_tokens = n_tokens;
+    for (int j = 0; j < n_tokens; ++j) {
+        batch.token[j] = tokens[j];
+        batch.pos[j] = j;
+        batch.n_seq_id[j] = 1;
+        batch.seq_id[j][0] = 0;
     }
+    batch.logits[n_tokens - 1] = 1;  // Request logits for last token
+
+    if (llama_decode(g_ctx, batch) != 0) {
+        LOGE("Decode failed for prompt");
+        llama_batch_free(batch);
+        return env->NewStringUTF("[Error: Decode failed]");
+    }
+    llama_batch_free(batch);
 
     LOGI("Prompt processed, generating...");
 
@@ -199,11 +208,23 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             break;
         }
 
-        llama_batch next = llama_batch_get_one(&tok, 1, pos++, 0);
+        // Create batch for next token
+        llama_batch next = llama_batch_init(1, 0, 1);
+        next.n_tokens = 1;
+        next.token[0] = tok;
+        next.pos[0] = pos;
+        next.n_seq_id[0] = 1;
+        next.seq_id[0][0] = 0;
+        next.logits[0] = 1;  // Request logits
+
         if (llama_decode(g_ctx, next) != 0) {
             LOGE("Gen decode failed at %d", i);
+            llama_batch_free(next);
             break;
         }
+        llama_batch_free(next);
+
+        pos++;
     }
 
     LOGI("Generated: %zu chars", output.length());
