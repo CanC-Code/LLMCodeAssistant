@@ -155,29 +155,37 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             return
         }
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val response: String = LlamaBridge.generateNative(prompt, 256)
+        // Show immediate feedback
+        Toast.makeText(this, "Generating...", Toast.LENGTH_SHORT).show()
 
-                withContext(Dispatchers.Main) {
-                    val displayText = if (response.length > 200) {
-                        response.substring(0, 200) + "..."
-                    } else {
-                        response
-                    }
-
-                    Toast.makeText(
-                        this@MainActivity,
-                        displayText,
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+        LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
+            override fun onToken(piece: String) {
+                // Optional: could append to a TextView here if you want live streaming
+                // For simplicity we're collecting and showing at end
             }
-        }
+
+            override fun onComplete(fullResponse: String) {
+                val displayText = if (fullResponse.length > 200) {
+                    fullResponse.substring(0, 200) + "..."
+                } else {
+                    fullResponse
+                }
+
+                Toast.makeText(
+                    this@MainActivity,
+                    displayText,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+
+            override fun onError(error: String) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Generation error: $error",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        })
     }
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
