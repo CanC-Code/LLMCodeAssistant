@@ -21,6 +21,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
 import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_PATH
+import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +45,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private var currentModelPath: String? = null
     private lateinit var prefs: SharedPreferences
 
+    // SAF directory picker for projects
     private val directoryPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -54,6 +56,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         super.onCreate(savedInstanceState)
 
         try {
+            Log.d(TAG, "Setting content view")
             setContentView(R.layout.activity_main)
 
             prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
@@ -62,12 +65,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             initDrawer()
             initFloatingButton()
             initGlobalLLM()
+            tryAutoInitLLM()
 
             if (savedInstanceState == null) {
-                loadFragment(SettingsFragment())
+                loadFragment(LLMFragment())
             }
 
-            tryAutoInitLLM()
+            Log.d(TAG, "MainActivity onCreate complete")
+
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -76,7 +81,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun loadLastModelPath() {
         currentModelPath = prefs.getString(KEY_MODEL_PATH, null)
-        Log.i(TAG, "Loaded model path: $currentModelPath")
+            ?: prefs.getString(KEY_MODEL_URI, null)
+        Log.i(TAG, "Loaded last model path: $currentModelPath")
     }
 
     fun onModelSelectionChanged() {
@@ -85,73 +91,37 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun tryAutoInitLLM() {
-        val path = currentModelPath
-        
-        if (path.isNullOrEmpty()) {
-            Log.i(TAG, "No model configured")
-            setLLMInitialized(false)
-            return
-        }
-
-        Log.i(TAG, "Initializing model: $path")
+        val path = currentModelPath ?: return
 
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
-            var errorMsg: String? = null
-            
             try {
-                val file = File(path)
-                
-                if (!file.exists()) {
-                    errorMsg = "Model file not found"
-                    Log.e(TAG, "File does not exist: $path")
-                } else if (!file.canRead()) {
-                    errorMsg = "Cannot read model file"
-                    Log.e(TAG, "Cannot read: $path")
+                success = if (path.startsWith("content://")) {
+                    Log.w(TAG, "SAF content:// URI detected - not supported by llama.cpp yet.")
+                    false
                 } else {
-                    Log.i(TAG, "Loading ${file.length() / (1024 * 1024)}MB model...")
-                    
-                    try {
-                        LlamaBridge.shutdownNative()
-                    } catch (e: Exception) {
-                        Log.d(TAG, "No previous model to shutdown")
-                    }
-                    
-                    // Use 4096 context for Mistral-7B (it supports up to 8192)
-                    // Reduce if you have memory issues
-                    success = LlamaBridge.initNative(file.absolutePath, 4096)
-                    
-                    if (success) {
-                        Log.i(TAG, "✓ Model loaded successfully!")
+                    val file = File(path)
+                    if (file.exists() && file.canRead()) {
+                        LlamaBridge.initNative(file.absolutePath, 2048)
                     } else {
-                        errorMsg = "Model init returned false - check logcat for details"
-                        Log.e(TAG, errorMsg!!)
+                        Log.w(TAG, "Model file not found or unreadable: $path")
+                        false
                     }
                 }
             } catch (e: Throwable) {
-                errorMsg = e.message
-                Log.e(TAG, "Model init exception", e)
+                Log.e(TAG, "Model initialization failed", e)
             }
 
             withContext(Dispatchers.Main) {
                 setLLMInitialized(success)
-                
                 if (success) {
+                    Toast.makeText(this@MainActivity, "Model loaded successfully", Toast.LENGTH_SHORT).show()
+                } else if (!path.isNullOrEmpty()) {
                     Toast.makeText(
-                        this@MainActivity, 
-                        "✓ Mistral-7B ready! You can now chat.", 
+                        this@MainActivity,
+                        "Failed to load model:\n$path",
                         Toast.LENGTH_LONG
                     ).show()
-                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)
-                        ?.onModelInitComplete(true)
-                } else {
-                    Toast.makeText(
-                        this@MainActivity, 
-                        "✗ Init failed: $errorMsg\nCheck Settings", 
-                        Toast.LENGTH_LONG
-                    ).show()
-                    (supportFragmentManager.findFragmentById(R.id.fragment_container) as? SettingsFragment)
-                        ?.onModelInitComplete(false)
                 }
             }
         }
@@ -161,7 +131,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
 
-        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
+        toggle = ActionBarDrawerToggle(
+            this,
+            drawerLayout,
+            R.string.drawer_open,
+            R.string.drawer_close
+        )
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
@@ -189,43 +164,39 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "⚠️ Load a model in Settings first", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "LLM not initialized yet", Toast.LENGTH_SHORT).show()
             return
         }
-
-        Toast.makeText(this, "Generating response...", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val response = LlamaBridge.generateNative(prompt, 256)
+
                 withContext(Dispatchers.Main) {
-                    if (response.startsWith("[Error:")) {
+                    // Show first 200 characters of response (safe truncation)
+                    val displayText = if (response.length > 200) {
+                        response.substring(0, 200) + "..."
+                    } else {
+                        response
+                    }
+
+                    if (currentModelPath?.startsWith("content://") == true) {
                         Toast.makeText(
-                            this@MainActivity, 
-                            response, 
+                            this@MainActivity,
+                            "SAF models not fully supported yet\n\n$displayText",
                             Toast.LENGTH_LONG
                         ).show()
                     } else {
-                        // Show first 150 chars
-                        val preview = if (response.length > 150) {
-                            response.take(150) + "..."
-                        } else {
-                            response
-                        }
                         Toast.makeText(
-                            this@MainActivity, 
-                            "Response: $preview", 
+                            this@MainActivity,
+                            displayText,
                             Toast.LENGTH_LONG
                         ).show()
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@MainActivity, 
-                        "Error: ${e.message}", 
-                        Toast.LENGTH_LONG
-                    ).show()
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -233,10 +204,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.nav_load_project -> directoryPicker.launch(null)
-            R.id.nav_file_browser -> loadFragment(FileBrowserFragment.newInstance(projectLoader))
-            R.id.nav_llm -> loadFragment(LLMFragment())
-            R.id.nav_settings -> loadFragment(SettingsFragment())
+            R.id.nav_load_project -> {
+                directoryPicker.launch(null)
+            }
+            R.id.nav_file_browser -> {
+                loadFragment(FileBrowserFragment.newInstance(projectLoader))
+            }
+            R.id.nav_llm -> {
+                loadFragment(LLMFragment())
+            }
+            R.id.nav_settings -> {
+                loadFragment(SettingsFragment())
+            }
         }
 
         drawerLayout.closeDrawer(GravityCompat.START)
@@ -255,7 +234,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             try {
                 projectLoader.loadProject(treeUri)
                 runOnUiThread {
-                    Toast.makeText(this, "✓ Project loaded", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
                     loadFragment(FileBrowserFragment.newInstance(projectLoader))
                 }
             } catch (e: Exception) {
@@ -277,17 +256,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runOnUiThread {
             llmSendGlobal.isEnabled = initialized
             llmInputGlobal.isEnabled = initialized
-            llmInputGlobal.hint = if (initialized) {
-                "Ask Mistral anything..."
-            } else {
-                "⚙️ Configure model in Settings first"
-            }
         }
     }
 
     fun getProjectLoader(): ProjectLoader = projectLoader
-    
-    fun isLLMReady(): Boolean = llmInitialized
 
     private fun enableDragAndClick(view: View) {
         var dX = 0f
@@ -312,7 +284,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
                     if (deltaX > 10 || deltaY > 10) {
                         isDragging = true
-                        v.animate().x(event.rawX + dX).y(event.rawY + dY).setDuration(0).start()
+                        v.animate()
+                            .x(event.rawX + dX)
+                            .y(event.rawY + dY)
+                            .setDuration(0)
+                            .start()
                     }
                     true
                 }
@@ -338,14 +314,17 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (toggle.onOptionsItemSelected(item)) true else super.onOptionsItemSelected(item)
+        return if (toggle.onOptionsItemSelected(item)) {
+            true
+        } else {
+            super.onOptionsItemSelected(item)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         if (llmInitialized) {
             LlamaBridge.shutdownNative()
-            Log.i(TAG, "Model shutdown on activity destroy")
         }
     }
 }
