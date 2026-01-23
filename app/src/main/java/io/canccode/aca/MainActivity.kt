@@ -71,7 +71,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private fun loadLastModelPath() {
         currentModelPath = prefs.getString("selected_model_path", null)
             ?: prefs.getString("selected_model_uri", null)
-        Log.i(TAG, "Loaded last model path: $currentModelPath")
+        Log.i(TAG, "Loaded last model path from prefs: $currentModelPath")
     }
 
     fun onModelSelectionChanged() {
@@ -80,36 +80,61 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun tryAutoInitLLM() {
-        val path = currentModelPath ?: return
+        val path = currentModelPath
+        if (path.isNullOrBlank()) {
+            Log.w(TAG, "No model path configured in preferences")
+            updateLLMUIState(false, "No model selected")
+            return
+        }
+
+        Log.i(TAG, "Trying to initialize model: $path")
 
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
+            var failureReason = "Unknown failure"
+
             try {
-                success = if (path.startsWith("content://")) {
-                    Log.w(TAG, "SAF content:// URI detected - not supported by llama.cpp yet.")
-                    false
+                if (path.startsWith("content://")) {
+                    failureReason = "SAF content:// URIs are not supported by llama.cpp yet"
+                    Log.w(TAG, failureReason)
                 } else {
                     val file = File(path)
-                    if (file.exists() && file.canRead()) {
-                        LlamaBridge.initNative(file.absolutePath, 2048)
+                    Log.i(TAG, "Model file check → exists: ${file.exists()}, readable: ${file.canRead()}, size: ${file.length() / 1024 / 1024} MB")
+
+                    if (!file.exists()) {
+                        failureReason = "File does not exist at path"
+                    } else if (!file.canRead()) {
+                        failureReason = "File exists but cannot be read (permission?)"
                     } else {
-                        Log.w(TAG, "Model file not found or unreadable: $path")
-                        false
+                        Log.i(TAG, "Calling LlamaBridge.initNative(path, ctx=2048)")
+                        success = LlamaBridge.initNative(file.absolutePath, 2048)
+                        if (success) {
+                            failureReason = "Success: initNative returned true"
+                        } else {
+                            failureReason = "initNative returned false (see Logcat 'LLAMA_JNI' tag for details)"
+                        }
+                        Log.i(TAG, "initNative result = $success → $failureReason")
                     }
                 }
             } catch (e: Throwable) {
-                Log.e(TAG, "Model initialization failed", e)
+                failureReason = "Exception during init: ${e.message}"
+                Log.e(TAG, "Model init crashed", e)
+                success = false
             }
 
             withContext(Dispatchers.Main) {
                 llmInitialized = success
                 llmSendGlobal.isEnabled = success
                 llmInputGlobal.isEnabled = success
-                Toast.makeText(
-                    this@MainActivity,
-                    if (success) "Model loaded successfully" else "Failed to load model",
-                    Toast.LENGTH_SHORT
-                ).show()
+
+                val toastMsg = if (success) {
+                    "Model loaded OK (ctx=2048)"
+                } else {
+                    "Model failed to load:\n$failureReason\n\nPath: $path"
+                }
+
+                Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_LONG).show()
+                Log.i(TAG, "UI state updated → initialized=$success, reason=$failureReason")
             }
         }
     }
@@ -155,35 +180,24 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             return
         }
 
-        // Show immediate feedback
         Toast.makeText(this, "Generating...", Toast.LENGTH_SHORT).show()
 
         LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
             override fun onToken(piece: String) {
-                // Optional: could append to a TextView here if you want live streaming
-                // For simplicity we're collecting and showing at end
+                // Optional live streaming (can be used later if you want)
             }
 
             override fun onComplete(fullResponse: String) {
-                val displayText = if (fullResponse.length > 200) {
+                val display = if (fullResponse.length > 200) {
                     fullResponse.substring(0, 200) + "..."
                 } else {
                     fullResponse
                 }
-
-                Toast.makeText(
-                    this@MainActivity,
-                    displayText,
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this@MainActivity, display, Toast.LENGTH_LONG).show()
             }
 
             override fun onError(error: String) {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Generation error: $error",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this@MainActivity, "Generation failed: $error", Toast.LENGTH_LONG).show()
             }
         })
     }
@@ -201,7 +215,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 .replace(R.id.fragment_container, SettingsFragment())
                 .commit()
         }
-
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
     }
@@ -286,11 +299,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (toggle.onOptionsItemSelected(item)) {
-            true
-        } else {
-            super.onOptionsItemSelected(item)
-        }
+        return if (toggle.onOptionsItemSelected(item)) true else super.onOptionsItemSelected(item)
     }
 
     override fun onDestroy() {
@@ -298,5 +307,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         if (llmInitialized) {
             LlamaBridge.shutdownNative()
         }
+    }
+
+    private fun updateLLMUIState(isReady: Boolean, reason: String = "") {
+        llmInitialized = isReady
+        llmSendGlobal.isEnabled = isReady
+        llmInputGlobal.isEnabled = isReady
+
+        val msg = if (isReady) "LLM ready" else "LLM not ready: $reason"
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 }
