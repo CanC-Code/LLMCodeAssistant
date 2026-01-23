@@ -13,10 +13,20 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var chatScroll: ScrollView
     private lateinit var inputBox: EditText
     private lateinit var sendBtn: Button
+    private lateinit var clearBtn: Button
 
     private val responseBuilder = StringBuilder()
     private var thinkingJob: Job? = null
     private var responseStart = 0
+    
+    // Chat history
+    private val chatHistory = mutableListOf<ChatMessage>()
+
+    data class ChatMessage(
+        val isUser: Boolean,
+        val text: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -31,18 +41,40 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         chatScroll = view.findViewById(R.id.chatScroll)
         inputBox = view.findViewById(R.id.inputBox)
         sendBtn = view.findViewById(R.id.sendBtn)
+        clearBtn = view.findViewById(R.id.clearBtn)
 
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString().trim()
-            if (prompt.isNotEmpty()) generate(prompt)
+            if (prompt.isNotEmpty()) {
+                addUserMessage(prompt)
+                inputBox.text.clear()
+            }
         }
+
+        clearBtn.setOnClickListener {
+            clearChat()
+        }
+
+        // Restore chat history if any
+        restoreChatHistory()
+    }
+
+    fun addUserMessage(prompt: String) {
+        // Add to history
+        chatHistory.add(ChatMessage(isUser = true, text = prompt))
+        
+        // Display
+        chatOutput.append("👤 You: $prompt\n\n")
+        scroll()
+        
+        // Generate response
+        generate(prompt)
     }
 
     private fun generate(prompt: String) {
         sendBtn.isEnabled = false
-        inputBox.isEnabled = false
 
-        chatOutput.append("👤 $prompt\n\n🤖 ")
+        chatOutput.append("🤖 Assistant: ")
         responseStart = chatOutput.text.length
         responseBuilder.clear()
 
@@ -66,21 +98,30 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onComplete(fullResponse: String) {
         activity?.runOnUiThread {
             stopThinking()
+            
+            // Add to history
+            chatHistory.add(ChatMessage(isUser = false, text = fullResponse))
+            
             chatOutput.append("\n\n")
             sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            inputBox.text.clear()
             scroll()
+            
+            saveChatHistory()
         }
     }
 
     override fun onError(error: String) {
         activity?.runOnUiThread {
             stopThinking()
+            
+            val errorMsg = "Error: $error"
+            chatHistory.add(ChatMessage(isUser = false, text = errorMsg))
+            
             chatOutput.append("❌ $error\n\n")
             sendBtn.isEnabled = true
-            inputBox.isEnabled = true
             scroll()
+            
+            saveChatHistory()
         }
     }
 
@@ -110,6 +151,53 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     private fun scroll() {
         chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun clearChat() {
+        chatHistory.clear()
+        chatOutput.text = ""
+        saveChatHistory()
+        Toast.makeText(requireContext(), "Chat cleared", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun saveChatHistory() {
+        val prefs = requireContext().getSharedPreferences("llm_prefs", android.content.Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        
+        // Save as JSON-like string
+        val historyStr = chatHistory.joinToString("|||") { msg ->
+            "${if (msg.isUser) "U" else "A"}::${msg.text}"
+        }
+        
+        editor.putString("chat_history", historyStr)
+        editor.apply()
+    }
+
+    private fun restoreChatHistory() {
+        val prefs = requireContext().getSharedPreferences("llm_prefs", android.content.Context.MODE_PRIVATE)
+        val historyStr = prefs.getString("chat_history", "") ?: ""
+        
+        if (historyStr.isNotEmpty()) {
+            chatHistory.clear()
+            
+            historyStr.split("|||").forEach { entry ->
+                if (entry.contains("::")) {
+                    val parts = entry.split("::", limit = 2)
+                    val isUser = parts[0] == "U"
+                    val text = parts[1]
+                    
+                    chatHistory.add(ChatMessage(isUser, text))
+                    
+                    if (isUser) {
+                        chatOutput.append("👤 You: $text\n\n")
+                    } else {
+                        chatOutput.append("🤖 Assistant: $text\n\n")
+                    }
+                }
+            }
+            
+            scroll()
+        }
     }
 
     override fun onDestroyView() {
