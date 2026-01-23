@@ -30,23 +30,53 @@ static std::string g_model_rules = "";
 static int g_max_history_turns = 3;
 
 // Apply Mistral chat template with system rules
-static std::string apply_mistral_template(const std::string& user_prompt) {
-    std::ostringstream oss;
-    
+static std::vector<llama_token> apply_mistral_template(const std::string& user_prompt, const struct llama_model * model) {
+    std::vector<llama_token> tokens;
+    const auto vocab = llama_model_get_vocab(model);
+    const auto bos = llama_token_bos(model);
+    const auto eos = llama_token_eos(model);
+
+    auto add_bos = [&tokens, bos]() {
+        if (bos != -1) {
+            tokens.push_back(bos);
+        }
+    };
+
+    auto tokenize = [&tokens, vocab](const std::string& text, bool add_special = false, bool parse_special = false) {
+        std::vector<llama_token> res(text.length() + 4);
+        int n = llama_tokenize(vocab, text.c_str(), text.length(), res.data(), res.size(), add_special, parse_special);
+        if (n < 0) {
+            res.resize(-n);
+            n = llama_tokenize(vocab, text.c_str(), text.length(), res.data(), res.size(), add_special, parse_special);
+        }
+        res.resize(n);
+        tokens.insert(tokens.end(), res.begin(), res.end());
+    };
+
+    add_bos();
+
     // Add system rules if present
     if (!g_model_rules.empty()) {
-        oss << "[INST] " << g_model_rules << " [/INST] Understood. I will follow these rules.</s>";
+        tokenize("[INST] " + g_model_rules + " [/INST]");
+        tokenize("Understood. I will follow these rules.");
+        if (eos != -1) {
+            tokens.push_back(eos);
+        }
     }
     
     // Add chat history
     for (const auto& turn : g_chat_history) {
-        oss << "[INST] " << turn.first << " [/INST] " << turn.second << "</s>";
+        tokenize("[INST] " + turn.first + " [/INST]");
+        tokenize(turn.second);
+        if (eos != -1) {
+            tokens.push_back(eos);
+        }
     }
     
     // Add current prompt
-    oss << "[INST] " << user_prompt << " [/INST]";
-    
-    return oss.str();
+    tokenize("[INST] " + user_prompt + " [/INST]");
+
+    return tokens;
 }
 
 extern "C"
@@ -129,28 +159,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     std::string user_input(c_prompt);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    std::string formatted = apply_mistral_template(user_input);
-    LOGI("Formatted: %s", formatted.c_str());
-
-    const llama_vocab * vocab = llama_model_get_vocab(g_model);
-
-    // Tokenize
-    std::vector<llama_token> tokens(formatted.length() + 256);
-    int n_tokens = llama_tokenize(vocab, formatted.c_str(), formatted.length(), 
-                                   tokens.data(), tokens.size(), true, false);
-
-    if (n_tokens < 0) {
-        tokens.resize(-n_tokens);
-        n_tokens = llama_tokenize(vocab, formatted.c_str(), formatted.length(), 
-                                  tokens.data(), tokens.size(), true, false);
-    }
-
-    if (n_tokens <= 0) {
-        LOGE("Tokenization failed");
-        return env->NewStringUTF("[Error: Tokenization failed]");
-    }
-
-    tokens.resize(n_tokens);
+    std::vector<llama_token> tokens = apply_mistral_template(user_input, g_model);
+    int n_tokens = tokens.size();
     LOGI("Tokenized: %d tokens", n_tokens);
 
     // Validate context
@@ -183,17 +193,18 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     // Generate
     std::string output;
     int pos = n_tokens;
+    const auto eos = llama_token_eos(g_model);
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
-        if (tok == llama_vocab_eos(vocab) || tok == llama_vocab_eot(vocab)) {
+        if (tok == eos) {
             LOGI("EOS at %d", i);
             break;
         }
 
         char buf[128];
-        int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
+        int len = llama_token_to_piece(llama_model_get_vocab(g_model), tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
             output.append(buf, len);
         }
