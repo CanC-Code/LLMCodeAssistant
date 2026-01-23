@@ -142,17 +142,23 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 }
 
 extern "C"
-JNIEXPORT jstring JNICALL
+JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(
         JNIEnv * env,
-        jobject,
+        jobject thiz,
         jstring prompt,
-        jint maxTokens) {
+        jint maxTokens,
+        jobject callback) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
     if (!g_ctx || !g_model || !g_sampler) {
-        return env->NewStringUTF("[Error: Model not initialized]");
+        // Call callback with error
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        jstring err = env->NewStringUTF("[Error: Model not initialized]");
+        env->CallVoidMethod(callback, method, err);
+        return;
     }
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
@@ -166,8 +172,11 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     // Validate context
     int n_ctx = llama_n_ctx(g_ctx);
     if (n_tokens + maxTokens > n_ctx) {
-        LOGE("Too long: %d+%d > %d", n_tokens, maxTokens, n_ctx);
-        return env->NewStringUTF("[Error: Prompt too long]");
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        jstring err = env->NewStringUTF("[Error: Prompt too long]");
+        env->CallVoidMethod(callback, method, err);
+        return;
     }
 
     // Process prompt tokens in one batch
@@ -182,19 +191,27 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     batch.logits[n_tokens - 1] = 1;  // Request logits for last token
 
     if (llama_decode(g_ctx, batch) != 0) {
-        LOGE("Decode failed for prompt");
+        jclass cls = env->GetObjectClass(callback);
+        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+        jstring err = env->NewStringUTF("[Error: Decode failed]");
+        env->CallVoidMethod(callback, method, err);
         llama_batch_free(batch);
-        return env->NewStringUTF("[Error: Decode failed]");
+        return;
     }
     llama_batch_free(batch);
 
     LOGI("Prompt processed, generating...");
 
-    // Generate
+    // Generate with streaming
     std::string output;
     int pos = n_tokens;
     const auto * vocab = llama_model_get_vocab(g_model);
     const auto eos = llama_vocab_eos(vocab);
+
+    jclass cls = env->GetObjectClass(callback);
+    jmethodID onTokenMethod = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
@@ -207,7 +224,13 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         char buf[128];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
-            output.append(buf, len);
+            std::string piece(buf, len);
+            output += piece;
+
+            // Stream the piece
+            jstring jpiece = env->NewStringUTF(piece.c_str());
+            env->CallVoidMethod(callback, onTokenMethod, jpiece);
+            env->DeleteLocalRef(jpiece);
         }
 
         if (output.find("</s>") != std::string::npos) {
@@ -226,8 +249,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
         if (llama_decode(g_ctx, next) != 0) {
             LOGE("Gen decode failed at %d", i);
+            jstring err = env->NewStringUTF("[Error: Gen decode failed]");
+            env->CallVoidMethod(callback, onErrorMethod, err);
             llama_batch_free(next);
-            break;
+            return;
         }
         llama_batch_free(next);
 
@@ -250,7 +275,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         }
     }
 
-    return env->NewStringUTF(output.c_str());
+    // Call onComplete with full output (for history or final update)
+    jstring full = env->NewStringUTF(output.c_str());
+    env->CallVoidMethod(callback, onCompleteMethod, full);
 }
 
 extern "C"
