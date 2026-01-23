@@ -1,5 +1,3 @@
-package io.canccode.aca
-
 import android.os.Bundle
 import android.text.InputType
 import android.util.Log
@@ -12,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class LLMFragment : Fragment() {
+class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     private val TAG = "LLMFragment"
 
@@ -24,6 +22,9 @@ class LLMFragment : Fragment() {
 
     // Chat history stored in memory
     private val chatMessages = mutableListOf<Pair<String, String>>()
+
+    private var thinkingStart: Int = 0
+    private var currentResponse = StringBuilder()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -138,57 +139,59 @@ class LLMFragment : Fragment() {
         inputBox.isEnabled = false
         
         chatOutput.append("👤 You: $prompt\n\n")
-        chatOutput.append("🤖 Mistral: Thinking...\n")
-        val thinkingStart = chatOutput.text.length - "Thinking...\n".length
+        chatOutput.append("🤖 Mistral: ")
+        thinkingStart = chatOutput.text.length
+        currentResponse = StringBuilder()
 
         scrollToBottom()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = LlamaBridge.generateNative(prompt, 512)
-
-                withContext(Dispatchers.Main) {
-                    val currentText = chatOutput.text.toString()
-                    chatOutput.text = currentText.substring(0, thinkingStart)
-                    
-                    if (response.startsWith("[Error:")) {
-                        chatOutput.append("❌ $response\n\n")
-                    } else {
-                        chatOutput.append("$response\n\n")
-                        chatMessages.add(Pair(prompt, response))
-                    }
-                    
-                    sendBtn.isEnabled = true
-                    inputBox.isEnabled = true
-                    inputBox.requestFocus()
-                    
-                    scrollToBottom()
-                }
+                LlamaBridge.generateNative(prompt, 512, this@LLMFragment)
             } catch (e: Throwable) {
                 Log.e(TAG, "Generation failed", e)
                 withContext(Dispatchers.Main) {
-                    val currentText = chatOutput.text.toString()
-                    chatOutput.text = currentText.substring(0, thinkingStart)
-                    
                     chatOutput.append("❌ Error: ${e.message}\n\n")
-                    
                     sendBtn.isEnabled = true
                     inputBox.isEnabled = true
-                    
-                    Toast.makeText(requireContext(), "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    inputBox.requestFocus()
+                    scrollToBottom()
                 }
             }
         }
     }
 
-    private fun scrollToBottom() {
-        chatScroll.post {
-            chatScroll.fullScroll(View.FOCUS_DOWN)
+    override fun onToken(piece: String) {
+        activity?.runOnUiThread {
+            currentResponse.append(piece)
+            chatOutput.text = chatOutput.text.substring(0, thinkingStart) + currentResponse.toString()
+            scrollToBottom()
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // MainActivity owns LLM lifecycle
+    override fun onComplete(fullResponse: String) {
+        activity?.runOnUiThread {
+            chatOutput.append("\n\n")
+            chatMessages.add(Pair(inputBox.text.toString(), fullResponse))  // Note: inputBox is cleared, but use the prompt from history if needed
+            sendBtn.isEnabled = true
+            inputBox.isEnabled = true
+            inputBox.requestFocus()
+            scrollToBottom()
+        }
+    }
+
+    override fun onError(error: String) {
+        activity?.runOnUiThread {
+            chatOutput.text = chatOutput.text.substring(0, thinkingStart)
+            chatOutput.append("❌ $error\n\n")
+            sendBtn.isEnabled = true
+            inputBox.isEnabled = true
+            inputBox.requestFocus()
+            scrollToBottom()
+        }
+    }
+
+    private fun scrollToBottom() {
+        chatScroll.post { chatScroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 }
