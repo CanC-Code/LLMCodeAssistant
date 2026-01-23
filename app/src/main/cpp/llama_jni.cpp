@@ -119,15 +119,18 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         return;
     }
 
-    // Clear KV cache
-    llama_kv_cache_clear(g_ctx);
-
-    // Process prompt
+    // Process prompt with manual batch setup
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    batch.n_tokens = tokens.size();
+    
     for (size_t i = 0; i < tokens.size(); i++) {
-        llama_batch_add(batch, tokens[i], i, {0}, false);
+        batch.token[i] = tokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = false;
     }
-    batch.logits[batch.n_tokens - 1] = true;
+    batch.logits[tokens.size() - 1] = true;
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
@@ -170,9 +173,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
                                 env->NewStringUTF(piece.c_str()));
         }
 
-        // Prepare next batch
+        // Prepare next batch manually
         llama_batch next = llama_batch_init(1, 0, 1);
-        llama_batch_add(next, tok, n_cur, {0}, true);
+        next.n_tokens = 1;
+        next.token[0] = tok;
+        next.pos[0] = n_cur;
+        next.n_seq_id[0] = 1;
+        next.seq_id[0][0] = 0;
+        next.logits[0] = true;
 
         if (llama_decode(g_ctx, next) != 0) {
             llama_batch_free(next);
