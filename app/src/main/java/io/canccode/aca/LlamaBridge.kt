@@ -1,11 +1,11 @@
-package io.canccode.aca
-
-import android.util.Log
-
 object LlamaBridge {
 
     init {
-        System.loadLibrary("llama_jni")
+        try {
+            System.loadLibrary("llama_jni")
+        } catch (e: UnsatisfiedLinkError) {
+            android.util.Log.e("LlamaBridge", "Failed to load native library", e)
+        }
     }
 
     interface GenerateCallback {
