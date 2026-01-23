@@ -28,12 +28,6 @@ import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
-    companion object {
-        private const val PREFS_NAME = "model_prefs"
-        private const val KEY_MODEL_PATH = "selected_model_path"
-        private const val KEY_MODEL_URI = "selected_model_uri"
-    }
-
     private val TAG = "MainActivity"
 
     private lateinit var drawerLayout: DrawerLayout
@@ -45,6 +39,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private val projectLoader = ProjectLoader(this)
     private var llmInitialized = false
+
     private var currentModelPath: String? = null
     private lateinit var prefs: SharedPreferences
 
@@ -56,14 +51,15 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContentView(R.layout.activity_main)
 
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
         loadLastModelPath()
 
         initDrawer()
         initFloatingButton()
-        initGlobalLLMInputs()
+        initGlobalLLM()
         tryAutoInitLLM()
 
         if (savedInstanceState == null) {
@@ -74,8 +70,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun loadLastModelPath() {
-        currentModelPath = prefs.getString(KEY_MODEL_PATH, null)
-            ?: prefs.getString(KEY_MODEL_URI, null)
+        currentModelPath = prefs.getString("selected_model_path", null)
+            ?: prefs.getString("selected_model_uri", null)
         Log.i(TAG, "Loaded last model path: $currentModelPath")
     }
 
@@ -91,18 +87,19 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             var success = false
             try {
                 success = if (path.startsWith("content://")) {
-                    Log.w(TAG, "SAF content:// URI - not supported by llama.cpp yet")
+                    Log.w(TAG, "SAF content:// URI detected - not supported by llama.cpp yet.")
                     false
                 } else {
                     val file = File(path)
                     if (file.exists() && file.canRead()) {
                         LlamaBridge.initNative(file.absolutePath, 2048)
                     } else {
+                        Log.w(TAG, "Model file not found or unreadable: $path")
                         false
                     }
                 }
             } catch (e: Throwable) {
-                Log.e(TAG, "Model init failed", e)
+                Log.e(TAG, "Model initialization failed", e)
             }
 
             withContext(Dispatchers.Main) {
@@ -111,7 +108,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 llmInputGlobal.isEnabled = success
                 Toast.makeText(
                     this@MainActivity,
-                    if (success) "Model loaded" else "Model failed to load",
+                    if (success) "Model loaded successfully" else "Failed to load model",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -122,7 +119,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
 
-        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
+        toggle = ActionBarDrawerToggle(
+            this,
+            drawerLayout,
+            R.string.drawer_open,
+            R.string.drawer_close
+        )
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
@@ -135,7 +137,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         enableDragAndClick(floatingMenuButton)
     }
 
-    private fun initGlobalLLMInputs() {
+    private fun initGlobalLLM() {
         llmInputGlobal = findViewById(R.id.llm_input_global)
         llmSendGlobal = findViewById(R.id.llm_send_global)
 
@@ -150,7 +152,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "LLM not initialized", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "LLM not initialized yet", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -159,12 +161,17 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 val response = LlamaBridge.generateNative(prompt, 256)
 
                 withContext(Dispatchers.Main) {
-                    val display = if (response.length > 200) {
+                    val displayText = if (response.length > 200) {
                         response.substring(0, 200) + "..."
                     } else {
                         response
                     }
-                    Toast.makeText(this@MainActivity, display, Toast.LENGTH_LONG).show()
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        displayText,
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -177,18 +184,19 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.nav_load_project -> directoryPicker.launch(null)
-            R.id.nav_file_browser -> replaceFragment(FileBrowserFragment.newInstance(projectLoader))
-            R.id.nav_llm -> replaceFragment(LLMFragment())
-            R.id.nav_settings -> replaceFragment(SettingsFragment())
+            R.id.nav_file_browser -> supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
+                .commit()
+            R.id.nav_llm -> supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, LLMFragment())
+                .commit()
+            R.id.nav_settings -> supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, SettingsFragment())
+                .commit()
         }
+
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
-    }
-
-    private fun replaceFragment(fragment: Fragment) {
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.fragment_container, fragment)
-            .commit()
     }
 
     private fun handleProjectLoad(treeUri: Uri) {
@@ -204,7 +212,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 projectLoader.loadProject(treeUri)
                 runOnUiThread {
                     Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
-                    replaceFragment(FileBrowserFragment.newInstance(projectLoader))
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
+                        .commit()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -236,9 +246,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 MotionEvent.ACTION_MOVE -> {
                     val deltaX = abs(event.rawX - downX)
                     val deltaY = abs(event.rawY - downY)
+
                     if (deltaX > 10 || deltaY > 10) {
                         isDragging = true
-                        v.animate().x(event.rawX + dX).y(event.rawY + dY).setDuration(0).start()
+                        v.animate()
+                            .x(event.rawX + dX)
+                            .y(event.rawY + dY)
+                            .setDuration(0)
+                            .start()
                     }
                     true
                 }
@@ -264,7 +279,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return toggle.onOptionsItemSelected(item) || super.onOptionsItemSelected(item)
+        return if (toggle.onOptionsItemSelected(item)) {
+            true
+        } else {
+            super.onOptionsItemSelected(item)
+        }
     }
 
     override fun onDestroy() {
