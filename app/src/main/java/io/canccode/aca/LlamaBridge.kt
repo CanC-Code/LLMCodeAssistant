@@ -1,26 +1,32 @@
 package io.canccode.aca
 
+import android.util.Log
+
 object LlamaBridge {
 
     init {
         System.loadLibrary("llama_jni")
     }
 
-    @JvmStatic
+    interface GenerateCallback {
+        fun onToken(piece: String)
+        fun onComplete(fullResponse: String)
+        fun onError(error: String)
+    }
+
     external fun initNative(modelPath: String, nCtx: Int): Boolean
 
-    @JvmStatic
-    external fun generateNative(prompt: String, maxTokens: Int): String
+    external fun generateNative(
+        prompt: String,
+        maxTokens: Int,
+        callback: GenerateCallback
+    )
 
-    @JvmStatic
     external fun setModelRulesNative(rules: String?)
 
-    @JvmStatic
     external fun setMaxHistoryTurnsNative(turns: Int)
 
-    @JvmStatic
     external fun clearHistoryNative()
 
-    @JvmStatic
     external fun shutdownNative()
 }
