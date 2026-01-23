@@ -1,5 +1,3 @@
-package io.canccode.aca
-
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
@@ -20,8 +18,6 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
-import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_PATH
-import io.canccode.aca.SettingsFragment.Companion.KEY_MODEL_URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,7 +68,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             }
 
             Log.d(TAG, "MainActivity onCreate complete")
-
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -80,8 +75,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun loadLastModelPath() {
-        currentModelPath = prefs.getString(KEY_MODEL_PATH, null)
-            ?: prefs.getString(KEY_MODEL_URI, null)
+        // Use string literals instead of relying on SettingsFragment companion
+        currentModelPath = prefs.getString("selected_model_path", null)
+            ?: prefs.getString("selected_model_uri", null)
         Log.i(TAG, "Loaded last model path: $currentModelPath")
     }
 
@@ -170,10 +166,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = LlamaBridge.generateNative(prompt, 256)
+                val response: String = LlamaBridge.generateNative(prompt, 256)
 
                 withContext(Dispatchers.Main) {
-                    // Show first 200 characters of response (safe truncation)
                     val displayText = if (response.length > 200) {
                         response.substring(0, 200) + "..."
                     } else {
@@ -204,20 +199,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.nav_load_project -> {
-                directoryPicker.launch(null)
-            }
-            R.id.nav_file_browser -> {
-                loadFragment(FileBrowserFragment.newInstance(projectLoader))
-            }
-            R.id.nav_llm -> {
-                loadFragment(LLMFragment())
-            }
-            R.id.nav_settings -> {
-                loadFragment(SettingsFragment())
-            }
+            R.id.nav_load_project -> directoryPicker.launch(null)
+            R.id.nav_file_browser -> loadFragment(FileBrowserFragment.newInstance(projectLoader))
+            R.id.nav_llm -> loadFragment(LLMFragment())
+            R.id.nav_settings -> loadFragment(SettingsFragment())
         }
-
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
     }
@@ -279,8 +265,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val deltaX = abs(event.rawX - downX)
-                    val deltaY = abs(event.rawY - downY)
+                    val deltaX = kotlin.math.abs(event.rawX - downX)
+                    val deltaY = kotlin.math.abs(event.rawY - downY)
 
                     if (deltaX > 10 || deltaY > 10) {
                         isDragging = true
@@ -314,11 +300,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (toggle.onOptionsItemSelected(item)) {
-            true
-        } else {
-            super.onOptionsItemSelected(item)
-        }
+        return if (toggle.onOptionsItemSelected(item)) true else super.onOptionsItemSelected(item)
     }
 
     override fun onDestroy() {
