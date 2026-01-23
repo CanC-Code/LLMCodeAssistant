@@ -13,11 +13,11 @@ class FileBrowserFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
 
-    // No longer forcing ProjectLoader – use fallback or empty state
-    private val projectLoader: ProjectLoader? by lazy(LazyThreadSafetyMode.NONE) {
-        // If you later restore it in MainActivity, it can be used here
-        (activity as? MainActivity)?.getProjectLoader()
-        // or return null / create dummy
+    // Correct lazy syntax + nullable + no forced lookup
+    private val projectLoader: ProjectLoader? by lazy {
+        // If you later add it back to MainActivity → (activity as? MainActivity)?.getProjectLoader()
+        // For now: null (no project loading in simplified app)
+        null
     }
 
     override fun onCreateView(
@@ -33,14 +33,14 @@ class FileBrowserFragment : Fragment() {
         val rootNode = try {
             projectLoader?.getRootNode() ?: FileNode("No project loaded", "", null, true)
         } catch (e: Exception) {
-            // Fallback empty root
             FileNode("Error loading project", "", null, true)
         }
 
-        // Show hint if no project
+        // Optional: show message when no project
         if (projectLoader == null) {
+            // If your layout has an empty view with id android.R.id.empty
             view.findViewById<TextView>(android.R.id.empty)?.apply {
-                text = "No project loaded\nLoad a project in Settings first"
+                text = "No project loaded\nUse Settings to load one (not implemented yet)"
                 visibility = View.VISIBLE
             }
         }
@@ -54,15 +54,13 @@ class FileBrowserFragment : Fragment() {
 
     private fun handleNodeClick(node: FileNode) {
         if (node.isDirectory) {
-            // Directory - adapter should handle expand/collapse
-            return
+            return  // adapter handles expand/collapse
         }
 
-        // File clicked → open editor
         val editorFragment = EnhancedEditorFragment.newInstance(
             path = node.path,
             uri = node.uri?.toString() ?: ""
-            // loader = projectLoader   ← optional, can be passed if you want
+            // loader = projectLoader   // optional — can pass if you want
         )
 
         parentFragmentManager.beginTransaction()
