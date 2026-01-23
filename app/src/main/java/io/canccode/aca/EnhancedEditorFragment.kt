@@ -21,7 +21,7 @@ class EnhancedEditorFragment : Fragment() {
 
     private var filePath: String = ""
     private var fileUriString: String = ""
-    private var projectLoader: ProjectLoader? = null   // optional
+    private var projectLoader: ProjectLoader? = null   // optional / nullable
 
     private val undoStack = Stack<String>()
     private val redoStack = Stack<String>()
@@ -56,10 +56,8 @@ class EnhancedEditorFragment : Fragment() {
             fileUriString = it.getString(ARG_FILE_URI, "")
         }
 
-        // Optional: try to get from activity if restored later
-        if (projectLoader == null) {
-            projectLoader = (activity as? MainActivity)?.getProjectLoader()
-        }
+        // No more automatic lookup — if MainActivity doesn't have it, stay null
+        // (you can add back later if you restore project logic)
     }
 
     override fun onCreateView(
@@ -129,7 +127,7 @@ class EnhancedEditorFragment : Fragment() {
                 }
             }
             else -> {
-                "// No file loaded\n"
+                "// No file or project loaded\n"
             }
         }
 
