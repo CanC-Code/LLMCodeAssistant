@@ -1,8 +1,3 @@
-==== app/src/main/cpp/llama_jni.cpp ====
-// File: app/src/main/cpp/llama_jni.cpp
-// Author: CCVO
-// Purpose: JNI bridge for llama.cpp with Mistral chat template and model rules
-
 #include <jni.h>
 #include <string>
 #include <vector>
