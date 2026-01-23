@@ -1,3 +1,5 @@
+package io.canccode.aca
+
 object LlamaBridge {
 
     init {
