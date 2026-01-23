@@ -84,7 +84,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     cparams.n_batch = 512;
-    cparams.n_threads = 4; // Use 4 threads for better performance
+    cparams.n_threads = 4;
     cparams.n_threads_batch = 4;
 
     g_ctx = llama_init_from_model(g_model, cparams);
@@ -121,6 +121,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     std::lock_guard<std::mutex> lock(g_mutex);
 
     if (!g_ctx || !g_model || !g_sampler) {
+        LOGE("Model not initialized");
         return env->NewStringUTF("[Error: Model not initialized]");
     }
 
@@ -132,12 +133,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     std::string formatted_prompt = apply_mistral_template(user_input, true);
     
     LOGI("User input: %s", user_input.c_str());
-    LOGI("Formatted prompt: %s", formatted_prompt.c_str());
+    LOGI("Formatted prompt length: %zu chars", formatted_prompt.length());
 
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
 
     // Tokenize the formatted prompt
-    std::vector<llama_token> tokens(formatted_prompt.length() + 128);
+    std::vector<llama_token> tokens;
+    tokens.resize(formatted_prompt.length() + 256);
+    
     int n = llama_tokenize(
         vocab, 
         formatted_prompt.c_str(), 
@@ -148,30 +151,64 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         false  // special tokens
     );
 
+    if (n < 0) {
+        LOGE("Tokenization failed: buffer too small");
+        tokens.resize(-n);
+        n = llama_tokenize(
+            vocab, 
+            formatted_prompt.c_str(), 
+            formatted_prompt.length(), 
+            tokens.data(), 
+            tokens.size(), 
+            true,
+            false
+        );
+    }
+
     if (n <= 0) {
-        LOGE("Tokenization failed");
+        LOGE("Tokenization failed completely");
         return env->NewStringUTF("[Error: Tokenization failed]");
     }
 
     tokens.resize(n);
     LOGI("Prompt tokenized: %d tokens", n);
 
-    // Process prompt batch
-    llama_batch batch = llama_batch_init(n, 0, 1);
-    for (int i = 0; i < n; ++i) {
-        batch.token[i] = tokens[i];
-        batch.pos[i] = i;
-        batch.n_seq_id[i] = 1;
-        batch.seq_id[i][0] = 0;
-        batch.logits[i] = (i == n - 1); // Only compute logits for last token
+    // Check context size
+    int n_ctx = llama_n_ctx(g_ctx);
+    if (n + maxTokens > n_ctx) {
+        LOGE("Prompt + max_tokens (%d + %d = %d) exceeds context size (%d)", 
+             n, maxTokens, n + maxTokens, n_ctx);
+        return env->NewStringUTF("[Error: Prompt too long for context window]");
     }
 
-    if (llama_decode(g_ctx, batch) != 0) {
-        llama_batch_free(batch);
-        LOGE("Failed to process prompt");
-        return env->NewStringUTF("[Error: Failed to process prompt]");
+    // Initialize batch with proper size
+    llama_batch batch = llama_batch_init(std::min(n, 512), 0, 1);
+    
+    // Process prompt in chunks if needed
+    for (int i = 0; i < n; i += batch.n_tokens) {
+        int batch_size = std::min(batch.n_tokens, n - i);
+        
+        // Clear batch
+        batch.n_tokens = batch_size;
+        
+        for (int j = 0; j < batch_size; ++j) {
+            batch.token[j] = tokens[i + j];
+            batch.pos[j] = i + j;
+            batch.n_seq_id[j] = 1;
+            batch.seq_id[j][0] = 0;
+            batch.logits[j] = (i + j == n - 1) ? 1 : 0;
+        }
+
+        int decode_result = llama_decode(g_ctx, batch);
+        if (decode_result != 0) {
+            llama_batch_free(batch);
+            LOGE("Failed to decode batch at position %d (result: %d)", i, decode_result);
+            return env->NewStringUTF("[Error: Failed to process prompt]");
+        }
     }
+    
     llama_batch_free(batch);
+    LOGI("Prompt processing complete, starting generation");
 
     // Generate response
     std::string output;
@@ -195,13 +232,22 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             generated++;
         }
 
+        // Check for </s> marker in output
+        if (output.find("</s>") != std::string::npos) {
+            size_t eos_pos = output.find("</s>");
+            output = output.substr(0, eos_pos);
+            LOGI("Found </s> marker in output, stopping");
+            break;
+        }
+
         // Feed token back for next prediction
         llama_batch b = llama_batch_init(1, 0, 1);
+        b.n_tokens = 1;
         b.token[0] = tok;
         b.pos[0] = pos++;
         b.n_seq_id[0] = 1;
         b.seq_id[0][0] = 0;
-        b.logits[0] = true;
+        b.logits[0] = 1;
 
         if (llama_decode(g_ctx, b) != 0) {
             llama_batch_free(b);
@@ -209,14 +255,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             break;
         }
         llama_batch_free(b);
-
-        // Stop if we see "</s>" in output (Mistral EOS marker)
-        if (output.find("</s>") != std::string::npos) {
-            size_t pos = output.find("</s>");
-            output = output.substr(0, pos);
-            LOGI("Found </s> marker, stopping");
-            break;
-        }
     }
 
     LOGI("Generated %d tokens, output length: %zu", generated, output.length());
@@ -228,12 +266,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         output = output.substr(start, end - start + 1);
     }
 
-    // Store in chat history
-    g_chat_history.push_back({user_input, output});
-    
-    // Keep only last 5 turns to avoid context overflow
-    if (g_chat_history.size() > 5) {
-        g_chat_history.erase(g_chat_history.begin());
+    // Only save to history if generation was successful
+    if (!output.empty() && generated > 0) {
+        g_chat_history.push_back({user_input, output});
+        
+        // Keep only last 3 turns to avoid context overflow
+        if (g_chat_history.size() > 3) {
+            g_chat_history.erase(g_chat_history.begin());
+        }
     }
 
     return env->NewStringUTF(output.c_str());
