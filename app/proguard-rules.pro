@@ -1,21 +1,18 @@
-# 1. Project-Specific: Keep your JNI bridge classes
-# This must match your 'namespace' in build.gradle
+# Project-Specific: Keep your JNI bridge classes
+# This matches the namespace 'io.canccode.aca' defined in your build.gradle
 -keep class io.canccode.aca.** { *; }
 
-# 2. Native: Keep all native method declarations across the app
+# Native: Keep all native method declarations
 -keepclasseswithmembernames class * {
     native <methods>;
 }
 
-# 3. Kotlin: Keep Kotlin-specific metadata (important for some library reflections)
--keep class kotlin.** { *; }
--keep class kotlinx.** { *; }
-
-# 4. Standard Android: Keep common attributes and Enums
+# General Safety: Keep standard attributes and enums
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepclassmembers enum * { *; }
 
-# 5. Model/Data Classes: If you add GSON or JSON parsing later,
-# add rules to keep those specific data models here.
+# Kotlin: Metadata safety for reflection
+-keep class kotlin.** { *; }
+-keep class kotlinx.** { *; }
