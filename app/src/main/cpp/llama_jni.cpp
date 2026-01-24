@@ -1,3 +1,8 @@
+// File: app/src/main/cpp/llama_jni.cpp
+// Author: CCVO
+// Purpose: JNI bridge for llama.cpp – local GGUF loading and text generation
+// Copyright: CanC-code - CCVO
+
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -11,8 +16,9 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static std::mutex g_mutex;
-static llama_context * g_ctx = nullptr;
-static llama_model * g_model = nullptr;
+
+static llama_model   * g_model   = nullptr;
+static llama_context * g_ctx     = nullptr;
 static llama_sampler * g_sampler = nullptr;
 
 extern "C"
@@ -25,41 +31,44 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    const char * path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("Initializing model from: %s", path);
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
+    if (g_model)   { llama_free_model(g_model);     g_model   = nullptr; }
 
-    // Use new API
+    const char * path = env->GetStringUTFChars(modelPath, nullptr);
+    LOGI("Loading model from: %s", path);
+
     llama_model_params mparams = llama_model_default_params();
-    g_model = llama_model_load_from_file(path, mparams);
-    
+    g_model = llama_load_model_from_file(path, mparams);
+
+    env->ReleaseStringUTFChars(modelPath, path);
+
     if (!g_model) {
-        LOGE("Failed to load model");
-        env->ReleaseStringUTFChars(modelPath, path);
+        LOGE("Model load failed");
         return JNI_FALSE;
     }
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
-    cparams.n_batch = 512;
     cparams.n_threads = 4;
+    cparams.n_threads_batch = 4;
 
-    g_ctx = llama_init_from_model(g_model, cparams);
+    g_ctx = llama_new_context_with_model(g_model, cparams);
     if (!g_ctx) {
-        LOGE("Failed to create context");
-        llama_model_free(g_model);
+        LOGE("Context creation failed");
+        llama_free_model(g_model);
         g_model = nullptr;
-        env->ReleaseStringUTFChars(modelPath, path);
         return JNI_FALSE;
     }
 
-    // Create sampler chain with modern API
-    g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(1234));
+    llama_sampler_params sparams = llama_sampler_default_params();
+    sparams.temp = 0.7f;
+    sparams.top_k = 40;
+    sparams.top_p = 0.95f;
+    sparams.seed = LLAMA_DEFAULT_SEED;
 
-    env->ReleaseStringUTFChars(modelPath, path);
+    g_sampler = llama_sampler_init(sparams);
+
     LOGI("Model initialized successfully");
     return JNI_TRUE;
 }
@@ -84,34 +93,23 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     }
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
-    LOGI("Generating response for: %s", c_prompt);
 
-    // Tokenize with new API
-    const int n_prompt_tokens = -llama_tokenize(
-        llama_model_get_vocab(g_model),
-        c_prompt,
-        strlen(c_prompt),
-        nullptr,
-        0,
-        true,
-        false
-    );
+    std::vector<llama_token> tokens;
+    tokens.resize(c_prompt ? strlen(c_prompt) + 8 : 8);
 
-    std::vector<llama_token> tokens(n_prompt_tokens);
-    
-    llama_tokenize(
+    int n_tokens = llama_tokenize(
         llama_model_get_vocab(g_model),
         c_prompt,
         strlen(c_prompt),
         tokens.data(),
         tokens.size(),
         true,
-        false
+        true
     );
 
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    if (tokens.empty()) {
+    if (n_tokens <= 0) {
         jclass cls = env->GetObjectClass(callback);
         jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
         env->CallVoidMethod(callback, onError,
@@ -119,18 +117,16 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         return;
     }
 
-    // Process prompt with manual batch setup
-    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    batch.n_tokens = tokens.size();
-    
-    for (size_t i = 0; i < tokens.size(); i++) {
+    tokens.resize(n_tokens);
+
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    for (int i = 0; i < n_tokens; i++) {
         batch.token[i] = tokens[i];
         batch.pos[i] = i;
-        batch.n_seq_id[i] = 1;
         batch.seq_id[i][0] = 0;
-        batch.logits[i] = false;
+        batch.n_seq_id[i] = 1;
     }
-    batch.logits[tokens.size() - 1] = true;
+    batch.logits[n_tokens - 1] = 1;
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
@@ -147,25 +143,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     llama_token eos = llama_vocab_eos(vocab);
 
     jclass cls = env->GetObjectClass(callback);
-    jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onToken    = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
     jmethodID onComplete = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
-    jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+    jmethodID onError    = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
 
     std::string output;
-    int n_cur = tokens.size();
 
-    // Generation loop
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        
-        if (llama_vocab_is_eog(vocab, tok)) {
-            LOGI("EOS token reached");
-            break;
-        }
+        if (tok == eos) break;
 
-        char buf[256];
+        char buf[128];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
-        
+
         if (len > 0) {
             std::string piece(buf, len);
             output += piece;
@@ -173,14 +163,12 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
                                 env->NewStringUTF(piece.c_str()));
         }
 
-        // Prepare next batch manually
         llama_batch next = llama_batch_init(1, 0, 1);
-        next.n_tokens = 1;
         next.token[0] = tok;
-        next.pos[0] = n_cur;
-        next.n_seq_id[0] = 1;
+        next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
         next.seq_id[0][0] = 0;
-        next.logits[0] = true;
+        next.n_seq_id[0] = 1;
+        next.logits[0] = 1;
 
         if (llama_decode(g_ctx, next) != 0) {
             llama_batch_free(next);
@@ -188,12 +176,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
                                 env->NewStringUTF("Generation decode failed"));
             return;
         }
-        
         llama_batch_free(next);
-        n_cur++;
     }
 
-    LOGI("Generation complete: %d tokens", (int)output.length());
     env->CallVoidMethod(callback, onComplete,
                         env->NewStringUTF(output.c_str()));
 }
@@ -206,18 +191,9 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
-    }
-    
-    LOGI("Native resources freed");
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
+    if (g_model)   { llama_free_model(g_model);     g_model   = nullptr; }
+
+    LOGI("Llama shutdown complete");
 }
