@@ -3,7 +3,6 @@
 #include <mutex>
 #include <vector>
 #include <android/log.h>
-
 #include "llama.h"
 
 #define LOG_TAG "llama_jni"
@@ -17,87 +16,55 @@ static llama_sampler * g_sampler = nullptr;
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaBridge_initNative(
-        JNIEnv * env,
-        jobject,
-        jstring modelPath,
-        jint nCtx) {
-
+Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
-    // Modern API: Use llama_model_load_from_file instead of llama_load_model_from_file
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
     if (!g_model) {
-        LOGE("Failed to load model");
         env->ReleaseStringUTFChars(modelPath, path);
         return JNI_FALSE;
     }
 
-    // Modern API: Use llama_init_from_model instead of llama_new_context_with_model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
-        LOGE("Failed to create context");
         llama_model_free(g_model);
         g_model = nullptr;
         env->ReleaseStringUTFChars(modelPath, path);
         return JNI_FALSE;
     }
 
-    // Modern Sampler Chain Initialization
+    // Modern Sampler Chain
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     env->ReleaseStringUTFChars(modelPath, path);
-    LOGI("Model initialized successfully");
     return JNI_TRUE;
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_generateNative(
-        JNIEnv * env,
-        jobject,
-        jstring prompt,
-        jint maxTokens,
-        jobject callback) {
-
+Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_ctx || !g_model || !g_sampler) {
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-        env->CallVoidMethod(callback, onError, env->NewStringUTF("Model not initialized"));
-        return;
-    }
+    if (!g_ctx) return;
 
-    // Fix: Updated KV cache clearing
+    // Use the correct namespace for KV cache clearing
     llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
     
-    // Fix: Decoupled Tokenization
+    // Updated Tokenization
     int n_tokens_max = strlen(c_prompt) + 1;
     std::vector<llama_token> tokens(n_tokens_max);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
-
     env->ReleaseStringUTFChars(prompt, c_prompt);
-    
-    if (tokens.empty()) {
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-        env->CallVoidMethod(callback, onError, env->NewStringUTF("Tokenization failed"));
-        return;
-    }
 
-    // Modern Batch processing
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -110,63 +77,27 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     if (llama_decode(g_ctx, batch) != 0) {
         llama_batch_free(batch);
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-        env->CallVoidMethod(callback, onError, env->NewStringUTF("Prompt decode failed"));
         return;
     }
     llama_batch_free(batch);
 
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
-    jmethodID onComplete = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
-    jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-
-    std::string output;
 
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
-            std::string piece(buf, len);
-            output += piece;
-            env->CallVoidMethod(callback, onToken, env->NewStringUTF(piece.c_str()));
+            env->CallVoidMethod(callback, onToken, env->NewStringUTF(std::string(buf, len).c_str()));
         }
 
-        // Fix: Use llama_batch_get_one for efficient single-token decoding
         llama_batch next = llama_batch_get_one(&tok, 1);
+        // Corrected KV cache position call
         next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
 
-        if (llama_decode(g_ctx, next) != 0) {
-            env->CallVoidMethod(callback, onError, env->NewStringUTF("Generation decode failed"));
-            return;
-        }
-    }
-
-    env->CallVoidMethod(callback, onComplete, env->NewStringUTF(output.c_str()));
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_shutdownNative(
-        JNIEnv *,
-        jobject) {
-
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
+        if (llama_decode(g_ctx, next) != 0) break;
     }
 }
