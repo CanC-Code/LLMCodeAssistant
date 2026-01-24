@@ -22,14 +22,8 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
 set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_USE_ACCELERATE OFF CACHE BOOL "" FORCE)
-set(GGML_USE_METAL OFF CACHE BOOL "" FORCE)
-set(GGML_USE_VULKAN OFF CACHE BOOL "" FORCE)
-set(GGML_USE_CUDA OFF CACHE BOOL "" FORCE)
-
-# CRITICAL: Disable llamafile (uses FP16 intrinsics not available in ARMv7)
-set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE)
-set(GGML_USE_CPU_REPACK OFF CACHE BOOL "" FORCE)
+# Disable architecture-specific features that might fail on ARMv8/Android if not configured
+set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE) 
 
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
 
@@ -52,6 +46,7 @@ find_library(log-lib log)
 
 target_link_libraries(llama_jni
     llama
+    ggml
     ${log-lib}
 )
 
@@ -60,9 +55,4 @@ target_compile_options(llama_jni PRIVATE
     -Wextra
     -Wpedantic
     -fexceptions
-    $<$<CONFIG:Release>:-O3>
-)
-
-set_target_properties(llama_jni PROPERTIES
-    OUTPUT_NAME "llama_jni"
 )
