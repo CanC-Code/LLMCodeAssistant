@@ -30,6 +30,7 @@ class SettingsFragment : Fragment() {
     private lateinit var prefs: SharedPreferences
     private lateinit var tvStatus: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var tvProgress: TextView
     private lateinit var btnPickLocal: Button
     private lateinit var btnClear: Button
 
@@ -54,6 +55,7 @@ class SettingsFragment : Fragment() {
 
         tvStatus = view.findViewById(R.id.tv_model_status)
         progressBar = view.findViewById(R.id.progress_model)
+        tvProgress = view.findViewById(R.id.tv_progress)
         btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
         btnClear = view.findViewById(R.id.btn_clear_model)
 
@@ -71,14 +73,14 @@ class SettingsFragment : Fragment() {
     private fun updateStatusText() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
         if (path.isNullOrEmpty()) {
-            tvStatus.text = "No model selected\n\nSelect a .gguf model file to enable LLM features"
+            tvStatus.text = "No model selected"
         } else {
             val file = File(path)
             if (file.exists()) {
                 val sizeMB = file.length() / (1024 * 1024)
-                tvStatus.text = "✓ Model loaded\n\nFile: ${file.name}\nSize: ${sizeMB}MB\nPath: ${file.parent}"
+                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB\nPath: ${file.parent}"
             } else {
-                tvStatus.text = "⚠ Model file not found\n\n${file.name}\n\nPlease select a new model"
+                tvStatus.text = "Model path set but file not found:\n${file.name}"
             }
         }
     }
@@ -109,21 +111,28 @@ class SettingsFragment : Fragment() {
                     progressBar.isIndeterminate = false
                     progressBar.max = 100
                     progressBar.progress = 0
-                    tvStatus.text = "Copying model to app storage...\n\n0%"
+                    tvProgress.visibility = View.VISIBLE
+                    tvProgress.text = "Copying: 0%"
+                    btnPickLocal.isEnabled = false
                 }
 
-                // Copy file to internal storage
+                // Copy file to internal storage with real progress
                 val destFile = File(context.filesDir, filename)
                 
-                val fileSize = context.contentResolver.openInputStream(uri)?.use { 
-                    it.available().toLong() 
-                } ?: 0L
-
                 context.contentResolver.openInputStream(uri)?.use { input ->
+                    // Get actual file size
+                    val sizeIndex = cursor?.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    val fileSize = if (sizeIndex != null && sizeIndex != -1) {
+                        cursor.getLong(sizeIndex)
+                    } else {
+                        -1L
+                    }
+
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(8 * 1024)
                         var bytesRead: Int
                         var totalRead = 0L
+                        var lastProgress = 0
 
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
@@ -131,9 +140,19 @@ class SettingsFragment : Fragment() {
                             
                             if (fileSize > 0) {
                                 val progress = (totalRead * 100 / fileSize).toInt()
-                                withContext(Dispatchers.Main) {
-                                    progressBar.progress = progress
-                                    tvStatus.text = "Copying model to app storage...\n\n$progress%"
+                                if (progress != lastProgress) {
+                                    lastProgress = progress
+                                    withContext(Dispatchers.Main) {
+                                        progressBar.progress = progress
+                                        tvProgress.text = "Copying: $progress% (${totalRead / (1024 * 1024)}MB / ${fileSize / (1024 * 1024)}MB)"
+                                    }
+                                }
+                            } else {
+                                // If size unknown, show bytes copied
+                                if (totalRead % (1024 * 1024) == 0L) {
+                                    withContext(Dispatchers.Main) {
+                                        tvProgress.text = "Copying: ${totalRead / (1024 * 1024)}MB..."
+                                    }
                                 }
                             }
                         }
@@ -144,27 +163,30 @@ class SettingsFragment : Fragment() {
                 Log.i(TAG, "Model size: ${destFile.length() / (1024 * 1024)}MB")
 
                 withContext(Dispatchers.Main) {
+                    tvProgress.text = "Initializing model..."
                     progressBar.isIndeterminate = true
-                    tvStatus.text = "Model copied, initializing..."
                 }
-                
-                // Initialize model
-                val success = try {
+
+                // Initialize the model
+                val initSuccess = try {
                     LlamaBridge.initNative(destFile.absolutePath, 2048)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Model init failed", e)
+                    Log.e(TAG, "Model initialization failed", e)
                     false
                 }
-                
+
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    
-                    if (success) {
+                    tvProgress.visibility = View.GONE
+                    btnPickLocal.isEnabled = true
+
+                    if (initSuccess) {
                         saveModelPath(destFile.absolutePath)
-                        Toast.makeText(context, "✓ Model ready to use!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Model loaded successfully!", Toast.LENGTH_SHORT).show()
                     } else {
+                        // Delete the file if init failed
                         destFile.delete()
-                        Toast.makeText(context, "✗ Model initialization failed", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Model initialization failed", Toast.LENGTH_LONG).show()
                     }
                 }
                 
@@ -172,7 +194,8 @@ class SettingsFragment : Fragment() {
                 Log.e(TAG, "Failed to copy model", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
-                    tvStatus.text = "Error: ${e.message}"
+                    tvProgress.visibility = View.GONE
+                    btnPickLocal.isEnabled = true
                     Toast.makeText(
                         requireContext(), 
                         "Error: ${e.message}", 
@@ -186,6 +209,9 @@ class SettingsFragment : Fragment() {
     private fun saveModelPath(path: String) {
         prefs.edit().putString(KEY_MODEL_PATH, path).apply()
         updateStatusText()
+        
+        // Notify MainActivity
+        (activity as? MainActivity)?.onModelSelectionChanged()
     }
 
     private fun clearModelSelection() {
@@ -203,15 +229,16 @@ class SettingsFragment : Fragment() {
             }
         }
         
-        // Shutdown native resources
+        // Shutdown model if loaded
         try {
             LlamaBridge.shutdownNative()
         } catch (e: Exception) {
-            Log.e(TAG, "Error shutting down native bridge", e)
+            Log.e(TAG, "Error shutting down model", e)
         }
         
         prefs.edit().remove(KEY_MODEL_PATH).apply()
         updateStatusText()
-        Toast.makeText(requireContext(), "Model selection cleared", Toast.LENGTH_SHORT).show()
+        
+        (activity as? MainActivity)?.onModelSelectionChanged()
     }
 }
