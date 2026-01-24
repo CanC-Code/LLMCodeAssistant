@@ -31,7 +31,16 @@
         android:layout_height="wrap_content"
         android:max="100"
         android:visibility="gone"
-        android:indeterminate="true"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tv_progress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Progress: 0%"
+        android:visibility="gone"
+        android:textSize="12sp"
+        android:gravity="center"
         android:layout_marginBottom="16dp"/>
 
     <TextView
@@ -60,7 +69,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="• TinyLlama 1.1B (1-2GB)\n• Phi-3 Mini (2-3GB)\n• Llama 3.2 1B/3B (1-4GB)\n\nDownload from HuggingFace, then use Pick button above."
+        android:text="• TinyLlama 1.1B (1-2GB)\n• Phi-3 Mini (2-3GB)\n• Llama 3.2 1B/3B (1-4GB)\n• Qwen 2.5 0.5B/1.5B (0.5-2GB)\n\nDownload from HuggingFace (search for GGUF format),\nthen use Pick button above."
         android:textSize="12sp"
         android:paddingBottom="16dp"
         android:lineSpacingMultiplier="1.2"/>
