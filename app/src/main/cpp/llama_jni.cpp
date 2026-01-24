@@ -37,9 +37,9 @@ Java_io_canccode_aca_LlamaBridge_initNative(
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx     = nCtx;
-    cparams.n_batch   = 512;   // adjust based on RAM
+    cparams.n_batch   = 512;
     cparams.n_ubatch  = 512;
-    cparams.n_seq_max = 1;     // single sequence
+    cparams.n_seq_max = 1;
 
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
@@ -50,20 +50,18 @@ Java_io_canccode_aca_LlamaBridge_initNative(
         return JNI_FALSE;
     }
 
-    // Build sampler chain (modern style)
+    // Sampler chain
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     sparams.no_perf = true;
 
     g_sampler = llama_sampler_chain_init(sparams);
 
-    // Add typical samplers - tune values as needed
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_greedy());  // or dist for sampling
+    // Common samplers (adjust as needed)
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_greedy());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(50));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_min_p(0.05f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
-    // Add repetition/penalty if desired:
-    // llama_sampler_chain_add(g_sampler, llama_sampler_init_penalties(64, 1.1f, 0.85f, 1.0f));
 
     env->ReleaseStringUTFChars(modelPath, path);
     LOGI("Model initialized successfully");
@@ -93,33 +91,35 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // Tokenize - modern signature
-    std::vector<llama_token> prompt_tokens;
-    prompt_tokens.resize(len + 32);  // safety margin
-
+    std::vector<llama_token> prompt_tokens(len + 32);
     int32_t n_prompt = llama_tokenize(vocab,
                                        c_prompt, static_cast<int32_t>(len),
                                        prompt_tokens.data(), static_cast<int32_t>(prompt_tokens.size()),
-                                       true,   // add_special
-                                       true);  // parse_special
+                                       true, true);
 
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     if (n_prompt < 0) {
         jclass cls = env->GetObjectClass(callback);
         jmethodID onError = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-        env->CallVoidMethod(callback, onError, env->NewStringUTF("Tokenization failed (buffer too small?)"));
+        env->CallVoidMethod(callback, onError, env->NewStringUTF("Tokenization failed"));
         return;
     }
     prompt_tokens.resize(n_prompt);
 
-    // Reset KV cache for seq 0
-    llama_kv_cache_seq_rm(g_ctx, 0, -1, -1);  // clear entire sequence
+    // Reset KV cache (modern replacement)
+    llama_kv_cache_clear(g_ctx);
 
-    // Process prompt in batch
+    // Prepare prompt batch manually
     llama_batch batch = llama_batch_init(static_cast<int32_t>(prompt_tokens.size()), 0, 1);
+    batch.n_tokens = static_cast<int32_t>(n_prompt);
+
     for (int32_t i = 0; i < n_prompt; ++i) {
-        llama_batch_add(batch, prompt_tokens[i], i, {0}, i == n_prompt - 1);  // logits only on last
+        batch.token   [i] = prompt_tokens[i];
+        batch.pos     [i] = i;
+        batch.seq_id  [i][0] = 0;
+        batch.n_seq_id[i]    = 1;
+        batch.logits  [i]    = (i == n_prompt - 1) ? 1 : 0;
     }
 
     if (llama_decode(g_ctx, batch)) {
@@ -131,7 +131,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     }
     llama_batch_free(batch);
 
-    // Generation
+    // Generation loop
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken    = env->GetMethodID(cls, "onToken",    "(Ljava/lang/String;)V");
     jmethodID onComplete = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
@@ -139,15 +139,20 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     std::string output;
     int32_t n_past = n_prompt;
-    llama_token eos = llama_token_eos(vocab);  // or llama_vocab_eos_token(vocab) in some versions
+    llama_token eos = llama_vocab_eos(vocab);
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token id = llama_sampler_sample(g_sampler, g_ctx, -1);
 
         if (id == eos) break;
 
-        // Decode single token
-        llama_batch single = llama_batch_get_one(&id, 1, n_past, 0);
+        // Single token batch (manual setup after get_one)
+        llama_batch single = llama_batch_get_one(&id, 1);
+        single.pos[0]      = n_past;
+        single.seq_id[0][0] = 0;
+        single.n_seq_id[0] = 1;
+        single.logits[0]   = 1;
+
         if (llama_decode(g_ctx, single)) {
             llama_batch_free(single);
             env->CallVoidMethod(callback, onError, env->NewStringUTF("Decode failed"));
@@ -155,7 +160,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         }
         llama_batch_free(single);
 
-        // To piece
         char buf[64];
         int n = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
         if (n > 0) {
@@ -164,7 +168,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(piece.c_str()));
         }
 
-        llama_sampler_accept(g_sampler, id);  // crucial for stateful samplers
+        llama_sampler_accept(g_sampler, id);
         ++n_past;
     }
 
