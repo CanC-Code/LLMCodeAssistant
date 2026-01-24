@@ -1,26 +1,18 @@
+// File: app/src/main/java/io/canccode/aca/LLMFragment.kt
+// Author: CCVO
+// Purpose: Chat UI fragment for local LLM interaction
+// Copyright: CanC-code - CCVO
+
 package io.canccode.aca
 
 import android.os.Bundle
-import android.util.Log
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
+import android.view.*
+import android.widget.*
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 
 class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
-
-    private val TAG = "LLMFragment"
 
     private lateinit var chatOutput: TextView
     private lateinit var chatScroll: ScrollView
@@ -28,8 +20,8 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var sendBtn: Button
 
     private val responseBuilder = StringBuilder()
+    private var responseStart = 0
     private var thinkingJob: Job? = null
-    private var lastResponseStartPos = 0
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -40,102 +32,75 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
         chatOutput = view.findViewById(R.id.chatOutput)
-        chatScroll  = view.findViewById(R.id.chatScroll)
-        inputBox    = view.findViewById(R.id.inputBox)
-        sendBtn     = view.findViewById(R.id.sendBtn)
-
-        chatOutput.text = "LLM ready. Type a message.\n\n"
+        chatScroll = view.findViewById(R.id.chatScroll)
+        inputBox = view.findViewById(R.id.inputBox)
+        sendBtn = view.findViewById(R.id.sendBtn)
 
         sendBtn.setOnClickListener {
-            val text = inputBox.text.toString().trim()
-            if (text.isEmpty()) return@setOnClickListener
-
-            appendMessage("You: $text\n\n")
-            inputBox.text.clear()
-
-            startThinkingAnimation()
-            sendBtn.isEnabled = false
-            inputBox.isEnabled = false
-
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    LlamaBridge.generateNative(text, 768, this@LLMFragment)
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        stopThinking()
-                        appendMessage("Error: ${e.message}\n\n")
-                        sendBtn.isEnabled = true
-                        inputBox.isEnabled = true
-                    }
-                }
+            val prompt = inputBox.text.toString().trim()
+            if (prompt.isNotEmpty()) {
+                generate(prompt)
             }
         }
     }
 
-    // ────────────────────────────────────────────────
-    //  LlamaBridge.GenerateCallback implementation
-    // ────────────────────────────────────────────────
+    private fun generate(prompt: String) {
+        sendBtn.isEnabled = false
+        inputBox.isEnabled = false
+
+        chatOutput.append("👤 $prompt\n\n🤖 ")
+        responseStart = chatOutput.text.length
+        responseBuilder.clear()
+
+        startThinking()
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            LlamaBridge.generateNative(prompt, 512, this@LLMFragment)
+        }
+    }
 
     override fun onToken(piece: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
+        activity?.runOnUiThread {
             stopThinking()
             responseBuilder.append(piece)
-            chatOutput.text = chatOutput.text.toString() + piece
-            scrollToBottom()
+            chatOutput.text =
+                chatOutput.text.substring(0, responseStart) + responseBuilder.toString()
+            scroll()
         }
     }
 
     override fun onComplete(fullResponse: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
+        activity?.runOnUiThread {
             stopThinking()
-            appendMessage("LLM: ${responseBuilder}\n\n")
-            responseBuilder.clear()
+            chatOutput.append("\n\n")
             sendBtn.isEnabled = true
             inputBox.isEnabled = true
-            inputBox.requestFocus()
-            scrollToBottom()
+            inputBox.text.clear()
+            scroll()
         }
     }
 
     override fun onError(error: String) {
-        lifecycleScope.launch(Dispatchers.Main) {
+        activity?.runOnUiThread {
             stopThinking()
-            appendMessage("Error: $error\n\n")
+            chatOutput.append("❌ $error\n\n")
             sendBtn.isEnabled = true
             inputBox.isEnabled = true
-            Toast.makeText(requireContext(), error, Toast.LENGTH_LONG).show()
+            scroll()
         }
     }
 
-    // ────────────────────────────────────────────────
-    //  Helpers
-    // ────────────────────────────────────────────────
-
-    private fun appendMessage(msg: String) {
-        chatOutput.append(msg)
-        scrollToBottom()
-    }
-
-    private fun startThinkingAnimation() {
-        stopThinking()
-        lastResponseStartPos = chatOutput.text.length
-        responseBuilder.clear()
-
-        thinkingJob = lifecycleScope.launch {
-            var dots = ""
-            while (true) {
-                dots = when (dots) {
-                    "" -> "."; "." -> ".."; ".." -> "..."; else -> ""
-                }
-                withContext(Dispatchers.Main) {
-                    val base = chatOutput.text.substring(0, lastResponseStartPos)
-                    chatOutput.text = base + "Thinking$dots"
-                    scrollToBottom()
-                }
-                delay(450)
+    private fun startThinking() {
+        thinkingJob?.cancel()
+        thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
+            val dots = listOf(".", "..", "...")
+            var i = 0
+            while (isActive) {
+                chatOutput.text =
+                    chatOutput.text.substring(0, responseStart) + dots[i % dots.size]
+                i++
+                delay(400)
             }
         }
     }
@@ -145,14 +110,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         thinkingJob = null
     }
 
-    private fun scrollToBottom() {
-        chatScroll.post {
-            chatScroll.fullScroll(View.FOCUS_DOWN)
-        }
-    }
-
-    override fun onDestroyView() {
-        stopThinking()
-        super.onDestroyView()
+    private fun scroll() {
+        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
     }
 }
