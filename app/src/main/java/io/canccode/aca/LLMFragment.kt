@@ -1,8 +1,3 @@
-// File: app/src/main/java/io/canccode/aca/LLMFragment.kt
-// Author: CCVO
-// Purpose: Chat UI fragment for local LLM interaction
-// Copyright: CanC-code - CCVO
-
 package io.canccode.aca
 
 import android.os.Bundle
@@ -18,10 +13,12 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var chatScroll: ScrollView
     private lateinit var inputBox: EditText
     private lateinit var sendBtn: Button
+    private lateinit var clearBtn: Button
 
     private val responseBuilder = StringBuilder()
-    private var responseStart = 0
     private var thinkingJob: Job? = null
+    private var responseStart = 0
+    private var isGenerating = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -36,27 +33,59 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         chatScroll = view.findViewById(R.id.chatScroll)
         inputBox = view.findViewById(R.id.inputBox)
         sendBtn = view.findViewById(R.id.sendBtn)
+        clearBtn = view.findViewById(R.id.clearBtn)
 
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString().trim()
             if (prompt.isNotEmpty()) {
-                generate(prompt)
+                processUserInput(prompt)
             }
+        }
+
+        clearBtn.setOnClickListener {
+            chatOutput.text = ""
+            responseBuilder.clear()
         }
     }
 
-    private fun generate(prompt: String) {
+    fun processUserInput(userInput: String) {
+        if (isGenerating) {
+            Toast.makeText(requireContext(), "Please wait for current response", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val activity = activity as? MainActivity
+        if (activity?.isModelReady() != true) {
+            Toast.makeText(requireContext(), "Model not loaded. Go to Settings.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isGenerating = true
         sendBtn.isEnabled = false
         inputBox.isEnabled = false
 
-        chatOutput.append("👤 $prompt\n\n🤖 ")
+        // Display user message
+        chatOutput.append("👤 $userInput\n\n")
+        
+        // Prepare for response
+        chatOutput.append("🤖 ")
         responseStart = chatOutput.text.length
         responseBuilder.clear()
 
+        inputBox.text.clear()
         startThinking()
 
+        // Generate response
         lifecycleScope.launch(Dispatchers.IO) {
-            LlamaBridge.generateNative(prompt, 512, this@LLMFragment)
+            try {
+                LlamaBridge.generateNative(userInput, 512, this@LLMFragment)
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    stopThinking()
+                    chatOutput.append("❌ Error: ${e.message}\n\n")
+                    resetUI()
+                }
+            }
         }
     }
 
@@ -64,8 +93,11 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         activity?.runOnUiThread {
             stopThinking()
             responseBuilder.append(piece)
-            chatOutput.text =
-                chatOutput.text.substring(0, responseStart) + responseBuilder.toString()
+            
+            // Update only the response part
+            val prefix = chatOutput.text.substring(0, responseStart)
+            chatOutput.text = prefix + responseBuilder.toString()
+            
             scroll()
         }
     }
@@ -73,10 +105,12 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onComplete(fullResponse: String) {
         activity?.runOnUiThread {
             stopThinking()
-            chatOutput.append("\n\n")
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            inputBox.text.clear()
+            
+            // Ensure final response is displayed
+            val prefix = chatOutput.text.substring(0, responseStart)
+            chatOutput.text = prefix + fullResponse + "\n\n"
+            
+            resetUI()
             scroll()
         }
     }
@@ -84,22 +118,38 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onError(error: String) {
         activity?.runOnUiThread {
             stopThinking()
-            chatOutput.append("❌ $error\n\n")
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
+            
+            // Remove "Thinking..." and show error
+            chatOutput.text = chatOutput.text.substring(0, responseStart)
+            chatOutput.append("❌ Error: $error\n\n")
+            
+            resetUI()
             scroll()
         }
     }
 
+    private fun resetUI() {
+        isGenerating = false
+        sendBtn.isEnabled = true
+        inputBox.isEnabled = true
+    }
+
     private fun startThinking() {
         thinkingJob?.cancel()
-        thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
-            val dots = listOf(".", "..", "...")
-            var i = 0
-            while (isActive) {
-                chatOutput.text =
-                    chatOutput.text.substring(0, responseStart) + dots[i % dots.size]
-                i++
+        thinkingJob = lifecycleScope.launch {
+            var dots = ""
+            while (true) {
+                dots = when (dots) {
+                    "" -> "."
+                    "." -> ".."
+                    ".." -> "..."
+                    else -> ""
+                }
+                
+                val prefix = chatOutput.text.substring(0, responseStart)
+                chatOutput.text = prefix + "Thinking$dots"
+                scroll()
+                
                 delay(400)
             }
         }
@@ -112,5 +162,10 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     private fun scroll() {
         chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    override fun onDestroyView() {
+        stopThinking()
+        super.onDestroyView()
     }
 }
