@@ -26,20 +26,22 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     std::lock_guard<std::mutex> lock(g_mutex);
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
+    // Modern API: Use llama_model_load_from_file instead of llama_load_model_from_file
     llama_model_params mparams = llama_model_default_params();
-    g_model = llama_load_model_from_file(path, mparams);
+    g_model = llama_model_load_from_file(path, mparams);
     if (!g_model) {
         LOGE("Failed to load model");
         env->ReleaseStringUTFChars(modelPath, path);
         return JNI_FALSE;
     }
 
+    // Modern API: Use llama_init_from_model instead of llama_new_context_with_model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
-    g_ctx = llama_new_context_with_model(g_model, cparams);
+    g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
         LOGE("Failed to create context");
-        llama_free_model(g_model);
+        llama_model_free(g_model);
         g_model = nullptr;
         env->ReleaseStringUTFChars(modelPath, path);
         return JNI_FALSE;
@@ -74,16 +76,16 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         return;
     }
 
-    // Clear KV cache for the new prompt context
+    // Fix: Updated KV cache clearing
     llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
     
-    // Updated Tokenization (Decoupled from context)
-    int n_tokens = strlen(c_prompt) + 1;
-    std::vector<llama_token> tokens(n_tokens);
-    n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
+    // Fix: Decoupled Tokenization
+    int n_tokens_max = strlen(c_prompt) + 1;
+    std::vector<llama_token> tokens(n_tokens_max);
+    int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
 
     env->ReleaseStringUTFChars(prompt, c_prompt);
@@ -95,7 +97,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         return;
     }
 
-    // Initialize batch for prompt processing
+    // Modern Batch processing
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -125,7 +127,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
         
-        // Handle EOS/EOG tokens correctly
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
@@ -136,7 +137,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(piece.c_str()));
         }
 
-        // Efficient single-token decode using reusable static batch
+        // Fix: Use llama_batch_get_one for efficient single-token decoding
         llama_batch next = llama_batch_get_one(&tok, 1);
         next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
 
@@ -165,7 +166,7 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(
         g_ctx = nullptr;
     }
     if (g_model) {
-        llama_free_model(g_model);
+        llama_model_free(g_model);
         g_model = nullptr;
     }
 }
