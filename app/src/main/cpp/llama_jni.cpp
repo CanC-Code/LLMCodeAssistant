@@ -124,14 +124,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     tokens.resize(n_tokens);
 
-    // Clear KV cache using new API
-    llama_kv_cache_clear(g_ctx);
+    // Clear KV cache - proper API
+    llama_kv_cache_seq_rm(g_ctx, 0, -1, -1);
 
-    // Create batch for prompt
+    // Create batch for prompt - manual population
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     
     for (size_t i = 0; i < tokens.size(); i++) {
-        llama_batch_add(batch, tokens[i], i, {0}, false);
+        batch.token[batch.n_tokens] = tokens[i];
+        batch.pos[batch.n_tokens] = i;
+        batch.n_seq_id[batch.n_tokens] = 1;
+        batch.seq_id[batch.n_tokens][0] = 0;
+        batch.logits[batch.n_tokens] = false;
+        batch.n_tokens++;
     }
     
     // Mark last token for logits
@@ -182,10 +187,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
                                 env->NewStringUTF(piece.c_str()));
         }
 
-        // Create batch for next token
+        // Create batch for next token - manual population
         llama_batch next = llama_batch_init(1, 0, 1);
-        llama_batch_add(next, tok, n_cur, {0}, true);
-        n_cur++;
+        next.token[0] = tok;
+        next.pos[0] = n_cur;
+        next.n_seq_id[0] = 1;
+        next.seq_id[0][0] = 0;
+        next.logits[0] = true;
+        next.n_tokens = 1;
 
         if (llama_decode(g_ctx, next) != 0) {
             llama_batch_free(next);
@@ -195,6 +204,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         }
         
         llama_batch_free(next);
+        n_cur++;
     }
 
     env->CallVoidMethod(callback, onComplete,
