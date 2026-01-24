@@ -1,110 +1,212 @@
 package io.canccode.aca
 
+import android.content.Intent
 import android.os.Bundle
-import android.util.Log
-import android.view.MotionEvent
-import android.view.View
+import android.view.MenuItem
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.commit
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.navigation.NavigationView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.abs
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
 
-    companion object {
-        private const val TAG = "MainActivity"
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var navView: NavigationView
+    private lateinit var projectLoader: ProjectLoader
+    private lateinit var llmInputGlobal: EditText
+    private lateinit var llmSendGlobal: Button
+    
+    private var isModelLoaded = false
+    private var currentModelPath: String? = null
+
+    private val openTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            projectLoader.loadProject(it)
+            Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
+            
+            // Switch to file browser
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
+                .commit()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        projectLoader = ProjectLoader(this)
+        
+        setupDrawer()
+        setupGlobalLLMBar()
+        
         if (savedInstanceState == null) {
-            supportFragmentManager.commit {
-                replace(R.id.fragment_container, LLMFragment())
-            }
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, LLMFragment())
+                .commit()
         }
 
-        // Make floating menu button draggable + clickable
-        findViewById<ImageView>(R.id.floatingMenuButton)?.let { btn ->
-            makeButtonDraggableAndClickable(btn)
-        }
-
-        autoLoadLastModel()
+        // Auto-load model if previously selected
+        autoLoadModel()
     }
 
-    private fun autoLoadLastModel() {
-        val prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
-        val path = prefs.getString("selected_model_path", null) ?: return
+    private fun setupDrawer() {
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navView = findViewById(R.id.nav_view)
+        
+        val toggle = ActionBarDrawerToggle(
+            this, drawerLayout, 
+            R.string.drawer_open, 
+            R.string.drawer_close
+        )
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
 
+        navView.setNavigationItemSelectedListener(this)
+
+        // Floating menu button
+        findViewById<ImageView>(R.id.floatingMenuButton).setOnClickListener {
+            drawerLayout.openDrawer(GravityCompat.START)
+        }
+    }
+
+    private fun setupGlobalLLMBar() {
+        llmInputGlobal = findViewById(R.id.llm_input_global)
+        llmSendGlobal = findViewById(R.id.llm_send_global)
+
+        llmSendGlobal.setOnClickListener {
+            val input = llmInputGlobal.text.toString().trim()
+            if (input.isEmpty()) {
+                return@setOnClickListener
+            }
+
+            if (!isModelLoaded) {
+                Toast.makeText(this, "Please load a model first (Settings)", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // Send to current LLM fragment if visible
+            val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
+            if (currentFragment is LLMFragment) {
+                currentFragment.processUserInput(input)
+                llmInputGlobal.text.clear()
+            }
+        }
+    }
+
+    private fun autoLoadModel() {
+        val prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
+        val path = prefs.getString("selected_model_path", null)
+        
+        if (path.isNullOrEmpty()) {
+            return
+        }
+
+        currentModelPath = path
+        
         lifecycleScope.launch(Dispatchers.IO) {
             val file = File(path)
+            if (!file.exists() || !file.canRead()) {
+                withContext(Dispatchers.Main) {
+                    isModelLoaded = false
+                    currentModelPath = null
+                }
+                return@launch
+            }
+
             val success = try {
-                file.exists() && file.canRead() &&
-                        LlamaBridge.initNative(file.absolutePath, 2048)
-            } catch (e: Throwable) {
-                Log.e(TAG, "Model init failed", e)
+                LlamaBridge.initNative(file.absolutePath, 2048)
+            } catch (t: Throwable) {
                 false
             }
 
             withContext(Dispatchers.Main) {
-                val msg = if (success) "Model loaded successfully ✓" else "Failed to load model"
-                Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
-                Log.i(TAG, "$msg → $path")
+                isModelLoaded = success
+                if (success) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Model loaded: ${file.name}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    currentModelPath = null
+                }
             }
         }
     }
 
-    private fun makeButtonDraggableAndClickable(view: View) {
-        var dX = 0f
-        var dY = 0f
-        var startX = 0f
-        var startY = 0f
-        var isDrag = false
+    fun onModelSelectionChanged() {
+        // Shutdown current model
+        if (isModelLoaded) {
+            LlamaBridge.shutdownNative()
+            isModelLoaded = false
+        }
+        
+        currentModelPath = null
+        
+        // Reload if a new model is selected
+        autoLoadModel()
+    }
 
-        view.setOnTouchListener { v, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    dX = v.x - event.rawX
-                    dY = v.y - event.rawY
-                    startX = event.rawX
-                    startY = event.rawY
-                    isDrag = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = abs(event.rawX - startX)
-                    val dy = abs(event.rawY - startY)
-                    if (dx > 12 || dy > 12) {
-                        isDrag = true
-                        v.animate()
-                            .x(event.rawX + dX)
-                            .y(event.rawY + dY)
-                            .setDuration(0)
-                            .start()
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (!isDrag) {
-                        // You can open drawer / menu here later
-                        Toast.makeText(this, "Menu button tapped", Toast.LENGTH_SHORT).show()
-                    }
-                    true
-                }
-                else -> false
+    fun getProjectLoader(): ProjectLoader = projectLoader
+    
+    fun isModelReady(): Boolean = isModelLoaded
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_load_project -> {
+                openTreeLauncher.launch(null)
             }
+            R.id.nav_file_browser -> {
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
+                    .commit()
+            }
+            R.id.nav_llm -> {
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.fragment_container, LLMFragment())
+                    .commit()
+            }
+            R.id.nav_settings -> {
+                supportFragmentManager.beginTransaction()
+                    .replace(R.id.fragment_container, SettingsFragment())
+                    .commit()
+            }
+        }
+        
+        drawerLayout.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    override fun onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START)
+        } else {
+            super.onBackPressed()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        LlamaBridge.shutdownNative()
+        if (isModelLoaded) {
+            LlamaBridge.shutdownNative()
+        }
     }
 }
