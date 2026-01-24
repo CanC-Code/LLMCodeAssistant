@@ -1,18 +1,14 @@
-# Project-Specific: Keep your JNI bridge classes
-# This matches the namespace 'io.canccode.aca' defined in your build.gradle
+# Prevent Proguard from stripping/renaming your JNI bridge
 -keep class io.canccode.aca.** { *; }
 
-# Native: Keep all native method declarations
+# Maintain native method signatures
 -keepclasseswithmembernames class * {
     native <methods>;
 }
 
-# General Safety: Keep standard attributes and enums
+# General Android and Kotlin safety
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepclassmembers enum * { *; }
-
-# Kotlin: Metadata safety for reflection
 -keep class kotlin.** { *; }
--keep class kotlinx.** { *; }
