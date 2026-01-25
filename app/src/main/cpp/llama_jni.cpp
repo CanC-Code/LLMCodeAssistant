@@ -3,6 +3,8 @@
 #include <mutex>
 #include <vector>
 #include <android/log.h>
+
+// Ensure we include both the public API and the internal headers if necessary
 #include "llama.h"
 
 #define LOG_TAG "llama_jni"
@@ -57,8 +59,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    // FIX: Replaced llama_kv_cache_clear with modern sequence removal
-    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
+    // FIX: Ensure sequence ID and range are handled correctly for modern API
+    // Using -1 for seq_id, p0, and p1 usually targets all sequences in the cache
+    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
@@ -69,7 +72,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    for (size_t i = 0; i < tokens.size(); i++) {
+    for (int i = 0; i < (int)tokens.size(); i++) {
         batch.token[i] = tokens[i];
         batch.pos[i] = i;
         batch.n_seq_id[i] = 1;
@@ -100,7 +103,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(std::string(buf, len).c_str()));
         }
 
-        // FIX: Replaced llama_get_kv_cache_used_cells with manual n_past tracking
         llama_batch next = llama_batch_get_one(&tok, 1);
         next.pos[0] = n_past;
 
