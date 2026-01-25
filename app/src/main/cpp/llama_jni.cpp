@@ -18,10 +18,12 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
+
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
+
     if (!g_model) {
         LOGE("Failed to load model: %s", path);
         env->ReleaseStringUTFChars(modelPath, path);
@@ -31,6 +33,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
+
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -39,7 +42,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    // Modern Sampler Chain Configuration
+    [cite_start]// Modern Sampler Chain Configuration[span_0](end_span)
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -57,14 +60,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    // Corrected KV Cache Clear for current API
+    [span_1](start_span)// Reset state for new generation[span_1](end_span)
     llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // Tokenization logic
-    std::vector<llama_token> tokens(strlen(c_prompt) + 1);
+    [span_2](start_span)// Modern Tokenization[span_2](end_span)
+    std::vector<llama_token> tokens(strlen(c_prompt) + 4); 
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
@@ -89,7 +92,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
-    // Token Generation Loop
+    [span_3](start_span)// Token Generation Loop [cite: 21-24]
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
@@ -101,7 +104,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(std::string(buf, len).c_str()));
         }
 
-        // Single-token batching using corrected KV cache helper
+        // Single-token batching for auto-regression
         llama_batch next = llama_batch_get_one(&tok, 1);
         next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
 
