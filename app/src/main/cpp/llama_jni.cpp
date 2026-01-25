@@ -39,7 +39,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    [span_2](start_span)// Modern Sampler Chain Configuration[span_2](end_span)
+    // Modern Sampler Chain Configuration
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -57,19 +57,21 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    [span_3](start_span)// Correctly clear KV cache for new prompt[span_3](end_span)
+    // Correctly clear KV cache for new prompt
     llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    [span_4](start_span)// Updated Tokenization[span_4](end_span)
-    std::vector<llama_token> tokens(strlen(c_prompt) + 1);
+    // Updated Tokenization
+    std::vector<llama_token> tokens(strlen(c_prompt) + 8); 
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    [span_5](start_span)// Initial Prompt Decode[span_5](end_span)
+    if (tokens.empty()) return;
+
+    // Initial Prompt Decode
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -89,11 +91,11 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
-    [span_6](start_span)// Token Generation Loop[span_6](end_span)
+    // Token Generation Loop
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
-        [span_7](start_span)if (llama_vocab_is_eog(vocab, tok)) break;[span_7](end_span)
+        if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
@@ -101,7 +103,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(std::string(buf, len).c_str()));
         }
 
-        [span_8](start_span)// Efficient single-token batching[span_8](end_span)
+        // Efficient single-token batching
         llama_batch next = llama_batch_get_one(&tok, 1);
         next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
 
