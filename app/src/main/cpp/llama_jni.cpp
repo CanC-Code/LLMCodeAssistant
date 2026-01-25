@@ -59,10 +59,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
 
     // Fix for undeclared 'llama_kv_cache_clear'
     llama_kv_cache_clear(g_ctx);
-
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
-    
+
     // Updated Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
@@ -92,7 +91,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     // Token Generation Loop
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        
+
         // Handle EOS/EOG properly
         if (llama_vocab_is_eog(vocab, tok)) break;
 
