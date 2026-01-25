@@ -39,7 +39,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    // Modern Sampler Chain Configuration
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -57,18 +56,17 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    // Fix for undeclared 'llama_kv_cache_clear'
+    // Use the explicit KV cache clear if available in your llama.cpp version
     llama_kv_cache_clear(g_ctx);
+
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // Updated Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    // Initial Prompt Decode
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -88,11 +86,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
-    // Token Generation Loop
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
         
-        // Handle EOS/EOG properly
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
@@ -101,8 +97,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
             env->CallVoidMethod(callback, onToken, env->NewStringUTF(std::string(buf, len).c_str()));
         }
 
-        // Efficient single-token batching
         llama_batch next = llama_batch_get_one(&tok, 1);
+        // Correct way to get current position in the KV cache
         next.pos[0] = llama_get_kv_cache_used_cells(g_ctx);
 
         if (llama_decode(g_ctx, next) != 0) break;
