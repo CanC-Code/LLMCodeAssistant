@@ -66,7 +66,7 @@ dependencies {
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "com.google.android.material:material:1.11.0"
     
-    // Added for new features
+    // UI Components
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "androidx.drawerlayout:drawerlayout:1.2.0"
 
@@ -78,14 +78,14 @@ dependencies {
     // RecyclerView
     implementation "androidx.recyclerview:recyclerview:1.3.0"
     
-    // Navigation (new - for drawer)
+    // Navigation
     implementation "androidx.navigation:navigation-fragment-ktx:2.7.6"
     implementation "androidx.navigation:navigation-ui-ktx:2.7.6"
     
-    // Coroutines (new - for async operations)
+    // Coroutines
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
     
-    // DocumentFile (new - for SAF support)
+    // DocumentFile
     implementation "androidx.documentfile:documentfile:1.0.1"
 
     // Testing
