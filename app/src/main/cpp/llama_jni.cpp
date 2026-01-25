@@ -42,7 +42,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    [cite_start]// Modern Sampler Chain Configuration[span_0](end_span)
+    // Modern Sampler Chain Configuration
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -60,13 +60,13 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    [span_1](start_span)// Reset state for new generation[span_1](end_span)
+    // Reset state for new generation
     llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    [span_2](start_span)// Modern Tokenization[span_2](end_span)
+    // Modern Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 4); 
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
@@ -92,7 +92,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
-    [span_3](start_span)// Token Generation Loop [cite: 21-24]
+    // Token Generation Loop
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
