@@ -4,18 +4,22 @@ project(llama_jni LANGUAGES C CXX ASM)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# [span_6](start_span)Path to the submodule[span_6](end_span)
+# Path to the submodule
 set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 
+# Configuration for the submodule
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 
+# Add llama.cpp as a subdirectory
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
 
+# Define our JNI library
 add_library(llama_jni SHARED llama_jni.cpp)
 
+# Include directories for the new llama.cpp structure
 target_include_directories(llama_jni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LLAMA_ROOT}/include
@@ -24,4 +28,6 @@ target_include_directories(llama_jni PRIVATE
 )
 
 find_library(log-lib log)
+
+# Link against the targets exported by the llama.cpp project
 target_link_libraries(llama_jni llama ggml ${log-lib})
