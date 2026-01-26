@@ -4,7 +4,6 @@
 #include <vector>
 #include <android/log.h>
 
-// Ensure we include both the public API and the internal headers if necessary
 #include "llama.h"
 
 #define LOG_TAG "llama_jni"
@@ -20,10 +19,12 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
+
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
+
     if (!g_model) {
         LOGE("Failed to load model: %s", path);
         env->ReleaseStringUTFChars(modelPath, path);
@@ -33,6 +34,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
+
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -41,7 +43,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    // Modern Sampler initialization
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -57,10 +58,10 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
+
     if (!g_ctx || !g_model) return;
 
-    // FIX: Ensure sequence ID and range are handled correctly for modern API
-    // Using -1 for seq_id, p0, and p1 usually targets all sequences in the cache
+    // Correctly clear sequence before decoding
     llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
@@ -91,10 +92,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
     int n_past = tokens.size();
-
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
@@ -105,7 +104,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
 
         llama_batch next = llama_batch_get_one(&tok, 1);
         next.pos[0] = n_past;
-
         if (llama_decode(g_ctx, next) != 0) break;
         n_past++;
     }
