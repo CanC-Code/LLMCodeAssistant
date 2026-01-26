@@ -59,8 +59,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    // FIXED: Using modern llama_kv_cache_seq_rm instead of deprecated llama_kv_cache_clear
-    [span_1](start_span)// Using -1 for seq_id, p0, and p1 targets all sequences and positions in the cache[span_1](end_span)
+    // Using -1 for seq_id, p0, and p1 targets all sequences and positions in the cache
     llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
