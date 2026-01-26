@@ -39,7 +39,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    [span_3](start_span)// Modern Sampler initialization[span_3](end_span)
+    // Modern Sampler initialization for latest llama.cpp
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -57,17 +57,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model) return;
 
-    [span_4](start_span)// FIX: Using modern API to clear cache[span_4](end_span)
+    // Correct API to clear KV cache in recent versions
     llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
+    // Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
+    // Prepare batch
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (int i = 0; i < (int)tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -90,6 +92,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     int n_past = tokens.size();
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
+        
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
