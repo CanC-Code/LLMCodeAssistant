@@ -4,6 +4,7 @@ project(llama_jni LANGUAGES C CXX ASM)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# [span_6](start_span)Path to the submodule[span_6](end_span)
 set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
