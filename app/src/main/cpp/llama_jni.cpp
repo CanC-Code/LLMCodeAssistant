@@ -20,12 +20,10 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
-
     if (!g_model) {
         LOGE("Failed to load model: %s", path);
         env->ReleaseStringUTFChars(modelPath, path);
@@ -35,7 +33,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
-
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -60,11 +57,11 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     if (!g_ctx || !g_model) return;
 
-    // FIXED: Using llama_kv_cache_clear to reset the context safely for modern llama.cpp API
-    llama_kv_cache_clear(g_ctx);
+    // FIXED: Using modern llama_kv_cache_seq_rm instead of deprecated llama_kv_cache_clear
+    [span_1](start_span)// Using -1 for seq_id, p0, and p1 targets all sequences and positions in the cache[span_1](end_span)
+    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
