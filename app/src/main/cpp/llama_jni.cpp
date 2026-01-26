@@ -61,14 +61,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
 
     if (!g_ctx || !g_model) return;
 
-    // Correctly clear sequence before decoding
-    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
+    // FIX: Use llama_kv_cache_clear instead of the undeclared llama_kv_cache_seq_rm
+    llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
+    // Initial sizing for tokens
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
+    if (n_tokens < 0) {
+        tokens.resize(-n_tokens);
+        n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
+    }
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
