@@ -3,6 +3,8 @@
 #include <mutex>
 #include <vector>
 #include <android/log.h>
+
+// Ensure we include both the public API and the internal headers if necessary
 #include "llama.h"
 
 #define LOG_TAG "llama_jni"
@@ -18,10 +20,12 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
+
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
+
     if (!g_model) {
         LOGE("Failed to load model: %s", path);
         env->ReleaseStringUTFChars(modelPath, path);
@@ -31,6 +35,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
+
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -39,7 +44,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    // Modern Sampler initialization for latest llama.cpp
+    // Modern Sampler initialization
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -55,21 +60,20 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
+
     if (!g_ctx || !g_model) return;
 
-    // Correct API to clear KV cache in recent versions
-    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
+    // FIXED: Using llama_kv_cache_clear to reset the context safely for modern llama.cpp API
+    llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    // Prepare batch
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     for (int i = 0; i < (int)tokens.size(); i++) {
         batch.token[i] = tokens[i];
@@ -92,7 +96,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     int n_past = tokens.size();
     for (int i = 0; i < maxTokens; i++) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        
         if (llama_vocab_is_eog(vocab, tok)) break;
 
         char buf[128];
