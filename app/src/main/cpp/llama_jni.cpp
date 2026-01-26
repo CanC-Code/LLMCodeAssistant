@@ -3,7 +3,6 @@
 #include <mutex>
 #include <vector>
 #include <android/log.h>
-
 #include "llama.h"
 
 #define LOG_TAG "llama_jni"
@@ -19,12 +18,10 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
     g_model = llama_model_load_from_file(path, mparams);
-
     if (!g_model) {
         LOGE("Failed to load model: %s", path);
         env->ReleaseStringUTFChars(modelPath, path);
@@ -34,7 +31,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     g_ctx = llama_init_from_model(g_model, cparams);
-
     if (!g_ctx) {
         LOGE("Failed to create context");
         llama_model_free(g_model);
@@ -43,6 +39,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
+    [span_3](start_span)// Modern Sampler initialization[span_3](end_span)
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -58,22 +55,16 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     if (!g_ctx || !g_model) return;
 
-    // FIX: Use llama_kv_cache_clear instead of the undeclared llama_kv_cache_seq_rm
-    llama_kv_cache_clear(g_ctx);
+    [span_4](start_span)// FIX: Using modern API to clear cache[span_4](end_span)
+    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // Initial sizing for tokens
     std::vector<llama_token> tokens(strlen(c_prompt) + 1);
     int n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
-    if (n_tokens < 0) {
-        tokens.resize(-n_tokens);
-        n_tokens = llama_tokenize(vocab, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, false);
-    }
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
