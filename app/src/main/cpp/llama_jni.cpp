@@ -65,8 +65,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
 
     if (!g_ctx || !g_model) return;
 
-    // Clear KV cache for a fresh generation
-    llama_kv_cache_seq_rm(g_ctx, (llama_seq_id)-1, -1, -1);
+    // FIX: Replaced llama_kv_cache_seq_rm with modern llama_kv_cache_clear
+    // This wipes the previous context to prevent token mixing.
+    llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
