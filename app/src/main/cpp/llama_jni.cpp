@@ -4,6 +4,7 @@
 #include <mutex>
 #include <android/log.h>
 #include <time.h>
+#include <unistd.h> // Required for read/access
 
 extern "C" {
 #include "llama.h"
@@ -21,7 +22,6 @@ static bool g_backend_initialized = false;
 
 static std::vector<std::pair<std::string, std::string>> g_chat_history;
 static std::string g_model_rules = "";
-static int g_max_history_turns = 3;
 
 // Helper to clean up previous state
 void cleanup_internal() {
@@ -30,24 +30,13 @@ void cleanup_internal() {
     if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
 }
 
-// Tokenization helper
-static std::vector<llama_token> tokenize(const struct llama_vocab * vocab, const std::string & text, bool add_special) {
-    // Determine required size
-    int n_tokens = llama_tokenize(vocab, text.c_str(), text.length(), NULL, 0, add_special, true);
-    std::vector<llama_token> res(abs(n_tokens));
-    if (llama_tokenize(vocab, text.c_str(), text.length(), res.data(), res.size(), add_special, true) < 0) {
-        LOGE("Tokenization failed");
-    }
-    return res;
-}
-
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(
         JNIEnv * env,
         jobject,
-        jint fd,        // Updated to accept File Descriptor
-        jlong fileSize, // Updated to accept File Size
+        jint fd,        
+        jlong fileSize, 
         jint nCtx) {
 
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -59,24 +48,36 @@ Java_io_canccode_aca_LlamaBridge_initNative(
         g_backend_initialized = true;
     }
 
-    LOGI("Loading model from FD: %d (Size: %lld)", fd, (long long)fileSize);
+    LOGI("Loading model via FD: %d (Size: %lld)", fd, (long long)fileSize);
+
+    // FIX: Access the file via /proc/self/fd/
+    // This allows the standard llama_model_load_from_file to read the open FD
+    char path[PATH_MAX];
+    sprintf(path, "/proc/self/fd/%d", fd);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 0; // Set higher if using Vulkan/CL
-    mparams.use_mmap = false; // MUST be false for FD loading
+    
+    // Enable Vulkan GPU acceleration (matches your CMake setup)
+    // 99 is a common shorthand to offload all layers to GPU
+    mparams.n_gpu_layers = 99; 
+    
+    // mmap can be problematic with some Android FDs; keeping it off for safety
+    mparams.use_mmap = false; 
 
-    // Load from File Descriptor (Modern llama.cpp API)
-    g_model = llama_model_load_from_fd(fd, (size_t)fileSize, mparams);
+    // Load using the proc path
+    g_model = llama_model_load_from_file(path, mparams);
 
     if (!g_model) {
-        LOGE("Model load failed from FD");
+        LOGE("Model load failed. Check if FD %d is valid and readable.", fd);
         return JNI_FALSE;
     }
 
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = nCtx;
+    cparams.n_ctx   = nCtx;
     cparams.n_batch = 512;
-    cparams.n_threads = 4;
+    // Android performance tip: use 4-6 threads for high-perf cores
+    cparams.n_threads = 6; 
+    cparams.n_threads_batch = 6;
 
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) {
@@ -84,18 +85,16 @@ Java_io_canccode_aca_LlamaBridge_initNative(
         return JNI_FALSE;
     }
 
-    // Modern Sampler initialization
+    // Modern Sampler initialization logic
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+    sparams.no_perf = false;
+    
     g_sampler = llama_sampler_chain_init(sparams);
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
-    // Fixed: Use manual seed instead of LLAMA_DEFAULT_SEED
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist((uint32_t)time(NULL)));
 
-    LOGI("Model ready from user-provided file");
+    LOGI("Llama model initialized successfully via Vulkan/CPU");
     return JNI_TRUE;
 }
-
-// ... Keep setModelRulesNative, clearHistoryNative, and generateNative logic ...
-// (Ensure generateNative uses llama_kv_cache_clear(g_ctx) if you need to reset sequence)
