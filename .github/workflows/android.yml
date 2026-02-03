@@ -13,22 +13,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ---------- Checkout ----------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Required for llama.cpp dependency
           submodules: recursive
           fetch-depth: 0
 
       - name: Initialize & update submodules
         run: git submodule update --init --recursive
 
+      # ---------- Java ----------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
+      # ---------- Android SDK / NDK / CMake ----------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -37,29 +39,28 @@ jobs:
 
       - name: Install NDK and CMake
         run: |
-          # Using NDK 25.1.8937393 which is pre-cached on GitHub Runners
+          # Use NDK 25.1.8937393 (verified stable on runner)
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "cmake;3.22.1" "ndk;25.1.8937393"
           
-          # Export variables for the build system
+          # Set critical environment variables
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
 
-      - name: Install Vulkan Host Tools
+      # ---------- Vulkan SDK Setup ----------
+      - name: Install Vulkan SDK (Host Tools)
         run: |
-          # Install glslc and host headers for shader generation
           wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
           sudo apt-get install -y vulkan-sdk libvulkan-dev spirv-tools
-          glslc --version
 
-      - name: Fix NDK Vulkan Headers Path
+      - name: Fix NDK Vulkan Header Path
         run: |
-          # Injects the NDK's sysroot include path into CMakeLists.txt
-          # to resolve "fatal error: 'vulkan/vulkan.hpp' file not found"
-          VULKAN_INC="\${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"
-          sed -i "2i include_directories($VULKAN_INC)" app/src/main/cpp/CMakeLists.txt
+          # Resolve the "vulkan/vulkan.hpp not found" error by mapping the NDK sysroot
+          VULKAN_INC_DIR="\${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"
+          sed -i "2i include_directories($VULKAN_INC_DIR)" app/src/main/cpp/CMakeLists.txt
 
+      # ---------- ImageMagick (Icon Generation) ----------
       - name: Install ImageMagick
         run: sudo apt-get install -y imagemagick
 
@@ -69,17 +70,17 @@ jobs:
           mkdir -p $ICON_DIR/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}
           BASE_ICON=/tmp/ic_launcher_base.png
           ROUND_ICON=/tmp/ic_launcher_round.png
-          
+
           convert -size 1024x1024 xc:"#1e1e1e" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 160 -annotate +0+0 "LLM" "$BASE_ICON"
           convert "$BASE_ICON" \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) -compose copyopacity -composite "$ROUND_ICON"
-          
+
           for res in 48:mdpi 72:hdpi 96:xhdpi 144:xxhdpi 192:xxxhdpi; do
             IFS=":" read -r size name <<< "$res"
             convert "$BASE_ICON" -resize ${size}x${size} $ICON_DIR/mipmap-${name}/ic_launcher.png
             convert "$ROUND_ICON" -resize ${size}x${size} $ICON_DIR/mipmap-${name}/ic_launcher_round.png
           done
 
-      - name: Generate UI Drawables
+      - name: Generate UI Icons
         run: |
           ICON_DIR=app/src/main/res/drawable
           mkdir -p $ICON_DIR
@@ -87,11 +88,14 @@ jobs:
           convert -size 48x48 xc:none -fill "#000000" -draw "polygon 16,12 36,24 16,36" "$ICON_DIR/arrow_forward.png"
           convert -size 48x48 xc:none -fill "#000000" -draw "polygon 12,16 24,36 36,16" "$ICON_DIR/arrow_down.png"
 
-      - name: Build Debug APK
-        run: |
-          chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      # ---------- Build ----------
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
 
+      - name: Build Debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      # ---------- Upload ----------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
