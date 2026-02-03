@@ -51,21 +51,37 @@ jobs:
             vulkan-utility-libraries-dev \
             spirv-tools
           
-          # Use curl with retry to prevent 'unexpected end of file' corruption
+      # ---------- Final Robust Fix: Install Vulkan SDK & shaderc (glslc) ----------
+      - name: Install Vulkan SDK (glslc)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            vulkan-tools \
+            libvulkan-dev \
+            vulkan-utility-libraries-dev \
+            spirv-tools
+          
+          # Use the official Google Storage API link for shaderc (more stable)
           echo "Downloading shaderc (glslc)..."
           curl -L --retry 5 --connect-timeout 30 \
-            https://github.com/google/shaderc/releases/download/v2023.7/shaderc-2023.7-linux-x86_64.tar.gz \
+            https://storage.googleapis.com/shaderc/artifacts/v2023.7/shaderc-linux-x86_64.tar.gz \
             -o shaderc.tar.gz
           
-          # Validation: Ensure the file is not empty or corrupted
-          if [ $(stat -c%s "shaderc.tar.gz") -lt 1000000 ]; then
-            echo "Error: shaderc.tar.gz download failed or file is too small."
-            exit 1
+          # Check if the file is valid (expecting ~30MB+)
+          FILE_SIZE=$(stat -c%s "shaderc.tar.gz")
+          echo "Downloaded file size: $FILE_SIZE bytes"
+          
+          if [ $FILE_SIZE -lt 1000000 ]; then
+            echo "Error: Download failed. The file is too small."
+            # Fallback to an alternative mirror if Google Storage fails
+            curl -L https://github.com/google/shaderc/releases/download/v2023.7/shaderc-linux-x86_64.tar.gz -o shaderc.tar.gz
           fi
 
-          tar -xzf shaderc.tar.gz
-          echo "$PWD/shaderc-linux-x86_64/bin" >> $GITHUB_PATH
-          echo "glslc installed successfully to PATH"
+          mkdir -p shaderc_ext
+          tar -xzf shaderc.tar.gz -C shaderc_ext --strip-components=1
+          echo "$PWD/shaderc_ext/bin" >> $GITHUB_PATH
+          echo "glslc successfully added to PATH"
+
 
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
