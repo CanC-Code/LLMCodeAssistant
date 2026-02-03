@@ -1,5 +1,4 @@
 # File: .github/workflows/android.yml
-# Purpose: Android CI build with Vulkan-enabled llama.cpp for Ubuntu 24.04
 name: Android Build
 
 on:
@@ -21,7 +20,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      # ---------- Ensure submodules exist ----------
       - name: Initialize & update submodules
         run: git submodule update --init --recursive
 
@@ -40,48 +38,23 @@ jobs:
           build-tools: "34.0.0"
           ndk: "27.3.10554745"
 
-      # ---------- Vulkan SDK & glslc (Robust Fix) ----------
-      - name: Install Vulkan SDK (glslc)
+      # ---------- Modern Vulkan & glslc Setup ----------
+      - name: Install Vulkan SDK and glslc
         run: |
+          # Use the official LunarG Vulkan repository for the most reliable SDK tools
+          wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
-          # Use vulkan-utility-libraries-dev to replace the obsolete validationlayers-dev in Noble
+          
+          # Install the SDK which includes a guaranteed working glslc
           sudo apt-get install -y \
-            vulkan-tools \
+            vulkan-sdk \
             libvulkan-dev \
-            vulkan-utility-libraries-dev \
             spirv-tools
           
-      # ---------- Final Robust Fix: Install Vulkan SDK & shaderc (glslc) ----------
-      - name: Install Vulkan SDK (glslc)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            vulkan-tools \
-            libvulkan-dev \
-            vulkan-utility-libraries-dev \
-            spirv-tools
-          
-          # Use the official Google Storage API link for shaderc (more stable)
-          echo "Downloading shaderc (glslc)..."
-          curl -L --retry 5 --connect-timeout 30 \
-            https://storage.googleapis.com/shaderc/artifacts/v2023.7/shaderc-linux-x86_64.tar.gz \
-            -o shaderc.tar.gz
-          
-          # Check if the file is valid (expecting ~30MB+)
-          FILE_SIZE=$(stat -c%s "shaderc.tar.gz")
-          echo "Downloaded file size: $FILE_SIZE bytes"
-          
-          if [ $FILE_SIZE -lt 1000000 ]; then
-            echo "Error: Download failed. The file is too small."
-            # Fallback to an alternative mirror if Google Storage fails
-            curl -L https://github.com/google/shaderc/releases/download/v2023.7/shaderc-linux-x86_64.tar.gz -o shaderc.tar.gz
-          fi
-
-          mkdir -p shaderc_ext
-          tar -xzf shaderc.tar.gz -C shaderc_ext --strip-components=1
-          echo "$PWD/shaderc_ext/bin" >> $GITHUB_PATH
-          echo "glslc successfully added to PATH"
-
+          # Verify glslc is in path
+          glslc --version
+          echo "Vulkan SDK tools installed successfully"
 
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
@@ -95,25 +68,14 @@ jobs:
           ROUND_ICON=/tmp/ic_launcher_round.png
 
           convert -size 1024x1024 xc:"#1e1e1e" \
-            -gravity center \
-            -fill white \
-            -font DejaVu-Sans-Bold \
-            -pointsize 160 \
-            -annotate +0+0 "LLM" \
-            "$BASE_ICON"
+            -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 160 \
+            -annotate +0+0 "LLM" "$BASE_ICON"
 
           convert "$BASE_ICON" \
             \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
-            -compose copyopacity -composite \
-            "$ROUND_ICON"
+            -compose copyopacity -composite "$ROUND_ICON"
 
-          mkdir -p \
-            $ICON_DIR/mipmap-mdpi \
-            $ICON_DIR/mipmap-hdpi \
-            $ICON_DIR/mipmap-xhdpi \
-            $ICON_DIR/mipmap-xxhdpi \
-            $ICON_DIR/mipmap-xxxhdpi
-
+          mkdir -p $ICON_DIR/mipmap-mdpi $ICON_DIR/mipmap-hdpi $ICON_DIR/mipmap-xhdpi $ICON_DIR/mipmap-xxhdpi $ICON_DIR/mipmap-xxxhdpi
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
@@ -126,33 +88,19 @@ jobs:
           convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
 
-      # ---------- Generate File/Arrow Icons ----------
+      # ---------- Generate UI Icons ----------
       - name: Generate FileTree icons
         run: |
           ICON_DIR=app/src/main/res/drawable
           mkdir -p $ICON_DIR
+          convert -size 48x48 xc:none -fill "#616161" -stroke black -strokewidth 2 -draw "rectangle 8,8 40,40" -draw "line 8,8 32,8 line 32,8 32,32" "$ICON_DIR/file_icon.png"
+          convert -size 48x48 xc:none -fill "#000000" -draw "polygon 16,12 36,24 16,36" "$ICON_DIR/arrow_forward.png"
+          convert -size 48x48 xc:none -fill "#000000" -draw "polygon 12,16 24,36 36,16" "$ICON_DIR/arrow_down.png"
 
-          convert -size 48x48 xc:none \
-            -fill "#616161" -stroke black -strokewidth 2 \
-            -draw "rectangle 8,8 40,40" \
-            -draw "line 8,8 32,8 line 32,8 32,32" \
-            "$ICON_DIR/file_icon.png"
-
-          convert -size 48x48 xc:none \
-            -fill "#000000" \
-            -draw "polygon 16,12 36,24 16,36" \
-            "$ICON_DIR/arrow_forward.png"
-
-          convert -size 48x48 xc:none \
-            -fill "#000000" \
-            -draw "polygon 12,16 24,36 36,16" \
-            "$ICON_DIR/arrow_down.png"
-
-      # ---------- Permissions ----------
+      # ---------- Build ----------
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Build ----------
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
 
