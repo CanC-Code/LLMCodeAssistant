@@ -39,7 +39,7 @@ jobs:
 
       - name: Install NDK and CMake via SDKManager
         run: |
-          # Use NDK 25.1.8937393 (known to exist on runner) and CMake 3.22.1 (expected by Gradle)
+          # Use NDK 25.1.8937393 (verified on runner) and CMake 3.22.1 (required by Gradle)
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "cmake;3.22.1" "ndk;25.1.8937393"
           
           # Export path for llama.cpp build system
@@ -53,7 +53,7 @@ jobs:
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
           
-          # Install the SDK which includes glslc and headers
+          # Install the SDK which includes glslc and standard headers
           sudo apt-get install -y \
             vulkan-sdk \
             libvulkan-dev \
@@ -82,14 +82,12 @@ jobs:
 
           mkdir -p $ICON_DIR/mipmap-mdpi $ICON_DIR/mipmap-hdpi $ICON_DIR/mipmap-xhdpi $ICON_DIR/mipmap-xxhdpi $ICON_DIR/mipmap-xxxhdpi
           
-          # Standard Icons
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
 
-          # Round Icons
           convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
