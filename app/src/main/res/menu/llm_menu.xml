@@ -3,6 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_load_model"
+        android:icon="@android:drawable/ic_menu_add"
+        android:title="Load GGUF Model"
+        app:showAsAction="always" />
+
+    <item
         android:id="@+id/action_model_rules"
         android:icon="@android:drawable/ic_menu_edit"
         android:title="Model Rules"
