@@ -20,16 +20,13 @@ endif()
 # ----------------------------
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+# Optimization: Enable Vulkan for Android GPU acceleration
+set(GGML_VULKAN ON CACHE BOOL "" FORCE) 
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
-set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_USE_ACCELERATE OFF CACHE BOOL "" FORCE)
-set(GGML_USE_METAL OFF CACHE BOOL "" FORCE)
-set(GGML_USE_VULKAN OFF CACHE BOOL "" FORCE)
-set(GGML_USE_CUDA OFF CACHE BOOL "" FORCE)
 
-# CRITICAL: Disable llamafile (uses FP16 intrinsics not available in ARMv7)
-set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE)
-set(GGML_USE_CPU_REPACK OFF CACHE BOOL "" FORCE)
+# Optimization: Modern Android devices are arm64-v8a; 
+# llamafile is safe and faster here than on older ARMv7.
+set(GGML_USE_LLAMAFILE ON CACHE BOOL "" FORCE)
 
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
 
@@ -43,22 +40,24 @@ add_library(llama_jni SHARED
 target_include_directories(llama_jni PRIVATE
     ${LLAMA_ROOT}
     ${LLAMA_ROOT}/include
+    ${LLAMA_ROOT}/common  # Added for access to common utilities if needed
 )
 
-# Android log
+# Android libraries
 find_library(log-lib log)
+find_library(vulkan-lib vulkan) # Find Vulkan lib for the linker
 
 target_link_libraries(llama_jni
     llama
     ${log-lib}
+    ${vulkan-lib}
 )
 
 target_compile_options(llama_jni PRIVATE
     -Wall
     -Wextra
-    -Wpedantic
     -fexceptions
-    $<$<CONFIG:Release>:-O3>
+    $<$<CONFIG:Release>:-O3 -march=armv8-a+dotprod+crypto> # Targeted optimizations
 )
 
 set_target_properties(llama_jni PROPERTIES
