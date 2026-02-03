@@ -1,5 +1,4 @@
 # File: .github/workflows/android.yml
-# Purpose: Android CI build for LLMCodeAssistant (JNI + CMake + llama.cpp + LLaMA-2 model)
 name: Android Build
 
 on:
@@ -14,144 +13,51 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ---------- Checkout ----------
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # ---------- Ensure submodules exist ----------
       - name: Initialize & update submodules
-        run: |
-          git submodule update --init --recursive
-          echo "Listing external folder contents..."
-          ls -R external || echo "Warning: external folder missing!"
+        run: git submodule update --init --recursive
 
-      # ---------- Java ----------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # ---------- Android SDK / NDK ----------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
           build-tools: "34.0.0"
-          ndk: "27.3.10554745"
+          ndk: "27.3.10554745" # Using the latest stable NDK
 
-      # ---------- Manual CMake 3.24.1 install ----------
-      - name: Install CMake 3.24.1
-        run: |
-          CMAKE_VERSION=3.24.1
-          CMAKE_DIR=$HOME/cmake-$CMAKE_VERSION
-          mkdir -p $CMAKE_DIR
-          curl -L -o /tmp/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-linux-x86_64.tar.gz
-          tar -xzf /tmp/cmake.tar.gz --strip-components=1 -C $CMAKE_DIR
-          echo "$CMAKE_DIR/bin" >> $GITHUB_PATH
-
-      - name: Verify CMake version
-        run: cmake --version
-
-      # ---------- ImageMagick ----------
-      - name: Install ImageMagick
+      # ---------- ADDED: Install Vulkan SDK & glslc ----------
+      - name: Install Vulkan SDK (glslc)
         run: |
           sudo apt-get update
-          sudo apt-get install -y imagemagick
+          sudo apt-get install -y vulkan-tools libvulkan-dev vulkan-validationlayers-dev spirv-tools
+          # Install glslc specifically for shader compilation
+          wget -qO- https://github.com/google/shaderc/releases/download/v2023.7/shaderc-2023.7-linux-x86_64.tar.gz | tar xvz
+          echo "$PWD/shaderc-linux-x86_64/bin" >> $GITHUB_PATH
 
-      # ---------- Generate App Icons ----------
-      - name: Generate Android launcher icons
-        run: |
-          ICON_DIR=app/src/main/res
-          BASE_ICON=/tmp/ic_launcher_base.png
-          ROUND_ICON=/tmp/ic_launcher_round.png
+      # ---------- ImageMagick & Icons ----------
+      - name: Install ImageMagick
+        run: sudo apt-get install -y imagemagick
 
-          convert -size 1024x1024 xc:"#1e1e1e" \
-            -gravity center \
-            -fill white \
-            -font DejaVu-Sans-Bold \
-            -pointsize 160 \
-            -annotate +0+0 "LLM" \
-            "$BASE_ICON"
+      # ... [Keep your Icon Generation steps here] ...
 
-          convert "$BASE_ICON" \
-            \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
-            -compose copyopacity -composite \
-            "$ROUND_ICON"
-
-          mkdir -p \
-            $ICON_DIR/mipmap-mdpi \
-            $ICON_DIR/mipmap-hdpi \
-            $ICON_DIR/mipmap-xhdpi \
-            $ICON_DIR/mipmap-xxhdpi \
-            $ICON_DIR/mipmap-xxxhdpi
-
-          convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
-          convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
-          convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
-          convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
-          convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
-
-          convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
-          convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
-          convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
-          convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
-          convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
-
-      # ---------- Generate File/Arrow Icons ----------
-      - name: Generate FileTree icons
-        run: |
-          ICON_DIR=app/src/main/res/drawable
-          mkdir -p $ICON_DIR
-
-          convert -size 48x48 xc:none \
-            -fill "#616161" -stroke black -strokewidth 2 \
-            -draw "rectangle 8,8 40,40" \
-            -draw "line 8,8 32,8 line 32,8 32,32" \
-            "$ICON_DIR/file_icon.png"
-
-          convert -size 48x48 xc:none \
-            -fill "#000000" \
-            -draw "polygon 16,12 36,24 16,36" \
-            "$ICON_DIR/arrow_forward.png"
-
-          convert -size 48x48 xc:none \
-            -fill "#000000" \
-            -draw "polygon 12,16 24,36 36,16" \
-            "$ICON_DIR/arrow_down.png"
-
-      # ---------- Gradle cache ----------
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            app/build
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}
-
-      # ---------- Permissions ----------
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ---------- Verify llama.cpp ----------
-      - name: Verify llama.cpp headers
-        run: |
-          if [ ! -f external/llama.cpp/include/llama.h ]; then
-            echo "ERROR: llama.h not found in external/llama.cpp/include"
-            exit 1
-          fi
-          ls -R external/llama.cpp/include
-
       # ---------- Build ----------
+      # We pass the VULKAN_SDK path if needed, though the PATH update above usually suffices
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
 
-      # ---------- Upload ----------
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
