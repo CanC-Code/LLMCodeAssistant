@@ -1,0 +1,3228 @@
+==== app/build.gradle ====
+plugins {
+    id 'com.android.application'
+    id 'kotlin-android'
+}
+
+android {
+    namespace 'io.canccode.aca'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "io.canccode.aca"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
+        // ARMv7 has FP16 issues with llamafile - stick to arm64-v8a
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.24.1"
+        }
+    }
+
+    buildTypes {
+        debug {
+            ndk {
+                debugSymbolLevel 'FULL'
+            }
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile(
+                'proguard-android-optimize.txt'
+            ), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    // Kotlin
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.10"
+
+    // Core Android
+    implementation "androidx.core:core-ktx:1.12.0"
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "com.google.android.material:material:1.11.0"
+    
+    // Added for new features
+    implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+    implementation "androidx.drawerlayout:drawerlayout:1.2.0"
+
+    // Fragments & Lifecycle
+    implementation "androidx.fragment:fragment-ktx:1.6.0"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1"
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.1"
+
+    // RecyclerView
+    implementation "androidx.recyclerview:recyclerview:1.3.0"
+    
+    // Navigation (new - for drawer)
+    implementation "androidx.navigation:navigation-fragment-ktx:2.7.6"
+    implementation "androidx.navigation:navigation-ui-ktx:2.7.6"
+    
+    // Coroutines (new - for async operations)
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    
+    // DocumentFile (new - for SAF support)
+    implementation "androidx.documentfile:documentfile:1.0.1"
+
+    // Testing
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test.ext:junit:1.1.6"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.5.2"
+}==== app/proguard-rules.pro ====
+# Keep all Kotlin classes (for reflection/serialization if used)
+-keep class kotlin.** { *; }
+
+# Keep all JNI classes
+-keep class com.llmassistant.llm.** { *; }
+-keep class com.llmassistant.ui.** { *; }
+-keep class com.llmassistant.editor.** { *; }
+
+# Keep all native method declarations
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep annotations
+-keepattributes *Annotation*
+
+# Keep enums
+-keepclassmembers enum * { *; }==== app/src/main/AndroidManifest.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.canccode.aca">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
+        android:requestLegacyExternalStorage="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>==== app/src/main/cpp/CMakeLists.txt ====
+cmake_minimum_required(VERSION 3.18.1)
+
+project(llama_jni LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# ----------------------------
+# llama.cpp path
+# ----------------------------
+set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
+
+if(NOT EXISTS ${LLAMA_ROOT}/CMakeLists.txt)
+    message(FATAL_ERROR "llama.cpp not found at ${LLAMA_ROOT}")
+endif()
+
+# ----------------------------
+# llama.cpp configuration
+# ----------------------------
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
+set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_USE_ACCELERATE OFF CACHE BOOL "" FORCE)
+set(GGML_USE_METAL OFF CACHE BOOL "" FORCE)
+set(GGML_USE_VULKAN OFF CACHE BOOL "" FORCE)
+set(GGML_USE_CUDA OFF CACHE BOOL "" FORCE)
+
+# CRITICAL: Disable llamafile (uses FP16 intrinsics not available in ARMv7)
+set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE)
+set(GGML_USE_CPU_REPACK OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
+
+# ----------------------------
+# JNI shared library
+# ----------------------------
+add_library(llama_jni SHARED
+    llama_jni.cpp
+)
+
+target_include_directories(llama_jni PRIVATE
+    ${LLAMA_ROOT}
+    ${LLAMA_ROOT}/include
+)
+
+# Android log
+find_library(log-lib log)
+
+target_link_libraries(llama_jni
+    llama
+    ${log-lib}
+)
+
+target_compile_options(llama_jni PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -fexceptions
+    $<$<CONFIG:Release>:-O3>
+)
+
+set_target_properties(llama_jni PROPERTIES
+    OUTPUT_NAME "llama_jni"
+)==== app/src/main/cpp/llama_jni.cpp ====
+#include <jni.h>
+#include <string>
+#include <mutex>
+#include <vector>
+#include <android/log.h>
+#include <cstring>
+
+// Include the public llama.cpp API
+#include "llama.h"
+
+#define LOG_TAG "llama_jni"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Global variables to hold the model state
+static std::mutex g_mutex;
+static llama_model * g_model = nullptr;
+static llama_context * g_ctx = nullptr;
+static llama_sampler * g_sampler = nullptr;
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    const char * path = env->GetStringUTFChars(modelPath, nullptr);
+
+    // 1. Initialize Model
+    llama_model_params mparams = llama_model_default_params();
+    g_model = llama_model_load_from_file(path, mparams);
+
+    if (!g_model) {
+        LOGE("Failed to load model: %s", path);
+        env->ReleaseStringUTFChars(modelPath, path);
+        return JNI_FALSE;
+    }
+
+    // 2. Initialize Context
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx = nCtx;
+    g_ctx = llama_init_from_model(g_model, cparams);
+
+    if (!g_ctx) {
+        LOGE("Failed to create context");
+        llama_model_free(g_model);
+        g_model = nullptr;
+        env->ReleaseStringUTFChars(modelPath, path);
+        return JNI_FALSE;
+    }
+
+    // 3. Initialize Sampler
+    g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    env->ReleaseStringUTFChars(modelPath, path);
+    LOGI("Llama initialized successfully");
+    return JNI_TRUE;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+
+    if (!g_ctx || !g_model || !g_sampler) return;
+
+    // Clear KV cache
+    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
+
+    const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
+    const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
+
+    // 1. Tokenize the input prompt
+    std::vector<llama_token> tokens(strlen(c_prompt) + 1);
+    int n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, false);
+
+    // Resize checks to handle potential buffer adjustments
+    if (n_tokens < 0) {
+        tokens.resize(-n_tokens);
+        n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, false);
+    }
+    tokens.resize(n_tokens);
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+
+    if (n_tokens <= 0) return;
+
+    // 2. Decode (Pre-fill) the prompt
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    for (int i = 0; i < (int)tokens.size(); i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = false;
+    }
+    // Only calculate logits for the last token to begin generation
+    batch.logits[tokens.size() - 1] = true;
+
+    if (llama_decode(g_ctx, batch) != 0) {
+        LOGE("llama_decode failed");
+        llama_batch_free(batch);
+        return;
+    }
+    llama_batch_free(batch);
+
+    // Setup Java callback method ID
+    jclass cls = env->GetObjectClass(callback);
+    jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
+
+    // 3. Generation Loop
+    int n_past = n_tokens;
+    for (int i = 0; i < maxTokens; i++) {
+        // Sample the next token
+        llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
+
+        // Check for End-of-Generation (EOG) token
+        if (llama_vocab_is_eog(vocab, tok)) {
+            break;
+        }
+
+        // Convert token to string and send to Java
+        char buf[256];
+        int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
+        if (len > 0) {
+            jstring jstr = env->NewStringUTF(std::string(buf, len).c_str());
+            env->CallVoidMethod(callback, onToken, jstr);
+
+            // CRITICAL FIX: Delete local reference to prevent JNI table overflow
+            env->DeleteLocalRef(jstr);
+        }
+
+        // Prepare the next batch with the single generated token
+        llama_batch next = llama_batch_get_one(&tok, 1);
+        next.pos[0] = n_past;
+
+        // Decode the next token
+        if (llama_decode(g_ctx, next) != 0) {
+            break;
+        }
+        n_past++;
+    }
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    // Cleanup resources
+    if (g_sampler) llama_sampler_free(g_sampler);
+    if (g_ctx) llama_free(g_ctx);
+    if (g_model) llama_model_free(g_model);
+    g_sampler = nullptr; g_ctx = nullptr; g_model = nullptr;
+}==== app/src/main/java/com/llmassistant/editor/ChunkManager.kt ====
+// File: app/src/main/java/com/llmassistant/editor/ChunkManager.kt
+// Author: CCVO
+// Purpose: Manages chunking of large files for LLM processing, tracking current chunk, and summaries
+// Copyright: CanC-code - CCVO
+
+package com.llmassistant.editor
+
+import java.io.File
+
+class ChunkManager(private val fileManager: FileManager) {
+
+    // -----------------------------
+    // Internal data for each file
+    // -----------------------------
+    data class FileChunks(
+        val file: File,
+        val lines: List<String>,
+        var currentChunkIndex: Int = 0
+    )
+
+    private val fileChunksMap = mutableMapOf<String, FileChunks>()
+    private val chunkSizeLines: Int = 500  // lines per chunk
+
+    // -----------------------------
+    // Load file and prepare chunks
+    // -----------------------------
+    fun loadFile(file: File) {
+        val lines = fileManager.readFile(file)
+        fileChunksMap[file.absolutePath] =
+            FileChunks(file = file, lines = lines)
+    }
+
+    // -----------------------------
+    // Get current chunk text
+    // -----------------------------
+    fun getCurrentChunk(file: File): String {
+        val chunks = fileChunksMap[file.absolutePath] ?: run {
+            loadFile(file)
+            fileChunksMap[file.absolutePath]!!
+        }
+
+        val startLine = chunks.currentChunkIndex * chunkSizeLines
+        val endLine = minOf(startLine + chunkSizeLines, chunks.lines.size)
+
+        return chunks.lines
+            .subList(startLine, endLine)
+            .joinToString("\n")
+    }
+
+    // -----------------------------
+    // Move between chunks
+    // -----------------------------
+    fun moveToNextChunk(file: File) {
+        val chunks = fileChunksMap[file.absolutePath] ?: return
+        val maxIndex = (chunks.lines.size - 1) / chunkSizeLines
+        if (chunks.currentChunkIndex < maxIndex) {
+            chunks.currentChunkIndex++
+        }
+    }
+
+    fun moveToPreviousChunk(file: File) {
+        val chunks = fileChunksMap[file.absolutePath] ?: return
+        if (chunks.currentChunkIndex > 0) {
+            chunks.currentChunkIndex--
+        }
+    }
+
+    // -----------------------------
+    // Query state
+    // -----------------------------
+    fun currentChunkIndex(file: File): Int {
+        return fileChunksMap[file.absolutePath]?.currentChunkIndex ?: 0
+    }
+
+    fun resetChunkIndex(file: File) {
+        fileChunksMap[file.absolutePath]?.currentChunkIndex = 0
+    }
+
+    // -----------------------------
+    // Optional: materialize all chunks
+    // -----------------------------
+    fun getAllChunks(file: File): List<String> {
+        val chunks = fileChunksMap[file.absolutePath] ?: run {
+            loadFile(file)
+            fileChunksMap[file.absolutePath]!!
+        }
+
+        val result = mutableListOf<String>()
+        var index = 0
+
+        while (true) {
+            val start = index * chunkSizeLines
+            if (start >= chunks.lines.size) break
+
+            val end = minOf(start + chunkSizeLines, chunks.lines.size)
+            result.add(
+                chunks.lines.subList(start, end).joinToString("\n")
+            )
+            index++
+        }
+
+        return result
+    }
+}==== app/src/main/java/com/llmassistant/editor/FileManager.kt ====
+// File: app/src/main/java/com/llmassistant/editor/FileManager.kt
+// Author: CCVO
+// Purpose: Provides file reading, writing, and utility functions for project files
+
+package com.llmassistant.editor
+
+import java.io.File
+import java.io.IOException
+
+class FileManager {
+
+    // -----------------------------
+    // Read file content as list of lines
+    // -----------------------------
+    fun readFile(file: File): List<String> {
+        return try {
+            if (file.exists() && file.isFile) {
+                file.readLines()
+            } else {
+                emptyList()
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    // -----------------------------
+    // Write list of lines to file
+    // -----------------------------
+    fun writeFile(file: File, lines: List<String>): Boolean {
+        return try {
+            file.parentFile?.mkdirs()
+            file.writeText(lines.joinToString("\n"))
+            true
+        } catch (e: IOException) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    // -----------------------------
+    // Append text to file
+    // -----------------------------
+    fun appendToFile(file: File, text: String): Boolean {
+        return try {
+            file.appendText(text)
+            true
+        } catch (e: IOException) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    // -----------------------------
+    // List all files in a folder
+    // -----------------------------
+    fun listAllFiles(folder: File): List<File> {
+        if (!folder.exists() || !folder.isDirectory) return emptyList()
+        return folder.listFiles()?.toList() ?: emptyList()
+    }
+
+    // -----------------------------
+    // Utility: check if a file is inside a given root folder
+    // -----------------------------
+    fun isInsideRoot(file: File, root: File): Boolean {
+        return try {
+            val rootPath = root.canonicalPath
+            val filePath = file.canonicalPath
+            filePath.startsWith(rootPath)
+        } catch (e: Exception) {
+            false
+        }
+    }
+}==== app/src/main/java/com/llmassistant/llm/ThreadPoolManager.kt ====
+// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/llm/ThreadPoolManager.kt
+// Author: CCVO
+// Purpose: Manages background threads for LLM inference or other heavy tasks
+
+package com.llmassistant.llm
+
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executors
+
+class ThreadPoolManager(
+    threadCount: Int = Runtime.getRuntime().availableProcessors()
+) {
+
+    private val executor = Executors.newFixedThreadPool(threadCount)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * Submit a background task.
+     * @param task The task to execute in the background.
+     */
+    fun submit(task: () -> Unit) {
+        executor.submit(task)
+    }
+
+    /**
+     * Submit a task that returns a result, and provide a callback on the UI thread.
+     * @param task Task returning a result of type T.
+     * @param callback Callback executed on the main thread with the result.
+     */
+    fun <T> submitWithCallback(task: () -> T, callback: (T) -> Unit) {
+        executor.submit {
+            val result = task()
+            mainHandler.post {
+                callback(result)
+            }
+        }
+    }
+
+    /**
+     * Shut down the executor when the app or activity is closing.
+     */
+    fun shutdown() {
+        executor.shutdownNow()
+    }
+}==== app/src/main/java/com/llmassistant/utils/Logger.kt ====
+// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/utils/Logger.kt
+// Author: CCVO
+// Purpose: Central logging system for debugging and monitoring app, LLM, and file operations
+
+package com.llmassistant.utils
+
+import android.util.Log
+import java.io.File
+import java.io.FileWriter
+import java.io.IOException
+
+object Logger {
+
+    private const val TAG = "LLMCodeAssistant"
+    private var logToFile: Boolean = false
+    private var logFile: File? = null
+
+    /**
+     * Enable logging to a file in app storage
+     */
+    fun enableFileLogging(file: File) {
+        logFile = file
+        logToFile = true
+    }
+
+    /**
+     * Disable file logging
+     */
+    fun disableFileLogging() {
+        logToFile = false
+        logFile = null
+    }
+
+    /**
+     * Log a debug message
+     */
+    fun d(message: String) {
+        Log.d(TAG, message)
+        writeToFile("DEBUG: $message")
+    }
+
+    /**
+     * Log an error message
+     */
+    fun e(message: String, throwable: Throwable? = null) {
+        Log.e(TAG, message, throwable)
+        writeToFile("ERROR: $message ${throwable?.stackTraceToString() ?: ""}")
+    }
+
+    /**
+     * Log an info message
+     */
+    fun i(message: String) {
+        Log.i(TAG, message)
+        writeToFile("INFO: $message")
+    }
+
+    /**
+     * Internal: write log message to file if enabled
+     */
+    private fun writeToFile(message: String) {
+        if (!logToFile || logFile == null) return
+        try {
+            FileWriter(logFile!!, true).use { writer ->
+                writer.appendLine(message)
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to write log to file: ${e.message}")
+        }
+    }
+}==== app/src/main/java/com/llmassistant/utils/ModelDownloader.kt ====
+// File: app/src/main/java/com/llmassistant/utils/ModelDownloader.kt
+package com.llmassistant.utils
+
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+
+class ModelDownloader(private val context: Context) {
+
+    companion object {
+        private const val TAG = "ModelDownloader"
+    }
+
+    /**
+     * Downloads a model from a URL and saves it as [filename] in app's filesDir.
+     * Optionally verifies SHA256 hash if [expectedSha256] is provided.
+     */
+    suspend fun downloadModel(
+        modelUrl: String,
+        filename: String,
+        expectedSha256: String? = null,
+        onProgress: (Int) -> Unit = {}
+    ): File = withContext(Dispatchers.IO) {
+
+        val destFile = File(context.filesDir, filename)
+        Log.i(TAG, "Downloading model from $modelUrl to ${destFile.absolutePath}")
+
+        val url = URL(modelUrl)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 15000
+        connection.readTimeout = 60000
+        connection.connect()
+
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            throw RuntimeException("HTTP ${connection.responseCode}")
+        }
+
+        val contentLength = connection.contentLength
+        connection.inputStream.use { input ->
+            FileOutputStream(destFile).use { output ->
+                val buffer = ByteArray(8 * 1024)
+                var bytesRead: Int
+                var totalRead = 0L
+
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    totalRead += bytesRead
+                    if (contentLength > 0) {
+                        val progress = (totalRead * 100 / contentLength).toInt()
+                        onProgress(progress)
+                    }
+                }
+            }
+        }
+
+        Log.i(TAG, "Download complete: ${destFile.absolutePath}")
+
+        // Verify SHA256 if expected
+        if (!expectedSha256.isNullOrEmpty()) {
+            val sha256 = computeSha256(destFile)
+            if (!sha256.equals(expectedSha256, ignoreCase = true)) {
+                throw RuntimeException("SHA256 mismatch! Expected: $expectedSha256, Got: $sha256")
+            }
+            Log.i(TAG, "SHA256 verified successfully")
+        }
+
+        destFile
+    }
+
+    /**
+     * Returns the local file if it exists, else null
+     */
+    fun getModel(filename: String): File? {
+        val file = File(context.filesDir, filename)
+        return if (file.exists()) file else null
+    }
+
+    private fun computeSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { fis ->
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            while (fis.read(buffer).also { bytesRead = it } != -1) {
+                digest.update(buffer, 0, bytesRead)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+}==== app/src/main/java/com/llmassistant/utils/Tokenizer.kt ====
+// File: LLMCodeAssistant/app/src/main/java/com/llmassistant/utils/Tokenizer.kt
+// Author: CCVO
+// Purpose: Handles tokenization of text for LLM input, counting, and chunking
+
+package com.llmassistant.utils
+
+class Tokenizer {
+
+    /**
+     * Simple whitespace-based tokenization.
+     * Replace with model-specific tokenizer if needed (BPE, GPT2, etc.)
+     */
+    fun tokenize(text: String): List<String> {
+        return text.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Count tokens in a text.
+     */
+    fun countTokens(text: String): Int {
+        return tokenize(text).size
+    }
+
+    /**
+     * Split text into chunks of max tokens
+     * @param text Full text to split
+     * @param maxTokens Maximum tokens per chunk
+     */
+    fun chunkText(text: String, maxTokens: Int): List<String> {
+        val tokens = tokenize(text)
+        val chunks = mutableListOf<String>()
+        var start = 0
+        while (start < tokens.size) {
+            val end = minOf(start + maxTokens, tokens.size)
+            val chunk = tokens.subList(start, end).joinToString(" ")
+            chunks.add(chunk)
+            start = end
+        }
+        return chunks
+    }
+}==== app/src/main/java/io/canccode/aca/AppViewModel.kt ====
+package io.canccode.aca
+
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import java.io.File
+
+class AppViewModel : ViewModel() {
+
+    // Currently selected file
+    private val _selectedFile = MutableLiveData<File?>()
+    val selectedFile: LiveData<File?> = _selectedFile
+
+    // Current editor content
+    private val _editorContent = MutableLiveData<String>()
+    val editorContent: LiveData<String> = _editorContent
+
+    // Send content to LLM
+    private val _llmInput = MutableLiveData<String>()
+    val llmInput: LiveData<String> = _llmInput
+
+    fun selectFile(file: File) {
+        _selectedFile.value = file
+        _editorContent.value = file.readText()
+    }
+
+    fun updateEditorContent(content: String) {
+        _editorContent.value = content
+    }
+
+    fun sendToLLM(input: String) {
+        _llmInput.value = input
+    }
+}==== app/src/main/java/io/canccode/aca/CodeEditorFragment.kt ====
+package io.canccode.aca
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import java.io.File
+
+class CodeEditorFragment : Fragment() {
+
+    private lateinit var filePath: String
+    private lateinit var editor: EditText
+
+    companion object {
+        private const val ARG_FILE_PATH = "file_path"
+
+        fun newInstance(filePath: String): CodeEditorFragment {
+            val fragment = CodeEditorFragment()
+            val args = Bundle()
+            args.putString(ARG_FILE_PATH, filePath)
+            fragment.arguments = args
+            return fragment
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        arguments?.let {
+            filePath = it.getString(ARG_FILE_PATH, "")
+        }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val view = inflater.inflate(R.layout.fragment_code_editor, container, false)
+        editor = view.findViewById(R.id.code_editor)
+        val saveButton: Button = view.findViewById(R.id.save_button)
+
+        // Load file content
+        val file = File(filePath)
+        if (file.exists() && file.isFile) {
+            editor.setText(file.readText())
+        } else {
+            Toast.makeText(requireContext(), "File not found: $filePath", Toast.LENGTH_SHORT).show()
+        }
+
+        saveButton.setOnClickListener {
+            try {
+                file.writeText(editor.text.toString())
+                Toast.makeText(requireContext(), "Saved successfully", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Error saving file: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        return view
+    }
+}==== app/src/main/java/io/canccode/aca/EditorFragment.kt ====
+// File: app/src/main/java/io/canccode/aca/EditorFragment.kt
+package io.canccode.aca
+
+import android.graphics.Color
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import androidx.fragment.app.Fragment
+
+class EditorFragment : Fragment() {
+
+    private lateinit var editorView: EditText
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val root = inflater.inflate(R.layout.fragment_editor, container, false)
+        editorView = root.findViewById(R.id.editorText)
+
+        editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))
+        editorView.setTextColor(Color.parseColor("#D4D4D4"))
+        editorView.textSize = 14f
+
+        return root
+    }
+}==== app/src/main/java/io/canccode/aca/EditorViewModel.kt ====
+package io.canccode.aca
+
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+
+class EditorViewModel : ViewModel() {
+    private val _text = MutableLiveData<String>("")
+    val text: LiveData<String> = _text
+
+    fun updateText(newText: String) {
+        _text.value = newText
+    }
+}==== app/src/main/java/io/canccode/aca/EnhancedEditorFragment.kt ====
+package io.canccode.aca
+
+import android.graphics.Color
+import android.net.Uri
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.*
+import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import java.util.*
+
+class EnhancedEditorFragment : Fragment() {
+
+    private lateinit var lineNumbersView: TextView
+    private lateinit var editorView: EditText
+    private lateinit var scrollContainer: HorizontalScrollView
+    
+    private var filePath: String = ""
+    private var fileUri: String = ""
+    private lateinit var projectLoader: ProjectLoader
+    
+    private val undoStack = Stack<String>()
+    private val redoStack = Stack<String>()
+    private var currentContent = ""
+    private var isUndoRedoOperation = false
+
+    companion object {
+        private const val ARG_FILE_PATH = "file_path"
+        private const val ARG_FILE_URI = "file_uri"
+
+        fun newInstance(
+            path: String, 
+            uri: String, 
+            loader: ProjectLoader
+        ): EnhancedEditorFragment {
+            return EnhancedEditorFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_FILE_PATH, path)
+                    putString(ARG_FILE_URI, uri)
+                }
+                projectLoader = loader
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setHasOptionsMenu(true)
+        
+        arguments?.let {
+            filePath = it.getString(ARG_FILE_PATH, "")
+            fileUri = it.getString(ARG_FILE_URI, "")
+        }
+        
+        if (!::projectLoader.isInitialized) {
+            projectLoader = (activity as? MainActivity)?.getProjectLoader() 
+                ?: ProjectLoader(requireContext())
+        }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val root = inflater.inflate(R.layout.fragment_enhanced_editor, container, false)
+
+        lineNumbersView = root.findViewById(R.id.lineNumbers)
+        editorView = root.findViewById(R.id.editorText)
+        scrollContainer = root.findViewById(R.id.editorScrollContainer)
+
+        setupEditor()
+        loadFileContent()
+
+        return root
+    }
+
+    private fun setupEditor() {
+        // Editor styling
+        editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))
+        editorView.setTextColor(Color.parseColor("#D4D4D4"))
+        editorView.textSize = 14f
+        editorView.setHorizontallyScrolling(true)
+        
+        // Line numbers styling
+        lineNumbersView.setBackgroundColor(Color.parseColor("#252525"))
+        lineNumbersView.setTextColor(Color.parseColor("#858585"))
+        lineNumbersView.textSize = 14f
+        lineNumbersView.setPadding(16, 0, 16, 0)
+
+        // Sync line numbers with content
+        editorView.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            
+            override fun afterTextChanged(s: Editable?) {
+                updateLineNumbers()
+                
+                if (!isUndoRedoOperation) {
+                    val newContent = s.toString()
+                    if (newContent != currentContent) {
+                        undoStack.push(currentContent)
+                        redoStack.clear()
+                        currentContent = newContent
+                        
+                        // Limit undo stack size
+                        if (undoStack.size > 100) {
+                            undoStack.removeAt(0)
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun loadFileContent() {
+        val content = if (fileUri.isNotEmpty()) {
+            try {
+                val uri = Uri.parse(fileUri)
+                requireContext().contentResolver.openInputStream(uri)?.use {
+                    it.bufferedReader().readText()
+                } ?: ""
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Error loading file: ${e.message}", Toast.LENGTH_SHORT).show()
+                ""
+            }
+        } else {
+            projectLoader.getFileContent(filePath)
+        }
+        
+        currentContent = content
+        undoStack.push(content)
+        editorView.setText(content)
+        updateLineNumbers()
+    }
+
+    private fun updateLineNumbers() {
+        val lines = editorView.text.toString().split("\n")
+        val lineNumbers = StringBuilder()
+        
+        for (i in 1..lines.size) {
+            lineNumbers.append(i).append("\n")
+        }
+        
+        lineNumbersView.text = lineNumbers.toString()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        inflater.inflate(R.menu.editor_menu, menu)
+        super.onCreateOptionsMenu(menu, inflater)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_save -> {
+                saveFile()
+                true
+            }
+            R.id.action_save_as -> {
+                Toast.makeText(requireContext(), "Save As - coming soon", Toast.LENGTH_SHORT).show()
+                true
+            }
+            R.id.action_undo -> {
+                performUndo()
+                true
+            }
+            R.id.action_redo -> {
+                performRedo()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun saveFile() {
+        if (fileUri.isNotEmpty()) {
+            try {
+                val uri = Uri.parse(fileUri)
+                requireContext().contentResolver.openOutputStream(uri)?.use {
+                    it.write(editorView.text.toString().toByteArray())
+                }
+                Toast.makeText(requireContext(), "File saved", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Error saving: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            projectLoader.updateFile(filePath, editorView.text.toString())
+            Toast.makeText(requireContext(), "File updated in memory", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun performUndo() {
+        if (undoStack.size > 1) {
+            isUndoRedoOperation = true
+            redoStack.push(undoStack.pop())
+            currentContent = undoStack.peek()
+            editorView.setText(currentContent)
+            editorView.setSelection(currentContent.length)
+            isUndoRedoOperation = false
+        } else {
+            Toast.makeText(requireContext(), "Nothing to undo", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun performRedo() {
+        if (redoStack.isNotEmpty()) {
+            isUndoRedoOperation = true
+            val content = redoStack.pop()
+            undoStack.push(content)
+            currentContent = content
+            editorView.setText(content)
+            editorView.setSelection(currentContent.length)
+            isUndoRedoOperation = false
+        } else {
+            Toast.makeText(requireContext(), "Nothing to redo", Toast.LENGTH_SHORT).show()
+        }
+    }
+}==== app/src/main/java/io/canccode/aca/FileBrowserFragment.kt ====
+package io.canccode.aca
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+
+class FileBrowserFragment : Fragment() {
+
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var projectLoader: ProjectLoader
+
+    companion object {
+        fun newInstance(loader: ProjectLoader): FileBrowserFragment {
+            return FileBrowserFragment().apply {
+                this.projectLoader = loader
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        
+        // Get loader from activity if not set
+        if (!::projectLoader.isInitialized) {
+            projectLoader = (activity as? MainActivity)?.getProjectLoader() 
+                ?: ProjectLoader(requireContext())
+        }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val view = inflater.inflate(R.layout.fragment_file_browser, container, false)
+
+        recyclerView = view.findViewById(R.id.file_list_recycler)
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+
+        val rootNode = try {
+            projectLoader.getRootNode()
+        } catch (e: Exception) {
+            // Create empty root if no project loaded
+            FileNode("root", "", null, true)
+        }
+
+        recyclerView.adapter = FileNodeAdapter(rootNode) { node ->
+            handleNodeClick(node)
+        }
+
+        return view
+    }
+
+    private fun handleNodeClick(node: FileNode) {
+        if (node.isDirectory) {
+            // Directory - adapter handles expand/collapse
+            return
+        }
+        
+        // File - open in editor
+        val editorFragment = EnhancedEditorFragment.newInstance(
+            node.path,
+            node.uri?.toString() ?: "",
+            projectLoader
+        )
+
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, editorFragment)
+            .addToBackStack(null)
+            .commit()
+    }
+}==== app/src/main/java/io/canccode/aca/FileListAdapter.kt ====
+package io.canccode.aca
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import io.canccode.aca.R
+import java.io.File
+
+class FileListAdapter(
+    private val files: List<File>,
+    private val onFileClick: (File) -> Unit
+) : RecyclerView.Adapter<FileListAdapter.FileViewHolder>() {
+
+    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val fileName: TextView = itemView.findViewById(R.id.fileName)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return FileViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
+        val file = files[position]
+        holder.fileName.text = file.name
+        holder.itemView.setOnClickListener { onFileClick(file) }
+    }
+
+    override fun getItemCount(): Int = files.size
+}==== app/src/main/java/io/canccode/aca/FileNodeAdapter.kt ====
+package io.canccode.aca
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+
+class FileNodeAdapter(
+    private val rootNode: FileNode,
+    private val onClick: (FileNode) -> Unit
+) : RecyclerView.Adapter<FileNodeAdapter.NodeViewHolder>() {
+
+    private val flatList = mutableListOf<Pair<FileNode, Int>>() // Node + depth
+
+    init {
+        rebuildFlatList()
+    }
+
+    private fun rebuildFlatList() {
+        flatList.clear()
+        addNodes(rootNode, -1) // Start at -1 so root children are at depth 0
+    }
+
+    private fun addNodes(node: FileNode, depth: Int) {
+        // Add children of current node
+        node.children.sortedWith(compareBy({ !it.isDirectory }, { it.name })).forEach { child ->
+            flatList.add(Pair(child, depth + 1))
+            
+            // If directory is expanded, add its children recursively
+            if (child.isDirectory && child.expanded) {
+                addNodes(child, depth + 1)
+            }
+        }
+    }
+
+    inner class NodeViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val icon: ImageView = view.findViewById(R.id.fileIcon)
+        val textView: TextView = view.findViewById(R.id.fileName)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): NodeViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return NodeViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: NodeViewHolder, position: Int) {
+        val (node, depth) = flatList[position]
+
+        // Indentation based on depth
+        val padding = depth * 40
+        holder.itemView.setPadding(padding, 8, 8, 8)
+
+        holder.textView.text = node.name
+
+        // Set icon based on type
+        if (node.isDirectory) {
+            holder.icon.setImageResource(
+                if (node.expanded) 
+                    android.R.drawable.arrow_down_float
+                else 
+                    android.R.drawable.ic_menu_more
+            )
+            
+            holder.itemView.setOnClickListener {
+                node.expanded = !node.expanded
+                onClick(node)
+                rebuildFlatList()
+                notifyDataSetChanged()
+            }
+        } else {
+            holder.icon.setImageResource(android.R.drawable.ic_menu_edit)
+            
+            holder.itemView.setOnClickListener {
+                onClick(node)
+            }
+        }
+    }
+
+    override fun getItemCount(): Int = flatList.size
+}==== app/src/main/java/io/canccode/aca/FileTreeAdapter.kt ====
+package io.canccode.aca
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import java.io.File
+
+/**
+ * Collapsible file tree adapter.
+ * Directories expand/collapse inline.
+ */
+class FileTreeAdapter(
+    private val rootFiles: List<File>,
+    private val onFileClick: (File) -> Unit
+) : RecyclerView.Adapter<FileTreeAdapter.FileViewHolder>() {
+
+    private val visibleNodes = mutableListOf<FileNode>()
+
+    init {
+        rootFiles.sortedBy { it.name }.forEach {
+            visibleNodes.add(FileNode(it, 0))
+        }
+    }
+
+    data class FileNode(
+        val file: File,
+        val level: Int,
+        var isExpanded: Boolean = false
+    )
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_file, parent, false)
+        return FileViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
+        holder.bind(visibleNodes[position])
+    }
+
+    override fun getItemCount(): Int = visibleNodes.size
+
+    inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val icon: ImageView = itemView.findViewById(R.id.fileIcon)
+        private val name: TextView = itemView.findViewById(R.id.fileName)
+
+        fun bind(node: FileNode) {
+            name.text = node.file.name
+
+            itemView.setPadding(
+                32 * node.level,
+                itemView.paddingTop,
+                itemView.paddingRight,
+                itemView.paddingBottom
+            )
+
+            if (node.file.isDirectory) {
+                icon.setImageResource(
+                    if (node.isExpanded)
+                        android.R.drawable.arrow_down_float
+                    else
+                        android.R.drawable.ic_media_next
+                )
+
+                itemView.setOnClickListener {
+                    if (node.isExpanded) collapse(node) else expand(node)
+                }
+            } else {
+                icon.setImageResource(android.R.drawable.ic_menu_agenda)
+                itemView.setOnClickListener { onFileClick(node.file) }
+            }
+        }
+    }
+
+    private fun expand(node: FileNode) {
+        node.isExpanded = true
+        val position = visibleNodes.indexOf(node)
+
+        val children = node.file.listFiles()
+            ?.sortedBy { it.name }
+            ?.map { FileNode(it, node.level + 1) }
+            ?: emptyList()
+
+        visibleNodes.addAll(position + 1, children)
+        notifyItemRangeInserted(position + 1, children.size)
+        notifyItemChanged(position)
+    }
+
+    private fun collapse(node: FileNode) {
+        node.isExpanded = false
+        val position = visibleNodes.indexOf(node)
+        val removed = removeChildren(position)
+        notifyItemRangeRemoved(position + 1, removed)
+        notifyItemChanged(position)
+    }
+
+    private fun removeChildren(position: Int): Int {
+        val baseLevel = visibleNodes[position].level
+        var count = 0
+
+        var i = position + 1
+        while (i < visibleNodes.size && visibleNodes[i].level > baseLevel) {
+            count++
+            i++
+        }
+
+        repeat(count) {
+            visibleNodes.removeAt(position + 1)
+        }
+
+        return count
+    }
+}==== app/src/main/java/io/canccode/aca/LLMFragment.kt ====
+package io.canccode.aca
+
+import android.os.Bundle
+import android.util.Log
+import android.view.*
+import android.widget.*
+import androidx.appcompat.app.AlertDialog
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+class LLMFragment : Fragment() {
+
+    private val TAG = "LLMFragment"
+
+    private lateinit var chatOutput: TextView
+    private lateinit var chatScroll: ScrollView
+    private lateinit var inputBox: EditText
+    private lateinit var sendBtn: Button
+    private lateinit var clearBtn: Button
+
+    private var thinkingStart: Int = 0
+    private var currentResponse = StringBuilder()
+    private var thinkingJob: Job? = null
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        return inflater.inflate(R.layout.fragment_llm, container, false)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        chatOutput = view.findViewById(R.id.chatOutput)
+        chatScroll = view.findViewById(R.id.chatScroll)
+        inputBox = view.findViewById(R.id.inputBox)
+        sendBtn = view.findViewById(R.id.sendBtn)
+        clearBtn = view.findViewById(R.id.clearBtn)
+
+        chatOutput.text = "🤖 Assistant Ready. Load a model to begin.\n\n"
+
+        sendBtn.setOnClickListener {
+            val prompt = inputBox.text.toString().trim()
+            if (prompt.isEmpty()) return@setOnClickListener
+
+            inputBox.text.clear()
+            generate(prompt)
+        }
+
+        clearBtn.setOnClickListener {
+            chatOutput.text = "🤖 Chat cleared.\n\n"
+        }
+    }
+
+    private fun generate(prompt: String) {
+        sendBtn.isEnabled = false
+        inputBox.isEnabled = false
+
+        chatOutput.append("👤 You: $prompt\n\n")
+        chatOutput.append("🤖 AI: ")
+        
+        thinkingStart = chatOutput.text.length
+        currentResponse.clear()
+
+        startThinkingAnimation()
+        scrollToBottom()
+
+        // Match the LlamaBridge.LlamaCallback interface we defined
+        val callback = object : LlamaBridge.LlamaCallback {
+            override fun onToken(token: String) {
+                activity?.runOnUiThread {
+                    if (thinkingJob != null) stopThinkingAnimation()
+                    
+                    currentResponse.append(token)
+                    // Update UI by replacing the "Thinking..." text with actual tokens
+                    val baseText = chatOutput.text.substring(0, thinkingStart)
+                    chatOutput.text = baseText + currentResponse.toString()
+                    scrollToBottom()
+                }
+            }
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Remove any [INST] wrappers here to stop the "Mistral assumption"
+                LlamaBridge.generateNative(prompt, 512, callback)
+                
+                withContext(Dispatchers.Main) {
+                    finalizeResponse()
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Generation failed", e)
+                withContext(Dispatchers.Main) {
+                    stopThinkingAnimation()
+                    chatOutput.append("\n❌ Error: ${e.message}\n\n")
+                    finalizeResponse()
+                }
+            }
+        }
+    }
+
+    private fun finalizeResponse() {
+        chatOutput.append("\n\n") 
+        sendBtn.isEnabled = true
+        inputBox.isEnabled = true
+        inputBox.requestFocus()
+        scrollToBottom()
+    }
+
+    private fun startThinkingAnimation() {
+        thinkingJob?.cancel()
+        thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
+            var dots = ""
+            while (true) {
+                dots = if (dots.length >= 3) "" else dots + "."
+                val baseText = chatOutput.text.substring(0, thinkingStart)
+                chatOutput.text = baseText + "Thinking$dots"
+                delay(500)
+            }
+        }
+    }
+
+    private fun stopThinkingAnimation() {
+        thinkingJob?.cancel()
+        thinkingJob = null
+    }
+
+    private fun scrollToBottom() {
+        chatScroll.post { chatScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        stopThinkingAnimation()
+    }
+}
+==== app/src/main/java/io/canccode/aca/LLMHandler.kt ====
+package io.canccode.aca
+
+import android.content.Context
+import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+
+class LLMHandler(private val context: Context) {
+
+    private val TAG = "LLMHandler"
+    private val MODEL_NAME = "ggml-alpaca-7b-q4.bin"  // change to your desired GGUF
+    private val MODEL_URL = "https://huggingface.co/ccvo/alpaca-7b-q4/resolve/main/$MODEL_NAME"
+
+    private val modelDir: File by lazy {
+        File(context.filesDir, "models").also { it.mkdirs() }
+    }
+
+    private val modelFile: File by lazy {
+        File(modelDir, MODEL_NAME)
+    }
+
+    /**
+     * Ensures the model file exists locally. Downloads if missing.
+     */
+    fun ensureModelReady() {
+        if (!modelFile.exists()) {
+            Log.i(TAG, "Model file not found, downloading...")
+            downloadModel()
+        } else {
+            Log.i(TAG, "Model file exists: ${modelFile.absolutePath}")
+        }
+
+        // Initialize native LLM bridge
+        LlamaBridge.initNative(modelFile.absolutePath, 512) // 512-context example
+        Log.i(TAG, "Model ready at: ${modelFile.absolutePath}")
+    }
+
+    private fun downloadModel() {
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL(MODEL_URL)
+            connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
+            connection.requestMethod = "GET"
+            connection.connect()
+
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                throw Exception("Server returned HTTP ${connection.responseCode} ${connection.responseMessage}")
+            }
+
+            connection.inputStream.use { input ->
+                FileOutputStream(modelFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Log.i(TAG, "Model downloaded successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download model", e)
+            throw e
+        } finally {
+            connection?.disconnect()
+        }
+    }
+}==== app/src/main/java/io/canccode/aca/LLMViewModel.kt ====
+package io.canccode.aca
+
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+
+class LLMViewModel : ViewModel() {
+    private val _output = MutableLiveData<String>("")
+    val output: LiveData<String> = _output
+
+    fun setOutput(text: String) {
+        _output.value = text
+    }
+}==== app/src/main/java/io/canccode/aca/LlamaBridge.kt ====
+package io.canccode.aca
+
+import android.util.Log
+
+object LlamaBridge {
+
+    init {
+        try {
+            System.loadLibrary("llama_jni")
+            Log.i("LlamaBridge", "Native library llama_jni loaded successfully")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e("LlamaBridge", "Failed to load native library", e)
+        }
+    }
+
+    /**
+     * This interface MUST match the JNI method lookup in llama_jni.cpp:
+     * GetMethodID(cls, "onToken", "(Ljava/lang/String;)V")
+     */
+    interface LlamaCallback {
+        fun onToken(token: String)
+    }
+
+    @JvmStatic
+    external fun initNative(modelPath: String, nCtx: Int): Boolean
+
+    @JvmStatic
+    external fun generateNative(
+        prompt: String, 
+        maxTokens: Int, 
+        callback: LlamaCallback
+    )
+
+    @JvmStatic
+    external fun shutdownNative()
+}
+==== app/src/main/java/io/canccode/aca/MainActivity.kt ====
+package io.canccode.aca
+
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Bundle
+import android.util.Log
+import android.view.MenuItem
+import android.view.MotionEvent
+import android.view.View
+import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.ActionBarDrawerToggle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.navigation.NavigationView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.math.abs
+
+class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+
+    private val TAG = "MainActivity"
+
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var navView: NavigationView
+    private lateinit var toggle: ActionBarDrawerToggle
+    private lateinit var floatingMenuButton: ImageView
+    private lateinit var llmInputGlobal: EditText
+    private lateinit var llmSendGlobal: Button
+    private lateinit var tvStatus: TextView
+
+    private val projectLoader = ProjectLoader(this)
+    private var llmInitialized = false
+    private lateinit var prefs: SharedPreferences
+
+    // Model Picker for user-supplied GGUF files
+    private val modelPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.data?.let { uri ->
+                handleModelSelection(uri)
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
+        
+        initUI()
+        initDrawer()
+        
+        // Auto-load last successful model if available
+        val lastPath = prefs.getString("last_model_path", null)
+        if (!lastPath.isNullOrBlank()) {
+            initLlama(lastPath)
+        }
+    }
+
+    private fun initUI() {
+        floatingMenuButton = findViewById(R.id.floatingMenuButton)
+        enableDragAndClick(floatingMenuButton)
+
+        llmInputGlobal = findViewById(R.id.llm_input_global)
+        llmSendGlobal = findViewById(R.id.llm_send_global)
+        // Ensure you have a status view in your XML or use a Toast
+        tvStatus = findViewById(R.id.tv_status) 
+
+        llmSendGlobal.setOnClickListener {
+            val prompt = llmInputGlobal.text.toString().trim()
+            if (prompt.isNotEmpty()) {
+                sendToLLM(prompt)
+                llmInputGlobal.text.clear()
+            }
+        }
+    }
+
+    private fun handleModelSelection(uri: Uri) {
+        // llama.cpp needs a real path. We must use a helper or copy the file 
+        // to internal storage if the URI is from SAF (content://)
+        lifecycleScope.launch(Dispatchers.IO) {
+            updateStatus("Preparing model...")
+            
+            // For simplicity in this functional fix, we assume the user 
+            // provides a path or we copy to filesDir
+            val destFile = File(filesDir, "user_model.gguf")
+            
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                initLlama(destFile.absolutePath)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to copy model", e)
+                updateStatus("Model Copy Failed")
+            }
+        }
+    }
+
+    private fun initLlama(path: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            updateStatus("Loading GGUF...")
+            
+            // Context 2048 is standard for most modern GGUF models
+            val success = LlamaBridge.initNative(path, 2048)
+            
+            withContext(Dispatchers.Main) {
+                llmInitialized = success
+                llmSendGlobal.isEnabled = success
+                if (success) {
+                    prefs.edit().putString("last_model_path", path).apply()
+                    updateStatus("Model Ready")
+                } else {
+                    updateStatus("Load Failed")
+                }
+            }
+        }
+    }
+
+    private fun sendToLLM(prompt: String) {
+        if (!llmInitialized) return
+
+        Toast.makeText(this, "Thinking...", Toast.LENGTH_SHORT).show()
+
+        // generic prompt: no Mistral [INST] tags, allowing GGUF to react naturally
+        LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.LlamaCallback {
+            override fun onToken(token: String) {
+                runOnUiThread {
+                    // Append tokens to your UI (e.g., a scrolling TextView)
+                    Log.d("LLAMA", token)
+                }
+            }
+        })
+    }
+
+    private fun updateStatus(msg: String) {
+        runOnUiThread { tvStatus.text = msg }
+    }
+
+    // --- Navigation & Drawer Logic ---
+
+    private fun initDrawer() {
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navView = findViewById(R.id.nav_view)
+        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+        navView.setNavigationItemSelectedListener(this)
+    }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_load_model -> {
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*" // Filter for .gguf in production
+                }
+                modelPicker.launch(intent)
+            }
+            R.id.nav_llm -> replaceFragment(LLMFragment())
+        }
+        drawerLayout.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    private fun replaceFragment(fragment: androidx.fragment.app.Fragment) {
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, fragment)
+            .commit()
+    }
+
+    private fun enableDragAndClick(view: View) {
+        var dX = 0f; var dY = 0f; var isDragging = false
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> { dX = v.x - event.rawX; dY = v.y - event.rawY; isDragging = false; true }
+                MotionEvent.ACTION_MOVE -> {
+                    if (abs(event.rawX - (v.x - dX)) > 10) {
+                        isDragging = true
+                        v.x = event.rawX + dX; v.y = event.rawY + dY
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> { 
+                    if (!isDragging) drawerLayout.openDrawer(GravityCompat.START)
+                    true 
+                }
+                else -> false
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        LlamaBridge.shutdownNative()
+    }
+}
+==== app/src/main/java/io/canccode/aca/ModelManager.kt ====
+package io.canccode.aca
+
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+
+class ModelManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "ModelManager"
+
+        // CHANGEABLE without touching JNI
+        private const val MODEL_FILE_NAME = "llama-2-1.3b-q4_0.gguf"
+        private const val MODEL_URL =
+            "https://huggingface.co/TheBloke/Llama-2-1.3B-GGUF/resolve/main/llama-2-1.3b-q4_0.gguf"
+    }
+
+    private val modelDir = File(context.filesDir, "models")
+    private val modelFile = File(modelDir, MODEL_FILE_NAME)
+
+    fun modelExists(): Boolean = modelFile.exists()
+
+    fun getModelPath(): String = modelFile.absolutePath
+
+    suspend fun ensureModel(onProgress: (Int) -> Unit): Boolean {
+        if (modelExists()) {
+            Log.i(TAG, "Model already present")
+            return true
+        }
+
+        return downloadModel(onProgress)
+    }
+
+    private suspend fun downloadModel(onProgress: (Int) -> Unit): Boolean =
+        withContext(Dispatchers.IO) {
+
+            try {
+                modelDir.mkdirs()
+
+                val url = URL(MODEL_URL)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 15_000
+                connection.readTimeout = 30_000
+                connection.requestMethod = "GET"
+                connection.connect()
+
+                if (connection.responseCode != 200) {
+                    Log.e(TAG, "HTTP ${connection.responseCode}")
+                    return@withContext false
+                }
+
+                val total = connection.contentLength
+                var downloaded = 0
+
+                connection.inputStream.use { input ->
+                    FileOutputStream(modelFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            downloaded += read
+
+                            if (total > 0) {
+                                val percent = (downloaded * 100 / total)
+                                onProgress(percent)
+                            }
+                        }
+                    }
+                }
+
+                Log.i(TAG, "Model downloaded successfully")
+                true
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Model download failed", e)
+                false
+            }
+        }
+}==== app/src/main/java/io/canccode/aca/OutputConsoleFragment.kt ====
+package io.canccode.aca
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ScrollView
+import androidx.fragment.app.Fragment
+import io.canccode.aca.databinding.FragmentOutputConsoleBinding
+
+class OutputConsoleFragment : Fragment() {
+
+    private var _binding: FragmentOutputConsoleBinding? = null
+    private val binding get() = _binding!!
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentOutputConsoleBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    fun appendText(text: String) {
+        binding.consoleText.append("$text\n")
+        binding.consoleScroll.post { binding.consoleScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    fun clear() {
+        binding.consoleText.text = ""
+    }
+}==== app/src/main/java/io/canccode/aca/ProjectLoader.kt ====
+package io.canccode.aca
+
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.util.Log
+import java.io.BufferedReader
+
+/**
+ * Represents a node in the project tree
+ */
+data class FileNode(
+    val name: String,
+    val path: String,
+    val uri: Uri?,
+    val isDirectory: Boolean,
+    val children: MutableList<FileNode> = mutableListOf(),
+    var expanded: Boolean = false
+)
+
+/**
+ * Enhanced ProjectLoader with proper SAF support and tree structure
+ * Optimized for large projects with lazy loading
+ */
+class ProjectLoader(private val context: Context) {
+
+    companion object {
+        private const val TAG = "ProjectLoader"
+        private const val MAX_FILE_SIZE = 1_000_000 // 1MB limit for in-memory files
+        private const val MAX_FILES_TO_LOAD = 500 // Don't load more than 500 files at once
+    }
+
+    // Backward-compatible flat map (lazy loaded)
+    private val filesMap: MutableMap<String, String> = mutableMapOf()
+
+    // Root of the project tree
+    private var rootNode: FileNode = FileNode("root", "", null, true)
+    
+    private var projectUri: Uri? = null
+    private var filesLoaded = 0
+
+    /**
+     * Load an entire project from a SAF tree URI
+     */
+    fun loadProject(treeUri: Uri) {
+        filesMap.clear()
+        projectUri = treeUri
+        filesLoaded = 0
+
+        val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocId)
+
+        // Get root directory name
+        val rootName = getDocumentName(rootUri) ?: "Project"
+
+        rootNode = FileNode(
+            name = rootName,
+            path = "",
+            uri = rootUri,
+            isDirectory = true,
+            expanded = true
+        )
+
+        Log.d(TAG, "Starting project load: $rootName")
+
+        traverseDirectory(
+            treeUri = treeUri,
+            parentDocId = rootDocId,
+            parentNode = rootNode,
+            currentPath = "",
+            depth = 0
+        )
+        
+        Log.d(TAG, "Project loaded: $filesLoaded files processed")
+    }
+
+    /**
+     * Get document name from URI
+     */
+    private fun getDocumentName(uri: Uri): String? {
+        return try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)
+                } else null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting document name", e)
+            null
+        }
+    }
+
+    /**
+     * Recursively walk the document tree and build FileNode hierarchy
+     * Optimized to prevent crashes on large folders
+     */
+    private fun traverseDirectory(
+        treeUri: Uri,
+        parentDocId: String,
+        parentNode: FileNode,
+        currentPath: String,
+        depth: Int
+    ) {
+        // Limit depth to prevent stack overflow
+        if (depth > 20) {
+            Log.w(TAG, "Max depth reached at $currentPath")
+            return
+        }
+
+        // Check if we've loaded too many files
+        if (filesLoaded > MAX_FILES_TO_LOAD) {
+            Log.w(TAG, "Max files limit reached, stopping traversal")
+            return
+        }
+
+        val childrenUri = try {
+            DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error building children URI", e)
+            return
+        }
+
+        try {
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_SIZE
+                ),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    if (filesLoaded > MAX_FILES_TO_LOAD) {
+                        break
+                    }
+
+                    val docId = cursor.getString(0)
+                    val name = cursor.getString(1)
+                    val mime = cursor.getString(2)
+                    val size = cursor.getLong(3)
+
+                    val relativePath = if (currentPath.isEmpty()) name else "$currentPath/$name"
+                    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        // Directory node
+                        val dirNode = FileNode(
+                            name = name,
+                            path = relativePath,
+                            uri = docUri,
+                            isDirectory = true
+                        )
+
+                        parentNode.children.add(dirNode)
+
+                        // Recursively load children
+                        traverseDirectory(
+                            treeUri = treeUri,
+                            parentDocId = docId,
+                            parentNode = dirNode,
+                            currentPath = relativePath,
+                            depth = depth + 1
+                        )
+                    } else {
+                        filesLoaded++
+                        
+                        // File node - only load content if small enough
+                        val content = if (size < MAX_FILE_SIZE) {
+                            loadFileContent(docUri)
+                        } else {
+                            Log.d(TAG, "Skipping large file: $name (${size / 1024}KB)")
+                            ""
+                        }
+
+                        // Store in flat map for backward compatibility
+                        filesMap[relativePath] = content
+
+                        val fileNode = FileNode(
+                            name = name,
+                            path = relativePath,
+                            uri = docUri,
+                            isDirectory = false
+                        )
+
+                        parentNode.children.add(fileNode)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying directory: $currentPath", e)
+        }
+    }
+
+    /**
+     * Load file content with error handling
+     */
+    private fun loadFileContent(uri: Uri): String {
+        return try {
+            context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()
+                ?.use(BufferedReader::readText)
+                ?: ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading file content", e)
+            ""
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Public API
+    // ------------------------------------------------------------------------
+
+    /**
+     * Legacy API (used by existing code)
+     */
+    fun getAllFiles(): Map<String, String> = filesMap
+
+    fun getFileContent(path: String): String {
+        // If not in map, try to load it now
+        if (!filesMap.containsKey(path)) {
+            // Find the node and load its content
+            val node = findNodeByPath(rootNode, path)
+            if (node != null && !node.isDirectory && node.uri != null) {
+                val content = loadFileContent(node.uri)
+                filesMap[path] = content
+                return content
+            }
+        }
+        return filesMap[path] ?: ""
+    }
+
+    private fun findNodeByPath(current: FileNode, path: String): FileNode? {
+        if (current.path == path) return current
+        for (child in current.children) {
+            val found = findNodeByPath(child, path)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    fun updateFile(path: String, content: String) {
+        filesMap[path] = content
+    }
+
+    /**
+     * Write content to a file URI
+     */
+    fun writeFileToUri(uri: Uri, content: String): Boolean {
+        return try {
+            context.contentResolver.openOutputStream(uri)?.use {
+                it.write(content.toByteArray())
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing file", e)
+            false
+        }
+    }
+
+    /**
+     * New API: full project tree
+     */
+    fun getRootNode(): FileNode = rootNode
+    
+    fun getProjectUri(): Uri? = projectUri
+}==== app/src/main/java/io/canccode/aca/ProjectViewModel.kt ====
+package io.canccode.aca
+
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+
+/**
+ * Single source of truth for the currently loaded project.
+ * Shared between Editor, FileBrowser, and LLM.
+ */
+class ProjectViewModel : ViewModel() {
+
+    // Map of URI -> file contents
+    private val _files = MutableLiveData<Map<String, String>>(emptyMap())
+    val files: LiveData<Map<String, String>> = _files
+
+    // Currently selected file URI
+    private val _activeFileUri = MutableLiveData<String?>(null)
+    val activeFileUri: LiveData<String?> = _activeFileUri
+
+    // -----------------------------
+    // Project lifecycle
+    // -----------------------------
+
+    fun setProjectFiles(newFiles: Map<String, String>) {
+        _files.value = newFiles
+        _activeFileUri.value = newFiles.keys.firstOrNull()
+    }
+
+    // -----------------------------
+    // File selection
+    // -----------------------------
+
+    fun selectFile(uri: String) {
+        if (_files.value?.containsKey(uri) == true) {
+            _activeFileUri.value = uri
+        }
+    }
+
+    // -----------------------------
+    // File access
+    // -----------------------------
+
+    fun getActiveFileContent(): String {
+        val uri = _activeFileUri.value ?: return ""
+        return _files.value?.get(uri) ?: ""
+    }
+
+    fun updateActiveFileContent(newContent: String) {
+        val uri = _activeFileUri.value ?: return
+        val updated = _files.value?.toMutableMap() ?: return
+        updated[uri] = newContent
+        _files.value = updated
+    }
+}==== app/src/main/java/io/canccode/aca/SettingsFragment.kt ====
+package io.canccode.aca
+
+import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+
+class SettingsFragment : Fragment() {
+
+    companion object {
+        private const val TAG = "SettingsFragment"
+        const val KEY_MODEL_PATH = "model_path"
+    }
+
+    private lateinit var prefs: SharedPreferences
+    private lateinit var tvStatus: TextView
+    private lateinit var progressBar: ProgressBar
+    private lateinit var btnPickLocal: Button
+    private lateinit var btnClear: Button
+
+    private val pickModelLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { handlePickedModelUri(it) }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        return inflater.inflate(R.layout.fragment_settings, container, false)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        prefs = requireContext().getSharedPreferences("model_prefs", android.content.Context.MODE_PRIVATE)
+
+        tvStatus = view.findViewById(R.id.tv_model_status)
+        progressBar = view.findViewById(R.id.progress_model)
+        btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
+        btnClear = view.findViewById(R.id.btn_clear_model)
+
+        updateStatusText()
+
+        btnPickLocal.setOnClickListener {
+            pickModelLauncher.launch(arrayOf("*/*"))
+        }
+
+        btnClear.setOnClickListener {
+            clearModelSelection()
+        }
+    }
+
+    private fun updateStatusText() {
+        val path = prefs.getString(KEY_MODEL_PATH, null)
+        if (path.isNullOrEmpty()) {
+            tvStatus.text = "No model selected"
+        } else {
+            val file = File(path)
+            if (file.exists()) {
+                val sizeMB = file.length() / (1024 * 1024)
+                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB"
+            } else {
+                tvStatus.text = "Model path set but file not found:\n${file.name}"
+            }
+        }
+    }
+
+    private fun handlePickedModelUri(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val context = requireContext()
+                
+                // Get filename from URI
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                val filename = cursor?.use {
+                    if (it.moveToFirst()) {
+                        val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex != -1) it.getString(nameIndex) else "model.gguf"
+                    } else "model.gguf"
+                } ?: "model.gguf"
+                
+                if (!filename.lowercase().endsWith(".gguf")) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Please select a .gguf model file", Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.isIndeterminate = false
+                    progressBar.max = 100
+                    progressBar.progress = 0
+                    Toast.makeText(context, "Copying model to app storage...", Toast.LENGTH_SHORT).show()
+                }
+
+                // Copy file to internal storage
+                val destFile = File(context.filesDir, filename)
+                
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        var totalRead = 0L
+                        val fileSize = input.available().toLong()
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalRead += bytesRead
+                            
+                            if (fileSize > 0) {
+                                val progress = (totalRead * 100 / fileSize).toInt()
+                                withContext(Dispatchers.Main) {
+                                    progressBar.progress = progress
+                                }
+                            }
+                        }
+                    }
+                } ?: throw IllegalStateException("Cannot open input stream from URI")
+
+                Log.i(TAG, "Model copied to: ${destFile.absolutePath}")
+                Log.i(TAG, "Model size: ${destFile.length() / (1024 * 1024)}MB")
+
+                withContext(Dispatchers.Main) {
+                    saveModelPath(destFile.absolutePath)
+                    progressBar.isIndeterminate = true
+                    Toast.makeText(context, "Model copied, initializing...", Toast.LENGTH_SHORT).show()
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to copy model", e)
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    Toast.makeText(
+                        requireContext(), 
+                        "Error: ${e.message}", 
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun saveModelPath(path: String) {
+        prefs.edit().putString(KEY_MODEL_PATH, path).apply()
+        updateStatusText()
+        
+        // Notify MainActivity to reinitialize LLM with new model
+        (activity as? MainActivity)?.onModelSelectionChanged()
+    }
+
+    private fun clearModelSelection() {
+        val path = prefs.getString(KEY_MODEL_PATH, null)
+        if (!path.isNullOrEmpty()) {
+            // Delete the copied model file
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    file.delete()
+                    Log.i(TAG, "Deleted model file: $path")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error deleting model file", e)
+            }
+        }
+        
+        prefs.edit().remove(KEY_MODEL_PATH).apply()
+        updateStatusText()
+        Toast.makeText(requireContext(), "Model selection cleared", Toast.LENGTH_SHORT).show()
+        
+        (activity as? MainActivity)?.onModelSelectionChanged()
+    }
+
+    fun onModelInitComplete(success: Boolean) {
+        progressBar.visibility = View.GONE
+        updateStatusText()
+        
+        if (success) {
+            Toast.makeText(requireContext(), "Model ready to use!", Toast.LENGTH_SHORT).show()
+        }
+    }
+}==== app/src/main/res/drawable/edittext_background.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFF" />
+    <corners android:radius="12dp" />
+    <stroke
+        android:width="1.5dp"
+        android:color="#CCCCCC" />
+</shape>==== app/src/main/res/drawable/ic_dynamic_menu.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="56dp"
+    android:height="56dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <!-- Background squircle shape -->
+    <path
+        android:fillColor="#0077CC"
+        android:pathData="M0,0h24v24h-24z"
+        android:fillAlpha="0.15"/>
+    
+    <!-- Hamburger lines -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M3,6h18v2H3V6zM3,11h18v2H3v-2zM3,16h18v2H3v-2z"/>
+</vector>
+==== app/src/main/res/drawable/ic_hamburger_bg.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <!-- Squircle-style rounded corners -->
+    <corners
+        android:radius="16dp"/>
+
+    <!-- Background color -->
+    <solid android:color="@color/colorSecondary"/>
+
+    <!-- Optional subtle shadow/border -->
+    <stroke
+        android:width="2dp"
+        android:color="@color/colorPrimaryVariant"/>
+</shape>==== app/src/main/res/layout/activity_main.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Main Content -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Fragment Container -->
+        <FrameLayout
+            android:id="@+id/fragment_container"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <!-- Persistent LLM Bar -->
+        <LinearLayout
+            android:id="@+id/llm_bottom_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:background="#E0E0E0"
+            android:elevation="4dp">
+
+            <EditText
+                android:id="@+id/llm_input_global"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Ask LLM..."
+                android:inputType="text"
+                android:maxLines="3"
+                android:padding="8dp"
+                android:background="#FFFFFF" />
+
+            <Button
+                android:id="@+id/llm_send_global"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Send"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+        <!-- Floating Menu Button -->
+        <ImageView
+            android:id="@+id/floatingMenuButton"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="top|start"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="-400dp"
+            android:src="@android:drawable/ic_menu_sort_by_size"
+            android:background="@android:drawable/dialog_holo_dark_frame"
+            android:padding="12dp"
+            android:elevation="8dp"
+            android:contentDescription="Menu"
+            android:clickable="true"
+            android:focusable="true" />
+
+    </LinearLayout>
+
+    <!-- Navigation Drawer -->
+    <com.google.android.material.navigation.NavigationView
+        android:id="@+id/nav_view"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        app:menu="@menu/drawer_menu"
+        app:headerLayout="@layout/nav_header" />
+
+</androidx.drawerlayout.widget.DrawerLayout>==== app/src/main/res/layout/fragment_code_editor.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <EditText
+        android:id="@+id/code_editor"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="top|start"
+        android:inputType="textMultiLine"
+        android:scrollbars="vertical"
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/save_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Save" />
+
+</LinearLayout>==== app/src/main/res/layout/fragment_editor.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="horizontal"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- File list -->
+    <ListView
+        android:id="@+id/listFiles"
+        android:layout_width="120dp"
+        android:layout_height="match_parent"
+        android:divider="@android:color/darker_gray"
+        android:dividerHeight="1dp"/>
+
+    <!-- Editor -->
+    <EditText
+        android:id="@+id/editorText"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="match_parent"
+        android:gravity="top|start"
+        android:inputType="textMultiLine|textNoSuggestions"
+        android:scrollbars="vertical"
+        android:background="@android:color/white"
+        android:textColor="@android:color/black"
+        android:textSize="16sp"/>
+</LinearLayout>==== app/src/main/res/layout/fragment_enhanced_editor.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#1E1E1E">
+
+    <!-- Line Numbers Column -->
+    <ScrollView
+        android:id="@+id/lineNumberScroll"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:scrollbars="none"
+        android:fillViewport="true">
+
+        <TextView
+            android:id="@+id/lineNumbers"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:gravity="end"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:textSize="14sp"
+            android:textColor="#858585"
+            android:background="#252525" />
+
+    </ScrollView>
+
+    <!-- Editor Column -->
+    <HorizontalScrollView
+        android:id="@+id/editorScrollContainer"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:scrollbars="horizontal">
+
+        <ScrollView
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <EditText
+                android:id="@+id/editorText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="600dp"
+                android:background="@android:color/transparent"
+                android:fontFamily="monospace"
+                android:gravity="top|start"
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:padding="8dp"
+                android:textSize="14sp"
+                android:textColor="#D4D4D4"
+                android:scrollbars="vertical"
+                android:importantForAutofill="no" />
+
+        </ScrollView>
+
+    </HorizontalScrollView>
+
+</LinearLayout>==== app/src/main/res/layout/fragment_file_browser.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/fragment_file_browser_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/file_list_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="8dp"/>
+
+</FrameLayout>==== app/src/main/res/layout/fragment_llm.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="#FAFAFA">
+
+    <!-- Chat messages area -->
+    <ScrollView
+        android:id="@+id/chatScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#F5F5F5"
+        android:padding="10dp">
+
+        <TextView
+            android:id="@+id/chatOutput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#111111"
+            android:textSize="15sp"
+            android:lineSpacingMultiplier="1.25"
+            android:textIsSelectable="true" />
+
+    </ScrollView>
+
+    <!-- Input area -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="12dp"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/inputBox"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:hint="Type your message..."
+            android:textColor="#000000"
+            android:textColorHint="#777777"
+            android:background="@drawable/edittext_background"
+            android:padding="14dp"
+            android:inputType="textMultiLine"
+            android:maxLines="5"
+            android:minHeight="52dp" />
+
+        <Button
+            android:id="@+id/sendBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Send"
+            android:minWidth="88dp"
+            android:layout_marginStart="12dp" />
+    </LinearLayout>
+
+    <!-- Clear button -->
+    <Button
+        android:id="@+id/clearBtn"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:text="Clear Chat"
+        android:textColor="#D32F2F"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
+        android:layout_marginTop="8dp" />
+
+</LinearLayout>==== app/src/main/res/layout/fragment_output_console.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/console_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:id="@+id/console_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textIsSelectable="true" />
+</ScrollView>==== app/src/main/res/layout/fragment_settings.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="LLM Model Selection"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:paddingBottom="16dp"/>
+
+    <TextView
+        android:id="@+id/tv_model_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No model selected"
+        android:padding="12dp"
+        android:background="#EEEEEE"
+        android:layout_marginBottom="16dp"
+        android:fontFamily="monospace"
+        android:textSize="12sp"/>
+
+    <ProgressBar
+        android:id="@+id/progress_model"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:max="100"
+        android:visibility="gone"
+        android:indeterminate="true"
+        android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Select a GGUF model file from your device storage:"
+        android:textSize="14sp"
+        android:paddingBottom="8dp"/>
+
+    <Button
+        android:id="@+id/btn_pick_local_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📁 Pick GGUF Model File"
+        android:layout_marginBottom="24dp"
+        android:textSize="16sp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Recommended models (download separately):"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingBottom="8dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="• TinyLlama 1.1B (1-2GB)\n• Phi-3 Mini (2-3GB)\n• Llama 3.2 1B/3B (1-4GB)\n\nDownload from HuggingFace, then use Pick button above."
+        android:textSize="12sp"
+        android:paddingBottom="16dp"
+        android:lineSpacingMultiplier="1.2"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#CCCCCC"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="16dp"/>
+
+    <Button
+        android:id="@+id/btn_clear_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Clear Model Selection"
+        android:textColor="#B00020"/>
+
+</LinearLayout>==== app/src/main/res/layout/item_file.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp"
+    android:background="?android:attr/selectableItemBackground"
+    android:gravity="center_vertical">
+
+    <ImageView
+        android:id="@+id/fileIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="12dp"
+        android:src="@android:drawable/ic_menu_edit"
+        android:contentDescription="File icon" />
+
+    <TextView
+        android:id="@+id/fileName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="14sp"
+        android:textColor="?android:attr/textColorPrimary"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+</LinearLayout>==== app/src/main/res/layout/nav_header.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="176dp"
+    android:background="?android:attr/colorPrimary"
+    android:gravity="bottom"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:theme="@style/ThemeOverlay.AppCompat.Dark">
+
+    <ImageView
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@android:drawable/ic_menu_edit"
+        android:contentDescription="App Icon" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="8dp"
+        android:text="ACA Code Editor"
+        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="LLM-Powered Development"
+        android:textSize="12sp" />
+
+</LinearLayout>==== app/src/main/res/menu/drawer_menu.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:checkableBehavior="single">
+
+        <item
+            android:id="@+id/nav_load_project"
+            android:icon="@android:drawable/ic_menu_upload"
+            android:title="Load Project (SAF)" />
+
+        <item
+            android:id="@+id/nav_file_browser"
+            android:icon="@android:drawable/ic_menu_manage"
+            android:title="File Browser" />
+
+        <item
+            android:id="@+id/nav_llm"
+            android:icon="@android:drawable/ic_menu_info_details"
+            android:title="LLM Chat" />
+
+        <item
+            android:id="@+id/nav_settings"
+            android:icon="@android:drawable/ic_menu_preferences"
+            android:title="Settings &amp; Model" />
+
+    </group>
+
+</menu>==== app/src/main/res/menu/editor_menu.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_save"
+        android:icon="@android:drawable/ic_menu_save"
+        android:title="Save"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_save_as"
+        android:icon="@android:drawable/ic_menu_save"
+        android:title="Save As..."
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_undo"
+        android:icon="@android:drawable/ic_menu_revert"
+        android:title="Undo"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_redo"
+        android:icon="@android:drawable/ic_menu_rotate"
+        android:title="Redo"
+        app:showAsAction="ifRoom" />
+
+</menu>==== app/src/main/res/menu/llm_menu.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_model_rules"
+        android:icon="@android:drawable/ic_menu_edit"
+        android:title="Model Rules"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_history_settings"
+        android:icon="@android:drawable/ic_menu_manage"
+        android:title="History Settings"
+        app:showAsAction="never" />
+
+</menu>==== app/src/main/res/values/colors.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    File: colors.xml
+    Purpose: Centralized color definitions
+-->
+
+<resources>
+
+    <!-- Brand / Primary -->
+    <color name="colorPrimary">#1E1E1E</color>
+    <color name="colorPrimaryVariant">#121212</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+
+    <!-- Secondary / Accent -->
+    <color name="colorSecondary">#0077CC</color>
+    <color name="colorSecondaryVariant">#005999</color>
+    <color name="colorOnSecondary">#FFFFFF</color>
+
+    <!-- Backgrounds -->
+    <color name="colorBackground">#F5F5F5</color>
+    <color name="colorSurface">#FFFFFF</color>
+    <color name="colorOnBackground">#000000</color>
+    <color name="colorOnSurface">#000000</color>
+
+    <!-- Utility -->
+    <color name="colorDivider">#DDDDDD</color>
+    <color name="colorError">#B00020</color>
+    <color name="colorOnError">#FFFFFF</color>
+
+</resources>==== app/src/main/res/values/strings.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ACA Code Assistant</string>
+    
+    <!-- Drawer -->
+    <string name="drawer_open">Open navigation drawer</string>
+    <string name="drawer_close">Close navigation drawer</string>
+    
+    <!-- Editor -->
+    <string name="save">Save</string>
+    <string name="save_as">Save As…</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
+    
+    <!-- Navigation -->
+    <string name="load_project">Load Project</string>
+    <string name="file_browser">File Browser</string>
+    <string name="llm_chat">LLM Chat</string>
+    <string name="settings">Settings</string>
+</resources>==== app/src/main/res/values/styles.xml ====
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base application theme - Use AppCompat, NOT Material3 -->
+    <style name="Theme.LLMCodeAssistant" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryVariant</item>
+        <item name="colorAccent">@color/colorSecondary</item>
+        
+        <item name="android:statusBarColor">@color/colorPrimaryVariant</item>
+    </style>
+
+    <!-- Editor text style -->
+    <style name="CodeEditorText">
+        <item name="android:textColor">@color/colorOnSurface</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:typeface">monospace</item>
+    </style>
+
+    <!-- Console output -->
+    <style name="ConsoleText">
+        <item name="android:textColor">@color/colorOnSurface</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:typeface">monospace</item>
+    </style>
+
+</resources>
