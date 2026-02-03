@@ -1,85 +1,70 @@
 package io.canccode.aca
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.First
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+
+// Extension for simple persistence (optional but recommended)
+private val Context.dataStore by preferencesDataStore(name = "model_settings")
 
 class ModelManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ModelManager"
-
-        // CHANGEABLE without touching JNI
-        private const val MODEL_FILE_NAME = "llama-2-1.3b-q4_0.gguf"
-        private const val MODEL_URL =
-            "https://huggingface.co/TheBloke/Llama-2-1.3B-GGUF/resolve/main/llama-2-1.3b-q4_0.gguf"
+        private val SELECTED_MODEL_URI = stringPreferencesKey("selected_model_uri")
     }
 
-    private val modelDir = File(context.filesDir, "models")
-    private val modelFile = File(modelDir, MODEL_FILE_NAME)
+    /**
+     * Converts a Uri from the File Picker into a File Descriptor and Size.
+     * This is the bridge between Android's storage and the native llama.cpp.
+     */
+    fun getModelDescriptor(uri: Uri): ModelDescriptor? {
+        return try {
+            // Take persistable permission so the app can access the file even after a reboot
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
 
-    fun modelExists(): Boolean = modelFile.exists()
-
-    fun getModelPath(): String = modelFile.absolutePath
-
-    suspend fun ensureModel(onProgress: (Int) -> Unit): Boolean {
-        if (modelExists()) {
-            Log.i(TAG, "Model already present")
-            return true
+            val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+            if (pfd != null) {
+                ModelDescriptor(
+                    fd = pfd.detachFd(), // Get the raw int for JNI
+                    size = pfd.statSize   // Get total bytes for llama.cpp
+                )
+            } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open FileDescriptor for URI: $uri", e)
+            null
         }
-
-        return downloadModel(onProgress)
     }
 
-    private suspend fun downloadModel(onProgress: (Int) -> Unit): Boolean =
-        withContext(Dispatchers.IO) {
+    /**
+     * Data class to bundle the requirements for initNative
+     */
+    data class ModelDescriptor(val fd: Int, val size: Long)
 
-            try {
-                modelDir.mkdirs()
-
-                val url = URL(MODEL_URL)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                connection.requestMethod = "GET"
-                connection.connect()
-
-                if (connection.responseCode != 200) {
-                    Log.e(TAG, "HTTP ${connection.responseCode}")
-                    return@withContext false
-                }
-
-                val total = connection.contentLength
-                var downloaded = 0
-
-                connection.inputStream.use { input ->
-                    FileOutputStream(modelFile).use { output ->
-                        val buffer = ByteArray(8 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            downloaded += read
-
-                            if (total > 0) {
-                                val percent = (downloaded * 100 / total)
-                                onProgress(percent)
-                            }
-                        }
-                    }
-                }
-
-                Log.i(TAG, "Model downloaded successfully")
-                true
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Model download failed", e)
-                false
-            }
+    /**
+     * Persists the selected URI string so the app remembers the model on next launch.
+     */
+    suspend fun saveSelectedModelUri(uri: Uri) {
+        context.dataStore.edit { settings ->
+            settings[SELECTED_MODEL_URI] = uri.toString()
         }
+    }
+
+    /**
+     * Retrieves the last used URI.
+     */
+    suspend fun getSavedModelUri(): Uri? {
+        val uriString = context.dataStore.data.map { it[SELECTED_MODEL_URI] }.first()
+        return uriString?.let { Uri.parse(it) }
+    }
 }
