@@ -30,29 +30,33 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # ---------- Android SDK / NDK ----------
+      # ---------- Android SDK / NDK / CMake ----------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
           build-tools: "34.0.0"
-          ndk: "27.3.10554745"
+
+      - name: Install NDK and CMake via SDKManager
+        run: |
+          # Matches the versions in app/build.gradle to solve [CXX1300]
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "cmake;3.22.1" "ndk;27.3.10554745"
+          # Export NDK_PATH for llama.cpp's build system
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.3.10554745" >> $GITHUB_ENV
 
       # ---------- Modern Vulkan & glslc Setup ----------
       - name: Install Vulkan SDK and glslc
         run: |
-          # Use the official LunarG Vulkan repository for the most reliable SDK tools
+          # Use official LunarG repo for Ubuntu Noble (24.04)
           wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
           sudo apt-get update
           
-          # Install the SDK which includes a guaranteed working glslc
           sudo apt-get install -y \
             vulkan-sdk \
             libvulkan-dev \
             spirv-tools
           
-          # Verify glslc is in path
           glslc --version
           echo "Vulkan SDK tools installed successfully"
 
@@ -76,12 +80,15 @@ jobs:
             -compose copyopacity -composite "$ROUND_ICON"
 
           mkdir -p $ICON_DIR/mipmap-mdpi $ICON_DIR/mipmap-hdpi $ICON_DIR/mipmap-xhdpi $ICON_DIR/mipmap-xxhdpi $ICON_DIR/mipmap-xxxhdpi
+          
+          # Base Icons
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher.png
 
+          # Round Icons
           convert "$ROUND_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 96x96   $ICON_DIR/mipmap-xhdpi/ic_launcher_round.png
