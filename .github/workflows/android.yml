@@ -1,4 +1,5 @@
 # File: .github/workflows/android.yml
+# Purpose: Android CI build with Vulkan-enabled llama.cpp for Ubuntu 24.04
 name: Android Build
 
 on:
@@ -39,35 +40,38 @@ jobs:
           build-tools: "34.0.0"
           ndk: "27.3.10554745"
 
-      # ---------- Vulkan SDK & glslc (Noble Fixed) ----------
+      # ---------- Vulkan SDK & glslc (Robust Fix) ----------
       - name: Install Vulkan SDK (glslc)
         run: |
           sudo apt-get update
-          # Use vulkan-utility-libraries-dev (Noble replacement for validationlayers-dev)
+          # Use vulkan-utility-libraries-dev to replace the obsolete validationlayers-dev in Noble
           sudo apt-get install -y \
             vulkan-tools \
             libvulkan-dev \
             vulkan-utility-libraries-dev \
             spirv-tools
           
-          # Robust download logic for shaderc/glslc
-          mkdir -p shaderc_temp
-          curl -L --retry 5 https://github.com/google/shaderc/releases/download/v2023.7/shaderc-2023.7-linux-x86_64.tar.gz -o shaderc.tar.gz
+          # Use curl with retry to prevent 'unexpected end of file' corruption
+          echo "Downloading shaderc (glslc)..."
+          curl -L --retry 5 --connect-timeout 30 \
+            https://github.com/google/shaderc/releases/download/v2023.7/shaderc-2023.7-linux-x86_64.tar.gz \
+            -o shaderc.tar.gz
           
-          # Verify file size to prevent 'unexpected end of file' extraction errors
+          # Validation: Ensure the file is not empty or corrupted
           if [ $(stat -c%s "shaderc.tar.gz") -lt 1000000 ]; then
-            echo "Error: Downloaded file is too small, likely corrupted."
+            echo "Error: shaderc.tar.gz download failed or file is too small."
             exit 1
           fi
 
           tar -xzf shaderc.tar.gz
           echo "$PWD/shaderc-linux-x86_64/bin" >> $GITHUB_PATH
+          echo "glslc installed successfully to PATH"
 
       # ---------- ImageMagick ----------
       - name: Install ImageMagick
         run: sudo apt-get install -y imagemagick
 
-      # ---------- Generate Assets & Icons ----------
+      # ---------- Generate App Icons ----------
       - name: Generate Android launcher icons
         run: |
           ICON_DIR=app/src/main/res
@@ -75,14 +79,24 @@ jobs:
           ROUND_ICON=/tmp/ic_launcher_round.png
 
           convert -size 1024x1024 xc:"#1e1e1e" \
-            -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 160 \
-            -annotate +0+0 "LLM" "$BASE_ICON"
+            -gravity center \
+            -fill white \
+            -font DejaVu-Sans-Bold \
+            -pointsize 160 \
+            -annotate +0+0 "LLM" \
+            "$BASE_ICON"
 
           convert "$BASE_ICON" \
             \( -size 1024x1024 xc:none -fill white -draw "circle 512,512 512,0" \) \
-            -compose copyopacity -composite "$ROUND_ICON"
+            -compose copyopacity -composite \
+            "$ROUND_ICON"
 
-          mkdir -p $ICON_DIR/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}
+          mkdir -p \
+            $ICON_DIR/mipmap-mdpi \
+            $ICON_DIR/mipmap-hdpi \
+            $ICON_DIR/mipmap-xhdpi \
+            $ICON_DIR/mipmap-xxhdpi \
+            $ICON_DIR/mipmap-xxxhdpi
 
           convert "$BASE_ICON" -resize 48x48   $ICON_DIR/mipmap-mdpi/ic_launcher.png
           convert "$BASE_ICON" -resize 72x72   $ICON_DIR/mipmap-hdpi/ic_launcher.png
@@ -96,12 +110,35 @@ jobs:
           convert "$ROUND_ICON" -resize 144x144 $ICON_DIR/mipmap-xxhdpi/ic_launcher_round.png
           convert "$ROUND_ICON" -resize 192x192 $ICON_DIR/mipmap-xxxhdpi/ic_launcher_round.png
 
-      # ---------- Build ----------
+      # ---------- Generate File/Arrow Icons ----------
+      - name: Generate FileTree icons
+        run: |
+          ICON_DIR=app/src/main/res/drawable
+          mkdir -p $ICON_DIR
+
+          convert -size 48x48 xc:none \
+            -fill "#616161" -stroke black -strokewidth 2 \
+            -draw "rectangle 8,8 40,40" \
+            -draw "line 8,8 32,8 line 32,8 32,32" \
+            "$ICON_DIR/file_icon.png"
+
+          convert -size 48x48 xc:none \
+            -fill "#000000" \
+            -draw "polygon 16,12 36,24 16,36" \
+            "$ICON_DIR/arrow_forward.png"
+
+          convert -size 48x48 xc:none \
+            -fill "#000000" \
+            -draw "polygon 12,16 24,36 36,16" \
+            "$ICON_DIR/arrow_down.png"
+
+      # ---------- Permissions ----------
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # ---------- Build ----------
       - name: Build Debug APK
-        [span_2](start_span)run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace[span_2](end_span)
+        run: ./gradlew :app:assembleDebug --no-daemon --no-build-cache --stacktrace
 
       # ---------- Upload ----------
       - name: Upload Debug APK
