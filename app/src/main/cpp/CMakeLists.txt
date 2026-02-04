@@ -19,10 +19,13 @@ set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 # 3. Vulkan Header Resolution
+# The logs show ggml-vulkan.cpp cannot find vulkan/vulkan.hpp
+# include_directories(SYSTEM) forces this for the entire project tree including sub-directories.
 if(Vulkan_INCLUDE_DIR)
-    include_directories(${Vulkan_INCLUDE_DIR})
-    # Propagate the path to the llama.cpp sub-project to avoid 'vulkan/vulkan.hpp' not found
-    set(Vulkan_INCLUDE_DIRS ${Vulkan_INCLUDE_DIR} CACHE PATH "" FORCE)
+    message(STATUS "Vulkan headers forced to: ${Vulkan_INCLUDE_DIR}")
+    include_directories(SYSTEM ${Vulkan_INCLUDE_DIR})
+    set(Vulkan_INCLUDE_DIRS ${Vulkan_INCLUDE_DIR} CACHE PATH "Vulkan Include Path" FORCE)
+    set(Vulkan_INCLUDE_DIR ${Vulkan_INCLUDE_DIR} CACHE PATH "Vulkan Include Path" FORCE)
 endif()
 
 # Add the llama.cpp project
