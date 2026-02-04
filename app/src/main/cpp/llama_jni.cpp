@@ -20,7 +20,6 @@ static llama_model   * g_model   = nullptr;
 static llama_context * g_ctx     = nullptr;
 static llama_sampler * g_sampler = nullptr;
 static bool g_backend_initialized = false;
-static bool g_abort_generation = false;
 
 void cleanup_internal() {
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
@@ -38,7 +37,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
         g_backend_initialized = true;
     }
 
-    [span_1](start_span)// Fix: Access the file via /proc/self/fd/ to bypass direct FD loading limitations[span_1](end_span)
+    // Access via /proc/self/fd/ to allow llama_model_load_from_file to read the open FD
     char path[PATH_MAX];
     sprintf(path, "/proc/self/fd/%d", fd);
 
@@ -47,7 +46,10 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
     mparams.use_mmap = false; 
 
     g_model = llama_model_load_from_file(path, mparams);
-    if (!g_model) return JNI_FALSE;
+    if (!g_model) {
+        LOGE("Failed to load model from FD %d", fd);
+        return JNI_FALSE;
+    }
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
@@ -57,7 +59,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) return JNI_FALSE;
 
-    [span_2](start_span)// Modern Sampler Chain[span_2](end_span)
+    // Modern Sampler initialization
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -74,27 +76,26 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
 
     const char* c_prompt = env->GetStringUTFChars(prompt, nullptr);
     
-    // Tokenize
+    // Tokenization
     std::vector<llama_token> tokens(llama_n_ctx(g_ctx));
     int n_tokens = llama_tokenize(g_model, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, true);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     llama_batch batch = llama_batch_init(512, 0, 1);
-    g_abort_generation = false;
-
-    // Inference loop using the modern llama_decode API
+    
+    // Process initial prompt
     for (int i = 0; i < n_tokens; i++) {
         llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
     }
 
     int n_cur = n_tokens;
-    while (n_cur < llama_n_ctx(g_ctx) && !g_abort_generation) {
+    while (n_cur < llama_n_ctx(g_ctx)) {
         if (llama_decode(g_ctx, batch)) break;
 
         const llama_token id = llama_sampler_sample(g_sampler, g_ctx, -1);
         if (llama_token_is_eog(g_model, id)) break;
 
-        // Callback to Java with the new token
+        // Convert token to string piece
         char piece[128];
         int n = llama_token_to_piece(g_model, id, piece, sizeof(piece), 0, true);
         if (n > 0) {
@@ -105,6 +106,7 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
             env->DeleteLocalRef(jpiece);
         }
 
+        // Prepare next token
         llama_batch_clear(batch);
         llama_batch_add(batch, id, n_cur, {0}, true);
         n_cur++;
