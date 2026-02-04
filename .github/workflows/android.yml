@@ -1,42 +1,21 @@
 name: Android Build
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Install NDK and CMake
-        run: |
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "cmake;3.22.1" "ndk;25.1.8937393"
-
-      - name: Install Vulkan Development Headers
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          # libvulkan-dev replaces vulkan-headers on Ubuntu 24.04+ (Noble)
-          sudo apt-get install -y libvulkan-dev 
+          sudo apt-get install -y libvulkan-dev glslang-dev glslang-tools
 
-      - name: Build Debug APK
+      - name: Build
         run: |
           chmod +x ./gradlew
-          # Point to /usr/include where libvulkan-dev installs the C++ headers (vulkan/vulkan.hpp)
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace \
+          ./gradlew :app:assembleDebug --no-daemon \
             -Pandroid.externalNativeBuild.cmake.arguments="-DVulkan_INCLUDE_DIR=/usr/include"
