@@ -4,8 +4,7 @@
 #include <mutex>
 #include <android/log.h>
 #include <time.h>
-#include <unistd.h>
-#include <limits.h>
+#include <cstring>
 
 extern "C" {
 #include "llama.h"
@@ -13,7 +12,6 @@ extern "C" {
 
 #define LOG_TAG "LLAMA_JNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 static std::mutex g_mutex;
 static llama_model   * g_model   = nullptr;
@@ -37,13 +35,11 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
         g_backend_initialized = true;
     }
 
-    // Fix: Access file via /proc/self/fd/
-    char path[PATH_MAX];
+    char path[1024];
     sprintf(path, "/proc/self/fd/%d", fd);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 99; // Offload to Vulkan
-    mparams.use_mmap = false; 
+    mparams.n_gpu_layers = 99; 
 
     g_model = llama_model_load_from_file(path, mparams);
     if (!g_model) return JNI_FALSE;
@@ -57,7 +53,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
 
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist((uint32_t)time(NULL)));
 
     return JNI_TRUE;
@@ -69,21 +64,15 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
     if (!g_ctx || !g_model) return;
 
     const char* c_prompt = env->GetStringUTFChars(prompt, nullptr);
-    const struct llama_vocab * vocab = llama_model_get_vocab(g_model); [span_7](start_span)// Fix: Get vocab[span_7](end_span)
+    const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
     
     std::vector<llama_token> tokens(llama_n_ctx(g_ctx));
     int n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, true);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     llama_batch batch = llama_batch_init(512, 0, 1);
-    
     for (int i = 0; i < n_tokens; i++) {
-        batch.token[batch.n_tokens] = tokens[i];
-        batch.pos[batch.n_tokens] = i;
-        batch.n_seq_id[batch.n_tokens] = 1;
-        batch.seq_id[batch.n_tokens][0] = 0;
-        batch.logits[batch.n_tokens] = (i == n_tokens - 1);
-        batch.n_tokens++;
+        llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
     }
 
     int n_cur = n_tokens;
@@ -91,10 +80,10 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
         if (llama_decode(g_ctx, batch)) break;
 
         const llama_token id = llama_sampler_sample(g_sampler, g_ctx, -1);
-        if (llama_vocab_is_eog(vocab, id)) break; [span_8](start_span)// Fix: Use vocab_is_eog[span_8](end_span)
+        if (llama_vocab_is_eog(vocab, id)) break;
 
         char piece[128];
-        int n = llama_token_to_piece(vocab, id, piece, sizeof(piece), 0, true); [span_9](start_span)// Fix: Pass vocab[span_9](end_span)
+        int n = llama_token_to_piece(vocab, id, piece, sizeof(piece), 0, true);
         if (n > 0) {
             jstring jpiece = env->NewStringUTF(std::string(piece, n).c_str());
             jclass clazz = env->GetObjectClass(thiz);
@@ -103,13 +92,8 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
             env->DeleteLocalRef(jpiece);
         }
 
-        batch.n_tokens = 0; [span_10](start_span)// Fix: Manual batch reset[span_10](end_span)
-        batch.token[batch.n_tokens] = id;
-        batch.pos[batch.n_tokens] = n_cur;
-        batch.n_seq_id[batch.n_tokens] = 1;
-        batch.seq_id[batch.n_tokens][0] = 0;
-        batch.logits[batch.n_tokens] = true;
-        batch.n_tokens++;
+        llama_batch_clear(batch);
+        llama_batch_add(batch, id, n_cur, {0}, true);
         n_cur++;
     }
     llama_batch_free(batch);
