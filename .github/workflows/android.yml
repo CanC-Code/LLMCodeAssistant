@@ -27,8 +27,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # Critical Fix: Install Vulkan development headers and the shader compiler
-      # This prevents the "Error opening file: ... .spv (No such file or directory)" errors.
+      # This step installs the required host tools to compile Vulkan shaders
       - name: Install Host Vulkan Dependencies
         run: |
           sudo apt-get update
