@@ -4,7 +4,8 @@
 #include <mutex>
 #include <android/log.h>
 #include <time.h>
-#include <unistd.h> // Required for read/access
+#include <unistd.h>
+#include <limits.h>
 
 extern "C" {
 #include "llama.h"
@@ -19,82 +20,95 @@ static llama_model   * g_model   = nullptr;
 static llama_context * g_ctx     = nullptr;
 static llama_sampler * g_sampler = nullptr;
 static bool g_backend_initialized = false;
+static bool g_abort_generation = false;
 
-static std::vector<std::pair<std::string, std::string>> g_chat_history;
-static std::string g_model_rules = "";
-
-// Helper to clean up previous state
 void cleanup_internal() {
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
     if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
     if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
 }
 
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaBridge_initNative(
-        JNIEnv * env,
-        jobject,
-        jint fd,        
-        jlong fileSize, 
-        jint nCtx) {
-
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlong fileSize, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
     cleanup_internal();
-    g_chat_history.clear();
 
     if (!g_backend_initialized) {
         llama_backend_init();
         g_backend_initialized = true;
     }
 
-    LOGI("Loading model via FD: %d (Size: %lld)", fd, (long long)fileSize);
-
-    // FIX: Access the file via /proc/self/fd/
-    // This allows the standard llama_model_load_from_file to read the open FD
+    [span_1](start_span)// Fix: Access the file via /proc/self/fd/ to bypass direct FD loading limitations[span_1](end_span)
     char path[PATH_MAX];
     sprintf(path, "/proc/self/fd/%d", fd);
 
     llama_model_params mparams = llama_model_default_params();
-    
-    // Enable Vulkan GPU acceleration (matches your CMake setup)
-    // 99 is a common shorthand to offload all layers to GPU
-    mparams.n_gpu_layers = 99; 
-    
-    // mmap can be problematic with some Android FDs; keeping it off for safety
+    mparams.n_gpu_layers = 99; // Offload to Vulkan
     mparams.use_mmap = false; 
 
-    // Load using the proc path
     g_model = llama_model_load_from_file(path, mparams);
-
-    if (!g_model) {
-        LOGE("Model load failed. Check if FD %d is valid and readable.", fd);
-        return JNI_FALSE;
-    }
+    if (!g_model) return JNI_FALSE;
 
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx   = nCtx;
+    cparams.n_ctx = nCtx;
     cparams.n_batch = 512;
-    // Android performance tip: use 4-6 threads for high-perf cores
     cparams.n_threads = 6; 
-    cparams.n_threads_batch = 6;
 
     g_ctx = llama_init_from_model(g_model, cparams);
-    if (!g_ctx) {
-        LOGE("Context creation failed");
-        return JNI_FALSE;
-    }
+    if (!g_ctx) return JNI_FALSE;
 
-    // Modern Sampler initialization logic
-    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
-    sparams.no_perf = false;
-    
-    g_sampler = llama_sampler_chain_init(sparams);
+    [span_2](start_span)// Modern Sampler Chain[span_2](end_span)
+    g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist((uint32_t)time(NULL)));
 
-    LOGI("Llama model initialized successfully via Vulkan/CPU");
     return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, jstring prompt) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_ctx || !g_model) return;
+
+    const char* c_prompt = env->GetStringUTFChars(prompt, nullptr);
+    
+    // Tokenize
+    std::vector<llama_token> tokens(llama_n_ctx(g_ctx));
+    int n_tokens = llama_tokenize(g_model, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, true);
+    env->ReleaseStringUTFChars(prompt, c_prompt);
+
+    llama_batch batch = llama_batch_init(512, 0, 1);
+    g_abort_generation = false;
+
+    // Inference loop using the modern llama_decode API
+    for (int i = 0; i < n_tokens; i++) {
+        llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
+    }
+
+    int n_cur = n_tokens;
+    while (n_cur < llama_n_ctx(g_ctx) && !g_abort_generation) {
+        if (llama_decode(g_ctx, batch)) break;
+
+        const llama_token id = llama_sampler_sample(g_sampler, g_ctx, -1);
+        if (llama_token_is_eog(g_model, id)) break;
+
+        // Callback to Java with the new token
+        char piece[128];
+        int n = llama_token_to_piece(g_model, id, piece, sizeof(piece), 0, true);
+        if (n > 0) {
+            jstring jpiece = env->NewStringUTF(std::string(piece, n).c_str());
+            jclass clazz = env->GetObjectClass(thiz);
+            jmethodID method = env->GetMethodID(clazz, "onTokenReceived", "(Ljava/lang/String;)V");
+            env->CallVoidMethod(thiz, method, jpiece);
+            env->DeleteLocalRef(jpiece);
+        }
+
+        llama_batch_clear(batch);
+        llama_batch_add(batch, id, n_cur, {0}, true);
+        n_cur++;
+    }
+
+    llama_batch_free(batch);
 }
