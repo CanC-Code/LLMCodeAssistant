@@ -12,16 +12,17 @@ set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 set(GGML_VULKAN ON CACHE BOOL "Use Vulkan" FORCE)
 
 # CRITICAL FIX: Force shader embedding to bypass "No such file or directory" errors
-# This compiles shaders into static C arrays inside the binary.
+# This packages shaders as static data within your .so file.
 set(GGML_VULKAN_SHADER_EMBED ON CACHE BOOL "Embed Vulkan shaders" FORCE)
 
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
 # 3. Vulkan Header Resolution
+# Ensures the compiler can find the headers installed in your GitHub runner
 if(Vulkan_INCLUDE_DIR)
     include_directories(${Vulkan_INCLUDE_DIR})
-    # Propagate to sub-projects to fix "vulkan/vulkan.hpp not found"
+    # Propagate the path to the llama.cpp sub-project
     set(Vulkan_INCLUDE_DIRS ${Vulkan_INCLUDE_DIR} CACHE PATH "" FORCE)
 endif()
 
@@ -44,7 +45,7 @@ target_include_directories(llama_jni PRIVATE
 find_library(log-lib log)
 find_library(vulkan-lib vulkan)
 
-# Link both targets to ensure all Vulkan symbols are resolved
+# Link both 'llama' and 'ggml' targets to ensure all backend symbols are resolved
 target_link_libraries(llama_jni
     llama
     ggml
