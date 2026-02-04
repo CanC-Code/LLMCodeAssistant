@@ -24,29 +24,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install NDK and CMake
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "cmake;3.22.1" "ndk;25.1.8937393"
-          echo "ANDROID_NDK=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
 
       - name: Install Vulkan Development Headers
         run: |
           sudo apt-get update
-          # libvulkan-dev replaces vulkan-headers on Ubuntu 24.04+
+          # libvulkan-dev replaces vulkan-headers on Ubuntu 24.04+ (Noble)
           sudo apt-get install -y libvulkan-dev 
 
       - name: Build Debug APK
         run: |
           chmod +x ./gradlew
-          # We point to /usr/include where libvulkan-dev installs vulkan/vulkan.hpp
+          # Point to /usr/include where libvulkan-dev installs the C++ headers (vulkan/vulkan.hpp)
           ./gradlew :app:assembleDebug --no-daemon --stacktrace \
             -Pandroid.externalNativeBuild.cmake.arguments="-DVulkan_INCLUDE_DIR=/usr/include"
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: LLMCodeAssistant-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
