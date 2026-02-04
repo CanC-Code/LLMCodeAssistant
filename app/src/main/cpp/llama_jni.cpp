@@ -37,17 +37,17 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
         g_backend_initialized = true;
     }
 
-    // Access via /proc/self/fd/ to allow llama_model_load_from_file to read the open FD
+    // Fix: Access the file via /proc/self/fd/ to bypass direct FD loading limitations in newer llama.cpp
     char path[PATH_MAX];
     sprintf(path, "/proc/self/fd/%d", fd);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 99; // Offload to Vulkan
+    mparams.n_gpu_layers = 99; // Offload to Vulkan/GPU
     mparams.use_mmap = false; 
 
     g_model = llama_model_load_from_file(path, mparams);
     if (!g_model) {
-        LOGE("Failed to load model from FD %d", fd);
+        LOGE("Failed to load model from path %s", path);
         return JNI_FALSE;
     }
 
@@ -59,7 +59,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jint fd, jlon
     g_ctx = llama_init_from_model(g_model, cparams);
     if (!g_ctx) return JNI_FALSE;
 
-    // Modern Sampler initialization
+    // Modern Sampler Setup
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
@@ -78,12 +78,12 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
     
     // Tokenization
     std::vector<llama_token> tokens(llama_n_ctx(g_ctx));
-    int n_tokens = llama_tokenize(g_model, c_prompt, strlen(c_prompt), tokens.data(), tokens.size(), true, true);
+    int n_tokens = llama_tokenize(g_model, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, true);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     llama_batch batch = llama_batch_init(512, 0, 1);
     
-    // Process initial prompt
+    // Initial evaluation
     for (int i = 0; i < n_tokens; i++) {
         llama_batch_add(batch, tokens[i], i, {0}, i == n_tokens - 1);
     }
@@ -95,7 +95,7 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
         const llama_token id = llama_sampler_sample(g_sampler, g_ctx, -1);
         if (llama_token_is_eog(g_model, id)) break;
 
-        // Convert token to string piece
+        // Callback to Java for each token
         char piece[128];
         int n = llama_token_to_piece(g_model, id, piece, sizeof(piece), 0, true);
         if (n > 0) {
@@ -106,7 +106,6 @@ Java_io_canccode_aca_LlamaBridge_completionNative(JNIEnv * env, jobject thiz, js
             env->DeleteLocalRef(jpiece);
         }
 
-        // Prepare next token
         llama_batch_clear(batch);
         llama_batch_add(batch, id, n_cur, {0}, true);
         n_cur++;
