@@ -59,9 +59,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_ctx || !g_model || !g_sampler || !prompt || !callback) return;
 
-    // CORRECTED: Replaced llama_kv_cache_seq_rm(g_ctx, -1, -1, -1) 
-    // with llama_kv_cache_clear to fix the "undeclared identifier" error.
-    llama_kv_cache_clear(g_ctx);
+    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
