@@ -2,18 +2,19 @@ package io.canccode.aca
 
 import android.os.Bundle
 import android.text.InputType
+import android.text.SpannableStringBuilder
 import android.util.Log
 import android.view.*
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import io.canccode.aca.ModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
@@ -32,10 +33,21 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private var currentResponse = StringBuilder()
     private var thinkingJob: Job? = null
 
-    // Dynamically infer model name for UI
+    /**
+     * Helper to get the model file. 
+     * Based on your previous logs, we check the shared preferences 
+     * used in SettingsFragment.
+     */
+    private fun getSelectedModelFile(): File? {
+        val prefs = requireContext().getSharedPreferences("model_prefs", android.content.Context.MODE_PRIVATE)
+        val path = prefs.getString("model_path", null)
+        return if (path != null) File(path) else null
+    }
+
     private val modelDisplayName: String
         get() {
-            val fileName = ModelManager.getSelectedModelFile(requireContext())?.name ?: "LLM"
+            val file = getSelectedModelFile()
+            val fileName = file?.name ?: "LLM"
             return when {
                 fileName.contains("qwen", ignoreCase = true) -> "Qwen2.5-Coder"
                 fileName.contains("mistral", ignoreCase = true) -> "Mistral"
@@ -72,6 +84,12 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
                 return@setOnClickListener
             }
 
+            // Check if model is loaded before sending
+            if (getSelectedModelFile() == null) {
+                Toast.makeText(requireContext(), "Please select a model in Settings first", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
             inputBox.text.clear()
             lastPrompt = prompt
             generate(prompt)
@@ -84,7 +102,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
                 .setPositiveButton("Clear") { _, _ ->
                     LlamaBridge.clearHistoryNative()
                     chatMessages.clear()
-                    updateStatusHeader("Chat cleared")
+                    chatOutput.text = "🤖 $modelDisplayName | Chat cleared\n\n"
                     Toast.makeText(requireContext(), "Memory cleared", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
@@ -97,12 +115,14 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         chatOutput.text = header
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
         menu.clear()
         inflater.inflate(R.menu.llm_menu, menu)
         super.onCreateOptionsMenu(menu, inflater)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_model_rules -> {
@@ -120,7 +140,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private fun showModelRulesDialog() {
         val input = EditText(requireContext()).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            hint = "Example: You are an expert Android developer. Use Kotlin for all examples and favor clean architecture."
+            hint = "Example: You are an expert Android developer..."
             minLines = 5
         }
 
@@ -129,8 +149,8 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
             .setView(input)
             .setPositiveButton("Apply") { _, _ ->
                 val rules = input.text.toString().trim()
-                LlamaBridge.setModelRulesNative(rules.ifEmpty { null })
-                Toast.makeText(requireContext(), "Rules applied to session", Toast.LENGTH_SHORT).show()
+                LlamaBridge.setModelRulesNative(rules.ifEmpty { "" })
+                Toast.makeText(requireContext(), "Rules applied", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -144,18 +164,18 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
             .setTitle("Context Window (History)")
             .setItems(options) { _, which ->
                 LlamaBridge.setMaxHistoryTurnsNative(values[which])
-                Toast.makeText(requireContext(), "History limited to ${options[which]}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "History set to ${options[which]}", Toast.LENGTH_SHORT).show()
             }
             .show()
     }
 
     private fun restoreChatHistory() {
-        val sb = StringBuilder("🤖 $modelDisplayName Ready.\n\n")
+        val sb = SpannableStringBuilder("🤖 $modelDisplayName Ready.\n\n")
         chatMessages.forEach { (user, assistant) ->
             sb.append("👤 You: $user\n\n")
             sb.append("🤖 $modelDisplayName: $assistant\n\n")
         }
-        chatOutput.text = sb.toString()
+        chatOutput.text = sb
         scrollToBottom()
     }
 
@@ -165,7 +185,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
         chatOutput.append("👤 You: $prompt\n\n")
         chatOutput.append("🤖 $modelDisplayName: ")
-        
+
         thinkingStart = chatOutput.text.length
         currentResponse.setLength(0)
 
@@ -174,9 +194,8 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Increased to 1024 to support Qwen's code generation length
                 LlamaBridge.generateNative(prompt, 1024, this@LLMFragment)
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
                 Log.e(TAG, "Inference error", e)
                 withContext(Dispatchers.Main) {
                     stopThinkingAnimation()
@@ -190,13 +209,15 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onToken(piece: String) {
         activity?.runOnUiThread {
             if (thinkingJob != null) stopThinkingAnimation()
-            
+
             currentResponse.append(piece)
-            // Update the text from the point where "Thinking..." started
-            chatOutput.text = SpannableStringBuilder()
+            
+            // Fixed the unresolved SpannableStringBuilder error by importing it
+            val builder = SpannableStringBuilder()
                 .append(chatOutput.text.subSequence(0, thinkingStart))
                 .append(currentResponse.toString())
             
+            chatOutput.text = builder
             scrollToBottom()
         }
     }
@@ -213,7 +234,6 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onError(error: String) {
         activity?.runOnUiThread {
             stopThinkingAnimation()
-            // Remove "Thinking..." and show error
             val baseText = chatOutput.text.subSequence(0, thinkingStart)
             chatOutput.text = SpannableStringBuilder().append(baseText).append("❌ $error\n\n")
             resetInput()
@@ -233,9 +253,10 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
             var dots = 0
             while (true) {
                 val dotStr = ".".repeat(dots + 1)
-                chatOutput.text = SpannableStringBuilder()
+                val builder = SpannableStringBuilder()
                     .append(chatOutput.text.subSequence(0, thinkingStart))
                     .append("Thinking$dotStr")
+                chatOutput.text = builder
                 dots = (dots + 1) % 3
                 delay(400)
             }
