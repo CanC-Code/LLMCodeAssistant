@@ -1,85 +1,124 @@
 package io.canccode.aca
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.InputStream
 
+/**
+ * Manages user-provided GGUF models via Storage Access Framework.
+ * No hardcoded downloads; relies on the user to provide the model file.
+ */
 class ModelManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ModelManager"
-
-        // CHANGEABLE without touching JNI
-        private const val MODEL_FILE_NAME = "llama-2-1.3b-q4_0.gguf"
-        private const val MODEL_URL =
-            "https://huggingface.co/TheBloke/Llama-2-1.3B-GGUF/resolve/main/llama-2-1.3b-q4_0.gguf"
+        private const val MODEL_DIR = "models"
+        
+        // Key for SharedPreferences to remember the last used model name
+        private const val PREF_NAME = "model_prefs"
+        private const val KEY_CURRENT_MODEL = "current_model_name"
     }
 
-    private val modelDir = File(context.filesDir, "models")
-    private val modelFile = File(modelDir, MODEL_FILE_NAME)
+    private val modelDir = File(context.filesDir, MODEL_DIR)
 
-    fun modelExists(): Boolean = modelFile.exists()
+    init {
+        if (!modelDir.exists()) modelDir.mkdirs()
+    }
 
-    fun getModelPath(): String = modelFile.absolutePath
+    /**
+     * Checks if any model is currently available in the internal storage.
+     */
+    fun hasAnyModel(): Boolean {
+        return modelDir.listFiles { f -> f.extension == "gguf" }?.isNotEmpty() ?: false
+    }
 
-    suspend fun ensureModel(onProgress: (Int) -> Unit): Boolean {
-        if (modelExists()) {
-            Log.i(TAG, "Model already present")
-            return true
+    /**
+     * Returns the absolute path of the last used model, or the first one found.
+     */
+    fun getModelPath(): String? {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val savedName = prefs.getString(KEY_CURRENT_MODEL, null)
+        
+        val file = if (savedName != null) File(modelDir, savedName) else null
+        
+        return if (file != null && file.exists()) {
+            file.absolutePath
+        } else {
+            // Fallback: list files and pick the first GGUF
+            val firstModel = modelDir.listFiles { f -> f.extension == "gguf" }?.firstOrNull()
+            firstModel?.absolutePath
         }
-
-        return downloadModel(onProgress)
     }
 
-    private suspend fun downloadModel(onProgress: (Int) -> Unit): Boolean =
+    /**
+     * Returns a display name for the current model.
+     */
+    fun getModelDisplayName(): String {
+        val path = getModelPath() ?: return "No Model Loaded"
+        return File(path).name
+    }
+
+    /**
+     * Imports a model from a SAF Uri (content://) into internal storage.
+     * llama_jni requires a real file path, which SAF doesn't provide directly.
+     */
+    suspend fun importModelFromUri(uri: Uri, onProgress: (Int) -> Unit): Boolean = 
         withContext(Dispatchers.IO) {
-
             try {
-                modelDir.mkdirs()
+                val fileName = getFileName(uri) ?: "imported_model.gguf"
+                val destinationFile = File(modelDir, fileName)
 
-                val url = URL(MODEL_URL)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                connection.requestMethod = "GET"
-                connection.connect()
-
-                if (connection.responseCode != 200) {
-                    Log.e(TAG, "HTTP ${connection.responseCode}")
-                    return@withContext false
-                }
-
-                val total = connection.contentLength
-                var downloaded = 0
-
-                connection.inputStream.use { input ->
-                    FileOutputStream(modelFile).use { output ->
-                        val buffer = ByteArray(8 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read == -1) break
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val totalSize = input.available().toLong() // Note: may not be accurate for large files
+                    FileOutputStream(destinationFile).use { output ->
+                        val buffer = ByteArray(1024 * 1024) // 1MB buffer for speed
+                        var bytesCopied: Long = 0
+                        var read: Int
+                        
+                        while (input.read(buffer).also { read = it } != -1) {
                             output.write(buffer, 0, read)
-                            downloaded += read
-
-                            if (total > 0) {
-                                val percent = (downloaded * 100 / total)
-                                onProgress(percent)
+                            bytesCopied += read
+                            
+                            // Approximate progress if size is known
+                            if (totalSize > 0) {
+                                val progress = (bytesCopied * 100 / totalSize).toInt()
+                                withContext(Dispatchers.Main) { onProgress(progress) }
                             }
                         }
                     }
                 }
 
-                Log.i(TAG, "Model downloaded successfully")
-                true
+                // Save this as the current model
+                context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_CURRENT_MODEL, fileName)
+                    .apply()
 
+                Log.i(TAG, "Successfully imported model: $fileName")
+                true
             } catch (e: Exception) {
-                Log.e(TAG, "Model download failed", e)
+                Log.e(TAG, "Failed to import model from SAF", e)
                 false
             }
         }
+
+    /**
+     * Clears all imported models to save space.
+     */
+    fun clearAllModels() {
+        modelDir.listFiles()?.forEach { it.delete() }
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        return uri.path?.let { path ->
+            val cut = path.lastIndexOf('/')
+            if (cut != -1) path.substring(cut + 1) else path
+        } ?: "model.gguf"
+    }
 }
