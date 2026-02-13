@@ -20,7 +20,7 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
     llama_backend_init();
     
     auto mparams = llama_model_default_params();
-    // Modern API uses llama_model_load_from_file
+    // Modern API: llama_model_load_from_file
     model = llama_model_load_from_file(path, mparams);
     
     if (!model) {
@@ -33,7 +33,7 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
     cparams.n_ctx = 2048;
     cparams.n_batch = 512;
     
-    // Modern API uses llama_init_from_model
+    // Modern API: llama_init_from_model
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         LOGE("Failed to create llama context");
@@ -51,9 +51,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // FIX: Replaced 'llama_kv_cache_clear' which was causing the build error.
-        // In the latest API, passing -1 to seq_rm clears all sequences and positions.
-        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
+        [span_4](start_span)// FIX: Replaced 'llama_kv_cache_seq_rm' which caused the build error.[span_4](end_span)
+        // Modern llama.cpp uses llama_kv_cache_clear to empty the context cache.
+        llama_kv_cache_clear(ctx);
         LOGI("KV cache cleared");
     }
 }
@@ -65,7 +65,7 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     
-    // Inference logic remains as per your implementation requirements.
+    // Inference logic should be implemented here as needed
     std::string result = "Processed: ";
     result += prompt_str;
 
