@@ -8,6 +8,7 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import io.canccode.aca.ModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,10 +26,23 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var clearBtn: Button
 
     private val chatMessages = mutableListOf<Pair<String, String>>()
+    private var lastPrompt: String = ""
 
     private var thinkingStart: Int = 0
     private var currentResponse = StringBuilder()
     private var thinkingJob: Job? = null
+
+    // Dynamically infer model name for UI
+    private val modelDisplayName: String
+        get() {
+            val fileName = ModelManager.getSelectedModelFile(requireContext())?.name ?: "LLM"
+            return when {
+                fileName.contains("qwen", ignoreCase = true) -> "Qwen2.5-Coder"
+                fileName.contains("mistral", ignoreCase = true) -> "Mistral"
+                fileName.contains("llama", ignoreCase = true) -> "Llama-3"
+                else -> "AI Assistant"
+            }
+        }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -48,6 +62,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         sendBtn = view.findViewById(R.id.sendBtn)
         clearBtn = view.findViewById(R.id.clearBtn)
 
+        updateStatusHeader("Ready")
         restoreChatHistory()
 
         sendBtn.setOnClickListener {
@@ -58,22 +73,28 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
             }
 
             inputBox.text.clear()
+            lastPrompt = prompt
             generate(prompt)
         }
 
         clearBtn.setOnClickListener {
             AlertDialog.Builder(requireContext())
                 .setTitle("Clear Chat")
-                .setMessage("Clear all chat history?")
+                .setMessage("Clear all chat history from memory?")
                 .setPositiveButton("Clear") { _, _ ->
                     LlamaBridge.clearHistoryNative()
                     chatMessages.clear()
-                    chatOutput.text = "💬 Mistral LLM ready. Chat cleared.\n\n"
-                    Toast.makeText(requireContext(), "Chat cleared", Toast.LENGTH_SHORT).show()
+                    updateStatusHeader("Chat cleared")
+                    Toast.makeText(requireContext(), "Memory cleared", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
         }
+    }
+
+    private fun updateStatusHeader(status: String) {
+        val header = "🤖 $modelDisplayName | $status\n\n"
+        chatOutput.text = header
     }
 
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
@@ -99,46 +120,43 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private fun showModelRulesDialog() {
         val input = EditText(requireContext()).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            hint = "Enter system rules for the model...\n\nExample:\nYou are a helpful coding assistant. Always provide complete, working code. Format code in markdown blocks."
+            hint = "Example: You are an expert Android developer. Use Kotlin for all examples and favor clean architecture."
             minLines = 5
         }
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Model Rules (System Prompt)")
+            .setTitle("$modelDisplayName Rules")
             .setView(input)
             .setPositiveButton("Apply") { _, _ ->
                 val rules = input.text.toString().trim()
                 LlamaBridge.setModelRulesNative(rules.ifEmpty { null })
-                Toast.makeText(requireContext(), "Model rules applied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Rules applied to session", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
     private fun showHistorySettingsDialog() {
-        val options = arrayOf("1 turn", "3 turns", "5 turns", "10 turns", "15 turns")
-        val values = intArrayOf(1, 3, 5, 10, 15)
+        val options = arrayOf("1 turn", "3 turns", "5 turns", "8 turns")
+        val values = intArrayOf(1, 3, 5, 8)
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Max Chat History")
+            .setTitle("Context Window (History)")
             .setItems(options) { _, which ->
                 LlamaBridge.setMaxHistoryTurnsNative(values[which])
-                Toast.makeText(requireContext(), "History set to ${options[which]}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "History limited to ${options[which]}", Toast.LENGTH_SHORT).show()
             }
             .show()
     }
 
     private fun restoreChatHistory() {
-        if (chatMessages.isEmpty()) {
-            chatOutput.text = "💬 Mistral LLM ready. Start chatting!\n\n"
-        } else {
-            val sb = StringBuilder("💬 Mistral LLM ready.\n\n")
-            chatMessages.forEach { (user, assistant) ->
-                sb.append("👤 You: $user\n\n")
-                sb.append("🤖 Mistral: $assistant\n\n")
-            }
-            chatOutput.text = sb.toString()
+        val sb = StringBuilder("🤖 $modelDisplayName Ready.\n\n")
+        chatMessages.forEach { (user, assistant) ->
+            sb.append("👤 You: $user\n\n")
+            sb.append("🤖 $modelDisplayName: $assistant\n\n")
         }
+        chatOutput.text = sb.toString()
+        scrollToBottom()
     }
 
     private fun generate(prompt: String) {
@@ -146,81 +164,80 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         inputBox.isEnabled = false
 
         chatOutput.append("👤 You: $prompt\n\n")
-        chatOutput.append("🤖 Mistral: ")
+        chatOutput.append("🤖 $modelDisplayName: ")
+        
         thinkingStart = chatOutput.text.length
-        currentResponse.clear()
+        currentResponse.setLength(0)
 
         startThinkingAnimation()
-
         scrollToBottom()
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                LlamaBridge.generateNative(prompt, 512, this@LLMFragment)
+                // Increased to 1024 to support Qwen's code generation length
+                LlamaBridge.generateNative(prompt, 1024, this@LLMFragment)
             } catch (e: Throwable) {
-                Log.e(TAG, "Generation failed", e)
+                Log.e(TAG, "Inference error", e)
                 withContext(Dispatchers.Main) {
                     stopThinkingAnimation()
-                    chatOutput.append("❌ Error: ${e.message}\n\n")
-                    sendBtn.isEnabled = true
-                    inputBox.isEnabled = true
-                    inputBox.requestFocus()
-                    scrollToBottom()
+                    chatOutput.append("❌ Critical Error: ${e.message}\n\n")
+                    resetInput()
                 }
             }
         }
     }
 
-    // Callback: called for each new token
     override fun onToken(piece: String) {
         activity?.runOnUiThread {
-            stopThinkingAnimation()
+            if (thinkingJob != null) stopThinkingAnimation()
+            
             currentResponse.append(piece)
-            chatOutput.text = chatOutput.text.substring(0, thinkingStart) + currentResponse.toString()
+            // Update the text from the point where "Thinking..." started
+            chatOutput.text = SpannableStringBuilder()
+                .append(chatOutput.text.subSequence(0, thinkingStart))
+                .append(currentResponse.toString())
+            
             scrollToBottom()
         }
     }
 
-    // Callback: called when generation is fully done
     override fun onComplete(fullResponse: String) {
         activity?.runOnUiThread {
             stopThinkingAnimation()
-            chatOutput.append("\n\n")  // extra line break for readability
-            chatMessages.add(Pair(/* original prompt is lost here, but you can store it differently if needed */ "User", fullResponse))
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            inputBox.requestFocus()
-            scrollToBottom()
+            chatOutput.append("\n\n") 
+            chatMessages.add(Pair(lastPrompt, fullResponse))
+            resetInput()
         }
     }
 
-    // Callback: called on error
     override fun onError(error: String) {
         activity?.runOnUiThread {
             stopThinkingAnimation()
-            chatOutput.text = chatOutput.text.substring(0, thinkingStart)
-            chatOutput.append("❌ $error\n\n")
-            sendBtn.isEnabled = true
-            inputBox.isEnabled = true
-            inputBox.requestFocus()
-            scrollToBottom()
+            // Remove "Thinking..." and show error
+            val baseText = chatOutput.text.subSequence(0, thinkingStart)
+            chatOutput.text = SpannableStringBuilder().append(baseText).append("❌ $error\n\n")
+            resetInput()
         }
+    }
+
+    private fun resetInput() {
+        sendBtn.isEnabled = true
+        inputBox.isEnabled = true
+        inputBox.requestFocus()
+        scrollToBottom()
     }
 
     private fun startThinkingAnimation() {
         thinkingJob?.cancel()
         thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
-            var dots = ""
+            var dots = 0
             while (true) {
-                dots = when (dots) {
-                    "" -> "."
-                    "." -> ".."
-                    ".." -> "..."
-                    else -> ""
-                }
-                chatOutput.text = chatOutput.text.substring(0, thinkingStart) + "Thinking$dots"
-                scrollToBottom()
-                delay(500)
+                val dotStr = ".".repeat(dots + 1)
+                chatOutput.text = SpannableStringBuilder()
+                    .append(chatOutput.text.subSequence(0, thinkingStart))
+                    .append("Thinking$dotStr")
+                dots = (dots + 1) % 3
+                delay(400)
             }
         }
     }
