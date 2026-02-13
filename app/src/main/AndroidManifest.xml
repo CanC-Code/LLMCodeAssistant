@@ -16,13 +16,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
-        
-        /* * CRITICAL: Allows the app to use more RAM. 
-         * Essential for loading 3B+ parameter models without OOM crashes.
-         */
         android:largeHeap="true"
-        
-        /* Required for some file operations on Android 10 */
         android:requestLegacyExternalStorage="true">
 
         <activity
