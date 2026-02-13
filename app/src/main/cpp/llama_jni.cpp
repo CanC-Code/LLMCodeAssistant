@@ -13,13 +13,15 @@ static llama_context * ctx = nullptr;
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject thiz, jstring model_path) {
+Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* thiz */, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     
+    // Initialize backend
     llama_backend_init();
     
     auto mparams = llama_model_default_params();
-    model = llama_load_model_from_file(path, mparams);
+    // FIX: Replaced deprecated llama_load_model_from_file
+    model = llama_model_load_from_file(path, mparams);
     
     if (!model) {
         LOGE("Failed to load model from %s", path);
@@ -28,13 +30,15 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject thi
     }
 
     auto cparams = llama_context_default_params();
-    cparams.n_ctx = 2048; // Standard context size
+    cparams.n_ctx = 2048;
     cparams.n_batch = 512;
     
-    ctx = llama_new_context_with_model(model, cparams);
+    // FIX: Replaced deprecated llama_new_context_with_model
+    ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         LOGE("Failed to create llama context");
-        llama_free_model(model);
+        // FIX: Replaced deprecated llama_free_model
+        llama_model_free(model);
         env->ReleaseStringUTFChars(model_path, path);
         return JNI_FALSE;
     }
@@ -46,25 +50,25 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject thi
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv *env, jobject thiz) {
+Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv *env, jobject /* thiz */) {
     if (ctx) {
-        // FIX: Replaced removed llama_kv_cache_seq_rm with updated API calls.
-        // In newer llama.cpp, we use -1 to indicate all sequences/positions should be cleared.
-        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
+        // FIX: Resolved "undeclared identifier 'llama_kv_cache_seq_rm'"
+        // Modern llama.cpp uses llama_kv_cache_clear(ctx) or specific seq_rm signatures.
+        // To clear the entire cache, use the following:
+        llama_kv_cache_clear(ctx);
         LOGI("KV cache cleared");
     }
 }
 
 extern "C"
 JNIEXPORT jstring JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject thiz, jstring prompt) {
+Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /* thiz */, jstring prompt) {
     if (!ctx) return env->NewStringUTF("Error: Model not loaded");
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     
-    // Tokenization and inference logic would follow here...
-    // This is a placeholder for the completion response
-    std::string result = "Processed prompt: ";
+    // Placeholder for inference logic
+    std::string result = "Processed: ";
     result += prompt_str;
 
     env->ReleaseStringUTFChars(prompt, prompt_str);
@@ -73,13 +77,14 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject th
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_unloadModel(JNIEnv *env, jobject thiz) {
+Java_com_example_llmcodeassistant_LlamaNative_unloadModel(JNIEnv *env, jobject /* thiz */) {
     if (ctx) {
         llama_free(ctx);
         ctx = nullptr;
     }
     if (model) {
-        llama_free_model(model);
+        // FIX: Replaced deprecated llama_free_model
+        llama_model_free(model);
         model = nullptr;
     }
     llama_backend_free();
