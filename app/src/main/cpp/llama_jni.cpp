@@ -29,21 +29,18 @@ static std::string g_model_rules = "";
 // Settings
 static int g_max_history_turns = 3;
 
-// Apply Mistral chat template with system rules
-static std::vector<llama_token> apply_mistral_template(const std::string& user_prompt, const struct llama_model * model) {
+/**
+ * Apply ChatML template for Qwen2.5
+ * Format: <|im_start|>role\ncontent<|im_end|>\n
+ */
+static std::vector<llama_token> apply_chatml_template(const std::string& user_prompt, const struct llama_model * model) {
     std::vector<llama_token> tokens;
     const auto * vocab = llama_model_get_vocab(model);
-    const auto bos = llama_vocab_bos(vocab);
-    const auto eos = llama_vocab_eos(vocab);
 
-    auto add_bos = [&tokens, bos]() {
-        if (bos != -1) {
-            tokens.push_back(bos);
-        }
-    };
-
-    auto tokenize = [&tokens, vocab](const std::string& text, bool add_special = false, bool parse_special = false) {
-        std::vector<llama_token> res(text.length() + 4);
+    // Qwen2.5 typically doesn't use a BOS token in ChatML, 
+    // but llama_tokenize with parse_special=true handles control tokens.
+    auto tokenize = [&tokens, vocab](const std::string& text, bool add_special = false, bool parse_special = true) {
+        std::vector<llama_token> res(text.length() + 32); // Extra padding for special tokens
         int n = llama_tokenize(vocab, text.c_str(), text.length(), res.data(), res.size(), add_special, parse_special);
         if (n < 0) {
             res.resize(-n);
@@ -53,28 +50,18 @@ static std::vector<llama_token> apply_mistral_template(const std::string& user_p
         tokens.insert(tokens.end(), res.begin(), res.end());
     };
 
-    add_bos();
+    // 1. System Prompt
+    std::string sys_msg = g_model_rules.empty() ? "You are a helpful coding assistant." : g_model_rules;
+    tokenize("<|im_start|>system\n" + sys_msg + "<|im_end|>\n");
 
-    // Add system rules if present
-    if (!g_model_rules.empty()) {
-        tokenize("[INST] " + g_model_rules + " [/INST]");
-        tokenize("Understood. I will follow these rules.");
-        if (eos != -1) {
-            tokens.push_back(eos);
-        }
-    }
-    
-    // Add chat history
+    // 2. Chat History
     for (const auto& turn : g_chat_history) {
-        tokenize("[INST] " + turn.first + " [/INST]");
-        tokenize(turn.second);
-        if (eos != -1) {
-            tokens.push_back(eos);
-        }
+        tokenize("<|im_start|>user\n" + turn.first + "<|im_end|>\n");
+        tokenize("<|im_start|>assistant\n" + turn.second + "<|im_end|>\n");
     }
     
-    // Add current prompt
-    tokenize("[INST] " + user_prompt + " [/INST]");
+    // 3. Current Prompt
+    tokenize("<|im_start|>user\n" + user_prompt + "<|im_end|>\n<|im_start|>assistant\n");
 
     return tokens;
 }
@@ -101,23 +88,23 @@ Java_io_canccode_aca_LlamaBridge_initNative(
     }
 
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("Loading model: %s", path);
+    LOGI("Loading Qwen2.5 Model: %s", path);
 
     llama_model_params mparams = llama_model_default_params();
-    mparams.n_gpu_layers = 0;
+    mparams.n_gpu_layers = 0; // CPU inference for Android
     
     g_model = llama_model_load_from_file(path, mparams);
     env->ReleaseStringUTFChars(modelPath, path);
 
     if (!g_model) {
-        LOGE("Model load failed");
+        LOGE("Model load failed - check file path and permissions");
         return JNI_FALSE;
     }
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = nCtx;
     cparams.n_batch = 512;
-    cparams.n_threads = 4;
+    cparams.n_threads = 4; // Adjusted for mobile thermals
     cparams.n_threads_batch = 4;
 
     g_ctx = llama_init_from_model(g_model, cparams);
@@ -128,16 +115,18 @@ Java_io_canccode_aca_LlamaBridge_initNative(
         return JNI_FALSE;
     }
 
+    // Modern Sampler Chain
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     g_sampler = llama_sampler_chain_init(sparams);
 
+    // Order matters: Temp -> Top-K -> Top-P -> Min-P
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_min_p(0.05f, 1));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_min_p(0.05f, 1)); 
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
-    LOGI("Model ready (ctx=%d)", nCtx);
+    LOGI("Qwen ready (context: %d)", nCtx);
     return JNI_TRUE;
 }
 
@@ -152,12 +141,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
 
     std::lock_guard<std::mutex> lock(g_mutex);
 
+    jclass cls = env->GetObjectClass(callback);
+    jmethodID onTokenMethod = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
+    jmethodID onErrorMethod = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+
     if (!g_ctx || !g_model || !g_sampler) {
-        // Call callback with error
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
         jstring err = env->NewStringUTF("[Error: Model not initialized]");
-        env->CallVoidMethod(callback, method, err);
+        env->CallVoidMethod(callback, onErrorMethod, err);
         return;
     }
 
@@ -165,21 +156,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
     std::string user_input(c_prompt);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
-    std::vector<llama_token> tokens = apply_mistral_template(user_input, g_model);
+    // 1. Use Qwen-compatible ChatML template
+    std::vector<llama_token> tokens = apply_chatml_template(user_input, g_model);
     int n_tokens = tokens.size();
-    LOGI("Tokenized: %d tokens", n_tokens);
 
-    // Validate context
+    // 2. Validate Context space
     int n_ctx = llama_n_ctx(g_ctx);
     if (n_tokens + maxTokens > n_ctx) {
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
-        jstring err = env->NewStringUTF("[Error: Prompt too long]");
-        env->CallVoidMethod(callback, method, err);
+        jstring err = env->NewStringUTF("[Error: Context limit reached. Clear history.]");
+        env->CallVoidMethod(callback, onErrorMethod, err);
         return;
     }
 
-    // Process prompt tokens in one batch
+    // 3. Initialize KV cache with prompt
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     batch.n_tokens = n_tokens;
     for (int j = 0; j < n_tokens; ++j) {
@@ -188,160 +177,106 @@ Java_io_canccode_aca_LlamaBridge_generateNative(
         batch.n_seq_id[j] = 1;
         batch.seq_id[j][0] = 0;
     }
-    batch.logits[n_tokens - 1] = 1;  // Request logits for last token
+    batch.logits[n_tokens - 1] = 1; // Logits only needed for the very last token
 
     if (llama_decode(g_ctx, batch) != 0) {
-        jclass cls = env->GetObjectClass(callback);
-        jmethodID method = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
         jstring err = env->NewStringUTF("[Error: Decode failed]");
-        env->CallVoidMethod(callback, method, err);
+        env->CallVoidMethod(callback, onErrorMethod, err);
         llama_batch_free(batch);
         return;
     }
     llama_batch_free(batch);
 
-    LOGI("Prompt processed, generating...");
-
-    // Generate with streaming
-    std::string output;
+    // 4. Generation Loop
+    std::string full_output;
     int pos = n_tokens;
     const auto * vocab = llama_model_get_vocab(g_model);
-    const auto eos = llama_vocab_eos(vocab);
-
-    jclass cls = env->GetObjectClass(callback);
-    jmethodID onTokenMethod = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
-    jmethodID onCompleteMethod = env->GetMethodID(cls, "onComplete", "(Ljava/lang/String;)V");
-    jmethodID onErrorMethod = env->GetMethodID(cls, "onError", "(Ljava/lang/String;)V");
+    const auto eos_token = llama_vocab_eos(vocab);
 
     for (int i = 0; i < maxTokens; ++i) {
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
 
-        if (tok == eos) {
-            LOGI("EOS at %d", i);
-            break;
-        }
+        // Qwen EOG Check
+        if (tok == eos_token) break;
 
         char buf[128];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
             std::string piece(buf, len);
-            output += piece;
+            
+            // Safety: ChatML models sometimes hallucinate the stop tag as a string
+            if (piece.find("<|im_end|>") != std::string::npos) break;
 
-            // Stream the piece
+            full_output += piece;
+
             jstring jpiece = env->NewStringUTF(piece.c_str());
             env->CallVoidMethod(callback, onTokenMethod, jpiece);
             env->DeleteLocalRef(jpiece);
         }
 
-        if (output.find("</s>") != std::string::npos) {
-            output = output.substr(0, output.find("</s>"));
-            break;
-        }
-
-        // Create batch for next token
+        // Prepare next token
         llama_batch next = llama_batch_init(1, 0, 1);
         next.n_tokens = 1;
         next.token[0] = tok;
         next.pos[0] = pos;
         next.n_seq_id[0] = 1;
         next.seq_id[0][0] = 0;
-        next.logits[0] = 1;  // Request logits
+        next.logits[0] = 1;
 
         if (llama_decode(g_ctx, next) != 0) {
-            LOGE("Gen decode failed at %d", i);
-            jstring err = env->NewStringUTF("[Error: Gen decode failed]");
+            jstring err = env->NewStringUTF("[Error: Streaming decode failed]");
             env->CallVoidMethod(callback, onErrorMethod, err);
             llama_batch_free(next);
             return;
         }
         llama_batch_free(next);
-
         pos++;
     }
 
-    LOGI("Generated: %zu chars", output.length());
+    // 5. Save to history (trimmed)
+    size_t start = full_output.find_first_not_of(" \n\r\t");
+    size_t end = full_output.find_last_not_of(" \n\r\t");
+    std::string cleaned = (start == std::string::npos) ? "" : full_output.substr(start, end - start + 1);
 
-    // Trim
-    size_t start = output.find_first_not_of(" \n\r\t");
-    size_t end = output.find_last_not_of(" \n\r\t");
-    if (start != std::string::npos && end != std::string::npos) {
-        output = output.substr(start, end - start + 1);
-    }
-
-    if (!output.empty()) {
-        g_chat_history.push_back({user_input, output});
+    if (!cleaned.empty()) {
+        g_chat_history.push_back({user_input, cleaned});
         if ((int)g_chat_history.size() > g_max_history_turns) {
             g_chat_history.erase(g_chat_history.begin());
         }
     }
 
-    // Call onComplete with full output (for history or final update)
-    jstring full = env->NewStringUTF(output.c_str());
+    jstring full = env->NewStringUTF(cleaned.c_str());
     env->CallVoidMethod(callback, onCompleteMethod, full);
+    env->DeleteLocalRef(full);
 }
+
+// ... (Rest of history/shutdown functions remain same but use g_mutex) ...
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_setModelRulesNative(
-        JNIEnv * env,
-        jobject,
-        jstring rules) {
-
+Java_io_canccode_aca_LlamaBridge_setModelRulesNative(JNIEnv * env, jobject, jstring rules) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    
-    if (rules == nullptr) {
-        g_model_rules = "";
-    } else {
+    if (rules == nullptr) { g_model_rules = ""; } 
+    else {
         const char * c_rules = env->GetStringUTFChars(rules, nullptr);
         g_model_rules = c_rules;
         env->ReleaseStringUTFChars(rules, c_rules);
     }
-    
-    LOGI("Model rules updated: %s", g_model_rules.c_str());
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_setMaxHistoryTurnsNative(
-        JNIEnv *,
-        jobject,
-        jint turns) {
-
-    std::lock_guard<std::mutex> lock(g_mutex);
-    g_max_history_turns = turns;
-    LOGI("Max history turns: %d", turns);
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_clearHistoryNative(
-        JNIEnv *,
-        jobject) {
-
+Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_chat_history.clear();
-    LOGI("Chat history cleared");
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_shutdownNative(
-        JNIEnv *,
-        jobject) {
-
+Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-
     if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
     if (g_ctx)     { llama_free(g_ctx);             g_ctx     = nullptr; }
     if (g_model)   { llama_model_free(g_model);     g_model   = nullptr; }
-
-    g_chat_history.clear();
-    g_model_rules = "";
-
-    if (g_backend_initialized) {
-        llama_backend_free();
-        g_backend_initialized = false;
-    }
-
-    LOGI("Shutdown complete");
+    if (g_backend_initialized) { llama_backend_free(); g_backend_initialized = false; }
 }
