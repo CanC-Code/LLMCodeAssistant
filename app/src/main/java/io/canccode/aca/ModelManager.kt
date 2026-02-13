@@ -2,24 +2,22 @@ package io.canccode.aca
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 
 /**
  * Manages user-provided GGUF models via Storage Access Framework.
- * No hardcoded downloads; relies on the user to provide the model file.
+ * Optimized for Qwen2.5-Coder and other GGUF models imported by the user.
  */
 class ModelManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ModelManager"
         private const val MODEL_DIR = "models"
-        
-        // Key for SharedPreferences to remember the last used model name
         private const val PREF_NAME = "model_prefs"
         private const val KEY_CURRENT_MODEL = "current_model_name"
     }
@@ -31,27 +29,24 @@ class ModelManager(private val context: Context) {
     }
 
     /**
-     * Checks if any model is currently available in the internal storage.
-     */
-    fun hasAnyModel(): Boolean {
-        return modelDir.listFiles { f -> f.extension == "gguf" }?.isNotEmpty() ?: false
-    }
-
-    /**
-     * Returns the absolute path of the last used model, or the first one found.
+     * Returns the absolute path of the last used model, or the first one found in internal storage.
      */
     fun getModelPath(): String? {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val savedName = prefs.getString(KEY_CURRENT_MODEL, null)
-        
+
         val file = if (savedName != null) File(modelDir, savedName) else null
-        
+
         return if (file != null && file.exists()) {
             file.absolutePath
         } else {
-            // Fallback: list files and pick the first GGUF
+            // Fallback: list files and pick the first GGUF found
             val firstModel = modelDir.listFiles { f -> f.extension == "gguf" }?.firstOrNull()
-            firstModel?.absolutePath
+            if (firstModel != null) {
+                // Update prefs so fallback is remembered
+                prefs.edit().putString(KEY_CURRENT_MODEL, firstModel.name).apply()
+                firstModel.absolutePath
+            } else null
         }
     }
 
@@ -64,27 +59,30 @@ class ModelManager(private val context: Context) {
     }
 
     /**
-     * Imports a model from a SAF Uri (content://) into internal storage.
-     * llama_jni requires a real file path, which SAF doesn't provide directly.
+     * Imports a model from a SAF Uri (content://) into internal app storage.
+     * This is required because the JNI layer needs a direct filesystem path.
      */
-    suspend fun importModelFromUri(uri: Uri, onProgress: (Int) -> Unit): Boolean = 
+    suspend fun importModelFromUri(uri: Uri, onProgress: (Int) -> Unit): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val fileName = getFileName(uri) ?: "imported_model.gguf"
+                val fileName = getFileNameFromUri(uri)
                 val destinationFile = File(modelDir, fileName)
 
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    val totalSize = input.available().toLong() // Note: may not be accurate for large files
+                    // Attempt to get the actual size for accurate progress
+                    val totalSize = context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                        it.statSize
+                    } ?: -1L
+
                     FileOutputStream(destinationFile).use { output ->
-                        val buffer = ByteArray(1024 * 1024) // 1MB buffer for speed
+                        val buffer = ByteArray(1024 * 1024) // 1MB buffer
                         var bytesCopied: Long = 0
                         var read: Int
-                        
+
                         while (input.read(buffer).also { read = it } != -1) {
                             output.write(buffer, 0, read)
                             bytesCopied += read
-                            
-                            // Approximate progress if size is known
+
                             if (totalSize > 0) {
                                 val progress = (bytesCopied * 100 / totalSize).toInt()
                                 withContext(Dispatchers.Main) { onProgress(progress) }
@@ -93,32 +91,39 @@ class ModelManager(private val context: Context) {
                     }
                 }
 
-                // Save this as the current model
+                // Persist the selection
                 context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
                     .edit()
                     .putString(KEY_CURRENT_MODEL, fileName)
                     .apply()
 
-                Log.i(TAG, "Successfully imported model: $fileName")
+                Log.i(TAG, "Import successful: $fileName")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to import model from SAF", e)
+                Log.e(TAG, "Failed to import model: ${e.message}")
                 false
             }
         }
 
     /**
-     * Clears all imported models to save space.
+     * Deletes all imported models to reclaim disk space.
      */
     fun clearAllModels() {
         modelDir.listFiles()?.forEach { it.delete() }
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
-    private fun getFileName(uri: Uri): String? {
-        return uri.path?.let { path ->
-            val cut = path.lastIndexOf('/')
-            if (cut != -1) path.substring(cut + 1) else path
-        } ?: "model.gguf"
+    /**
+     * Extracts the real filename from a SAF Uri using ContentResolver.
+     */
+    private fun getFileNameFromUri(uri: Uri): String {
+        var name = ""
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst()) {
+                name = cursor.getString(nameIndex)
+            }
+        }
+        return name.ifEmpty { uri.path?.substringAfterLast('/') ?: "model.gguf" }
     }
 }
