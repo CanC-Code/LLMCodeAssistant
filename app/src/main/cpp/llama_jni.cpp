@@ -20,6 +20,8 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    
+    if (modelPath == nullptr) return JNI_FALSE;
     const char * path = env->GetStringUTFChars(modelPath, nullptr);
 
     llama_model_params mparams = llama_model_default_params();
@@ -55,15 +57,16 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring prompt, jint maxTokens, jobject callback) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_ctx || !g_model || !g_sampler) return;
+    if (!g_ctx || !g_model || !g_sampler || !prompt || !callback) return;
 
-    // FIX: Replaced llama_kv_cache_clear with sequence removal
-    // -1 for seq_id, p_start, and p_end clears everything.
-    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
+    // CORRECTED: Replaced llama_kv_cache_seq_rm(g_ctx, -1, -1, -1) 
+    // with llama_kv_cache_clear to fix the "undeclared identifier" error.
+    llama_kv_cache_clear(g_ctx);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
+    // Tokenization
     std::vector<llama_token> tokens(strlen(c_prompt) + 32);
     int n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, true);
     if (n_tokens < 0) {
@@ -73,6 +76,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
+    // Initial batch decode
     llama_batch batch = llama_batch_init(n_tokens, 0, 1);
     for (int i = 0; i < n_tokens; i++) {
         batch.token[i] = tokens[i];
@@ -88,6 +92,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
     }
     llama_batch_free(batch);
 
+    // Set up Java Callback
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
@@ -100,8 +105,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
             jstring jstr = env->NewStringUTF(std::string(buf, len).c_str());
-            env->CallVoidMethod(callback, onToken, jstr);
-            env->DeleteLocalRef(jstr); // Prevent JNI reference leak
+            if (jstr) {
+                env->CallVoidMethod(callback, onToken, jstr);
+                env->DeleteLocalRef(jstr);
+            }
         }
 
         llama_batch next = llama_batch_get_one(&tok, 1);
@@ -117,5 +124,7 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *, jobject) {
     if (g_sampler) llama_sampler_free(g_sampler);
     if (g_ctx) llama_free(g_ctx);
     if (g_model) llama_model_free(g_model);
-    g_sampler = nullptr; g_ctx = nullptr; g_model = nullptr;
+    g_sampler = nullptr; 
+    g_ctx = nullptr; 
+    g_model = nullptr;
 }
