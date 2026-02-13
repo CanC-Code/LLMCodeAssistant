@@ -24,7 +24,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 
-// Interface for fragments to access the project loader
+/**
+ * Interface for fragments to access the project loader and global state.
+ */
 interface ProjectProvider {
     fun getProjectLoader(): ProjectLoader
 }
@@ -47,7 +49,7 @@ class MainActivity : AppCompatActivity(),
     private val projectLoader = ProjectLoader(this)
     private var llmInitialized = false
 
-    // Implementation of ProjectProvider
+    // Implementation of ProjectProvider interface
     override fun getProjectLoader(): ProjectLoader = projectLoader
 
     // SAF Directory Picker for Projects
@@ -73,8 +75,8 @@ class MainActivity : AppCompatActivity(),
         initDrawer()
         initFloatingButton()
         initGlobalLLMInputs()
-        
-        // Attempt to load the last used model automatically
+
+        // Attempt to load the last used model automatically on startup
         tryAutoInitLLM()
 
         if (savedInstanceState == null) {
@@ -85,7 +87,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     /**
-     * Implementation of OnSettingsChangedListener
+     * Responds to changes made in the SettingsFragment
      */
     override fun onModelSelectionChanged(modelFile: File?) {
         if (modelFile != null) {
@@ -97,14 +99,19 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onThemeChanged(isDarkMode: Boolean) {
-        // Implement theme switching logic here if needed
+        // Toggle app-wide theme here if using AppCompatDelegate
+        Toast.makeText(this, "Theme updated", Toast.LENGTH_SHORT).show()
     }
 
     private fun handleModelImport(uri: Uri) {
         lifecycleScope.launch {
             Toast.makeText(this@MainActivity, "Importing model...", Toast.LENGTH_SHORT).show()
-            val success = modelManager.importModelFromUri(uri) { /* progress progress */ }
-            if (success) tryAutoInitLLM()
+            val success = modelManager.importModelFromUri(uri) { /* Progress callback */ }
+            if (success) {
+                tryAutoInitLLM()
+            } else {
+                Toast.makeText(this@MainActivity, "Import failed", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -120,8 +127,8 @@ class MainActivity : AppCompatActivity(),
             try {
                 val file = File(path)
                 if (file.exists()) {
-                    // Shutdown previous instance if any
                     LlamaBridge.shutdownNative()
+                    // Re-init with 4096 context for better coding performance
                     success = LlamaBridge.initNative(file.absolutePath, 4096)
                 }
             } catch (e: Exception) {
@@ -130,9 +137,9 @@ class MainActivity : AppCompatActivity(),
 
             withContext(Dispatchers.Main) {
                 llmInitialized = success
-                updateLLMUIState(success, if (success) "" else "Initialization failed")
-                
-                // Notify the SettingsFragment if it's currently visible
+                updateLLMUIState(success, if (success) "" else "Init failed")
+
+                // Notify UI components or fragments if needed
                 val currentFrag = supportFragmentManager.findFragmentById(R.id.fragment_container)
                 if (currentFrag is SettingsFragment) {
                     currentFrag.onModelInitComplete(success)
@@ -170,14 +177,18 @@ class MainActivity : AppCompatActivity(),
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "Initialize model first", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Select a model in Settings first", Toast.LENGTH_SHORT).show()
             return
         }
 
+        Toast.makeText(this, "Generating...", Toast.LENGTH_SHORT).show()
         LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
-            override fun onToken(piece: String) {}
+            override fun onToken(piece: String) {} // Global bar usually doesn't stream
             override fun onComplete(fullResponse: String) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Done", Toast.LENGTH_SHORT).show() }
+                runOnUiThread { 
+                    // Show result in a Toast or a Dialog for global quick-access
+                    Toast.makeText(this@MainActivity, "AI: ${fullResponse.take(50)}...", Toast.LENGTH_LONG).show()
+                }
             }
             override fun onError(error: String) {
                 runOnUiThread { Toast.makeText(this@MainActivity, "Error: $error", Toast.LENGTH_SHORT).show() }
@@ -187,8 +198,14 @@ class MainActivity : AppCompatActivity(),
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val fragment = when (item.itemId) {
-            R.id.nav_load_project -> { directoryPicker.launch(null); null }
-            R.id.nav_load_model -> { modelPicker.launch(arrayOf("*/*")); null }
+            R.id.nav_load_project -> { 
+                directoryPicker.launch(null)
+                null 
+            }
+            R.id.nav_load_model -> { 
+                modelPicker.launch(arrayOf("*/*"))
+                null 
+            }
             R.id.nav_file_browser -> FileBrowserFragment.newInstance(projectLoader)
             R.id.nav_llm -> LLMFragment()
             R.id.nav_settings -> SettingsFragment()
@@ -198,9 +215,10 @@ class MainActivity : AppCompatActivity(),
         fragment?.let {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, it)
+                .addToBackStack(null)
                 .commit()
         }
-        
+
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
     }
@@ -210,7 +228,7 @@ class MainActivity : AppCompatActivity(),
             treeUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
-        
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 projectLoader.loadProject(treeUri)
@@ -218,6 +236,7 @@ class MainActivity : AppCompatActivity(),
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
                         .commit()
+                    Toast.makeText(this@MainActivity, "Project Loaded", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Project Load Error", e)
@@ -229,7 +248,8 @@ class MainActivity : AppCompatActivity(),
         llmInitialized = isReady
         llmSendGlobal.isEnabled = isReady
         llmInputGlobal.isEnabled = isReady
-        llmInputGlobal.hint = if (isReady) "Ask ${modelManager.getModelDisplayName()}..." else "No Model Ready"
+        val modelName = if (isReady) modelManager.getModelDisplayName() else "None"
+        llmInputGlobal.hint = if (isReady) "Message $modelName..." else "No Model Loaded ($reason)"
     }
 
     private fun enableDragAndClick(view: View) {
@@ -258,6 +278,14 @@ class MainActivity : AppCompatActivity(),
                 }
                 else -> false
             }
+        }
+    }
+
+    override fun onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START)
+        } else {
+            super.onBackPressed()
         }
     }
 
