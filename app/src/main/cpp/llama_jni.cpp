@@ -51,9 +51,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // FIX: llama_kv_cache_seq_rm was removed in recent updates.
-        // The current standard to clear the entire cache is llama_kv_cache_clear.
-        llama_kv_cache_clear(ctx);
+        [span_4](start_span)[span_5](start_span)// FIX: llama_kv_cache_clear was causing the build error[span_4](end_span)[span_5](end_span).
+        // In the latest API, passing -1 to seq_id, p_start, and p_end clears everything.
+        llama_kv_cache_seq_rm(ctx, (llama_seq_id)-1, (llama_pos)-1, (llama_pos)-1);
         LOGI("KV cache cleared");
     }
 }
@@ -66,7 +66,7 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     
     // Placeholder for inference logic. 
-    // Latest API requires using llama_decode with llama_batch for processing.
+    // Real implementation requires llama_decode with llama_batch cycles.
     std::string result = "Processed: ";
     result += prompt_str;
 
