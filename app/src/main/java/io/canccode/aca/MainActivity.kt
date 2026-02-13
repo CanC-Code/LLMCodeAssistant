@@ -1,7 +1,6 @@
 package io.canccode.aca
 
 import android.content.Intent
-import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -17,7 +16,6 @@ import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.navigation.NavigationView
 import kotlinx.coroutines.Dispatchers
@@ -37,28 +35,35 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var llmInputGlobal: EditText
     private lateinit var llmSendGlobal: Button
 
+    private lateinit var modelManager: ModelManager
     private val projectLoader = ProjectLoader(this)
     private var llmInitialized = false
 
-    private var currentModelPath: String? = null
-    private lateinit var prefs: SharedPreferences
-
+    // SAF Directory Picker for Projects
     private val directoryPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri?.let { handleProjectLoad(it) }
     }
 
+    // SAF File Picker for GGUF Models
+    private val modelPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { handleModelImport(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        prefs = getSharedPreferences("model_prefs", MODE_PRIVATE)
-        loadLastModelPath()
+        modelManager = ModelManager(this)
 
         initDrawer()
         initFloatingButton()
         initGlobalLLMInputs()
+        
+        // Attempt to load the last used model automatically
         tryAutoInitLLM()
 
         if (savedInstanceState == null) {
@@ -68,73 +73,62 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    private fun loadLastModelPath() {
-        currentModelPath = prefs.getString("selected_model_path", null)
-            ?: prefs.getString("selected_model_uri", null)
-        Log.i(TAG, "Loaded last model path from prefs: $currentModelPath")
-    }
+    /**
+     * Handles the import of a user-selected GGUF file via SAF.
+     */
+    private fun handleModelImport(uri: Uri) {
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Importing model to internal storage...", Toast.LENGTH_SHORT).show()
+            
+            val success = modelManager.importModelFromUri(uri) { progress ->
+                Log.d(TAG, "Import Progress: $progress%")
+            }
 
-    fun onModelSelectionChanged() {
-        loadLastModelPath()
-        tryAutoInitLLM()
+            if (success) {
+                tryAutoInitLLM() // Re-initialize with the new local file
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to import model.", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun tryAutoInitLLM() {
-        val path = currentModelPath
+        val path = modelManager.getModelPath()
+        
         if (path.isNullOrBlank()) {
-            Log.w(TAG, "No model path configured in preferences")
+            Log.w(TAG, "No model path found. User needs to select a model.")
             updateLLMUIState(false, "No model selected")
             return
         }
 
-        Log.i(TAG, "Trying to initialize model: $path")
-
         lifecycleScope.launch(Dispatchers.IO) {
             var success = false
-            var failureReason = "Unknown failure"
+            var failureReason = ""
 
             try {
-                if (path.startsWith("content://")) {
-                    failureReason = "SAF content:// URIs are not supported by llama.cpp yet"
-                    Log.w(TAG, failureReason)
+                val file = File(path)
+                if (file.exists() && file.canRead()) {
+                    Log.i(TAG, "Initializing Qwen/GGUF: ${file.name}")
+                    // Context set to 4096 for coding tasks
+                    success = LlamaBridge.initNative(file.absolutePath, 4096)
+                    if (!success) failureReason = "LlamaBridge init failed"
                 } else {
-                    val file = File(path)
-                    Log.i(TAG, "Model file check → exists: ${file.exists()}, readable: ${file.canRead()}, size: ${file.length() / 1024 / 1024} MB")
-
-                    if (!file.exists()) {
-                        failureReason = "File does not exist at path"
-                    } else if (!file.canRead()) {
-                        failureReason = "File exists but cannot be read (permission?)"
-                    } else {
-                        Log.i(TAG, "Calling LlamaBridge.initNative(path, ctx=2048)")
-                        success = LlamaBridge.initNative(file.absolutePath, 2048)
-                        if (success) {
-                            failureReason = "Success: initNative returned true"
-                        } else {
-                            failureReason = "initNative returned false (see Logcat 'LLAMA_JNI' tag for details)"
-                        }
-                        Log.i(TAG, "initNative result = $success → $failureReason")
-                    }
+                    failureReason = "Model file missing or unreadable"
                 }
-            } catch (e: Throwable) {
-                failureReason = "Exception during init: ${e.message}"
-                Log.e(TAG, "Model init crashed", e)
-                success = false
+            } catch (e: Exception) {
+                failureReason = e.message ?: "Unknown error"
+                Log.e(TAG, "Init Crash", e)
             }
 
             withContext(Dispatchers.Main) {
                 llmInitialized = success
-                llmSendGlobal.isEnabled = success
-                llmInputGlobal.isEnabled = success
-
-                val toastMsg = if (success) {
-                    "Model loaded OK (ctx=2048)"
-                } else {
-                    "Model failed to load:\n$failureReason\n\nPath: $path"
+                updateLLMUIState(success, failureReason)
+                
+                if (success) {
+                    Toast.makeText(this@MainActivity, "🤖 ${modelManager.getModelDisplayName()} Ready", Toast.LENGTH_SHORT).show()
+                } else if (failureReason.isNotEmpty()) {
+                    Toast.makeText(this@MainActivity, "Load Error: $failureReason", Toast.LENGTH_LONG).show()
                 }
-
-                Toast.makeText(this@MainActivity, toastMsg, Toast.LENGTH_LONG).show()
-                Log.i(TAG, "UI state updated → initialized=$success, reason=$failureReason")
             }
         }
     }
@@ -143,17 +137,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         drawerLayout = findViewById(R.id.drawer_layout)
         navView = findViewById(R.id.nav_view)
 
-        toggle = ActionBarDrawerToggle(
-            this,
-            drawerLayout,
-            R.string.drawer_open,
-            R.string.drawer_close
-        )
+        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
 
         navView.setNavigationItemSelectedListener(this)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
     }
 
     private fun initFloatingButton() {
@@ -176,28 +164,26 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "LLM not initialized yet", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Select a model first", Toast.LENGTH_SHORT).show()
+            modelPicker.launch(arrayOf("*/*"))
             return
         }
 
         Toast.makeText(this, "Generating...", Toast.LENGTH_SHORT).show()
 
         LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
-            override fun onToken(piece: String) {
-                // Optional live streaming (can be used later if you want)
-            }
+            override fun onToken(piece: String) { /* Optional: UI Stream */ }
 
             override fun onComplete(fullResponse: String) {
-                val display = if (fullResponse.length > 200) {
-                    fullResponse.substring(0, 200) + "..."
-                } else {
-                    fullResponse
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Response received", Toast.LENGTH_SHORT).show()
                 }
-                Toast.makeText(this@MainActivity, display, Toast.LENGTH_LONG).show()
             }
 
             override fun onError(error: String) {
-                Toast.makeText(this@MainActivity, "Generation failed: $error", Toast.LENGTH_LONG).show()
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Error: $error", Toast.LENGTH_LONG).show()
+                }
             }
         })
     }
@@ -205,6 +191,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
             R.id.nav_load_project -> directoryPicker.launch(null)
+            R.id.nav_load_model -> modelPicker.launch(arrayOf("*/*")) // Use new SAF Model selection
             R.id.nav_file_browser -> supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
                 .commit()
@@ -224,66 +211,51 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             treeUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
-
-        Toast.makeText(this, "Loading project...", Toast.LENGTH_SHORT).show()
-
-        Thread {
+        
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 projectLoader.loadProject(treeUri)
-                runOnUiThread {
-                    Toast.makeText(this, "Project loaded", Toast.LENGTH_SHORT).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Project Loaded", Toast.LENGTH_SHORT).show()
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
                         .commit()
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
-        }.start()
+        }
     }
 
-    fun getProjectLoader(): ProjectLoader = projectLoader
+    private fun updateLLMUIState(isReady: Boolean, reason: String) {
+        llmInitialized = isReady
+        llmSendGlobal.isEnabled = isReady
+        llmInputGlobal.isEnabled = isReady
+        llmInputGlobal.hint = if (isReady) "Message ${modelManager.getModelDisplayName()}..." else "No Model Loaded"
+    }
 
     private fun enableDragAndClick(view: View) {
-        var dX = 0f
-        var dY = 0f
-        var downX = 0f
-        var downY = 0f
-        var isDragging = false
-
+        var dX = 0f; var dY = 0f; var downX = 0f; var downY = 0f; var isDragging = false
         view.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    dX = v.x - event.rawX
-                    dY = v.y - event.rawY
-                    downX = event.rawX
-                    downY = event.rawY
-                    isDragging = false
-                    true
+                    dX = v.x - event.rawX; dY = v.y - event.rawY
+                    downX = event.rawX; downY = event.rawY
+                    isDragging = false; true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val deltaX = abs(event.rawX - downX)
-                    val deltaY = abs(event.rawY - downY)
-
-                    if (deltaX > 10 || deltaY > 10) {
+                    if (abs(event.rawX - downX) > 10 || abs(event.rawY - downY) > 10) {
                         isDragging = true
-                        v.animate()
-                            .x(event.rawX + dX)
-                            .y(event.rawY + dY)
-                            .setDuration(0)
-                            .start()
+                        v.x = event.rawX + dX; v.y = event.rawY + dY
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!isDragging) {
-                        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                            drawerLayout.closeDrawer(GravityCompat.START)
-                        } else {
-                            drawerLayout.openDrawer(GravityCompat.START)
-                        }
+                        if (drawerLayout.isDrawerOpen(GravityCompat.START)) drawerLayout.closeDrawer(GravityCompat.START)
+                        else drawerLayout.openDrawer(GravityCompat.START)
                         v.performClick()
                     }
                     true
@@ -293,28 +265,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-    override fun onPostCreate(savedInstanceState: Bundle?) {
-        super.onPostCreate(savedInstanceState)
-        toggle.syncState()
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return if (toggle.onOptionsItemSelected(item)) true else super.onOptionsItemSelected(item)
-    }
-
     override fun onDestroy() {
         super.onDestroy()
-        if (llmInitialized) {
-            LlamaBridge.shutdownNative()
-        }
-    }
-
-    private fun updateLLMUIState(isReady: Boolean, reason: String = "") {
-        llmInitialized = isReady
-        llmSendGlobal.isEnabled = isReady
-        llmInputGlobal.isEnabled = isReady
-
-        val msg = if (isReady) "LLM ready" else "LLM not ready: $reason"
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        LlamaBridge.shutdownNative()
     }
 }
