@@ -54,7 +54,7 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
     sampler = llama_sampler_chain_init(sparams);
     
-    // Add greedy sampler (simplest, deterministic sampling)
+    // Add greedy sampler
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
     
     LOGI("Model loaded successfully");
@@ -66,9 +66,21 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // Clear the KV cache for all sequences
-        llama_kv_cache_seq_rm(ctx, -1, 0, -1);
-        LOGI("KV cache cleared");
+        // Recreate context to clear cache
+        // This is the safest approach when specific cache functions aren't available
+        llama_context_params cparams = llama_context_default_params();
+        cparams.n_ctx = 2048;
+        cparams.n_batch = 512;
+        cparams.n_threads = 4;
+        
+        llama_free(ctx);
+        ctx = llama_init_from_model(model, cparams);
+        
+        if (ctx) {
+            LOGI("Context recreated (cache cleared)");
+        } else {
+            LOGE("Failed to recreate context");
+        }
     }
 }
 
@@ -104,9 +116,6 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
         return env->NewStringUTF("Error: Tokenization failed");
     }
     
-    // Clear KV cache before new inference
-    llama_kv_cache_seq_rm(ctx, -1, 0, -1);
-    
     // Create batch
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     
@@ -116,7 +125,7 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
         batch.pos[batch.n_tokens] = i;
         batch.n_seq_id[batch.n_tokens] = 1;
         batch.seq_id[batch.n_tokens][0] = 0;
-        batch.logits[batch.n_tokens] = (i == tokens.size() - 1); // Only output logits for last token
+        batch.logits[batch.n_tokens] = (i == tokens.size() - 1);
         batch.n_tokens++;
     }
     
