@@ -16,11 +16,11 @@ JNIEXPORT jboolean JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* thiz */, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     
-    // Initialize backend - Required once per process
+    // Initialize backend - mandatory for modern llama.cpp
     llama_backend_init();
     
     auto mparams = llama_model_default_params();
-    // Use modern model loading API
+    // Modern API: llama_model_load_from_file
     model = llama_model_load_from_file(path, mparams);
     
     if (!model) {
@@ -33,7 +33,7 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
     cparams.n_ctx = 2048;
     cparams.n_batch = 512;
     
-    // Use modern context initialization API
+    // Modern API: llama_init_from_model
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         LOGE("Failed to create llama context");
@@ -51,10 +51,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // CORRECT FIX: In the latest llama.cpp API, llama_kv_cache_seq_rm is the 
-        // correct function. To clear everything, use -1 for seq_id, p_start, and p_end.
-        // This removes all tokens for all sequences.
-        llama_kv_cache_seq_rm(ctx, (llama_seq_id)-1, (llama_pos)-1, (llama_pos)-1);
+        // FIX: llama_kv_cache_seq_rm was removed in recent updates.
+        // The current standard to clear the entire cache is llama_kv_cache_clear.
+        llama_kv_cache_clear(ctx);
         LOGI("KV cache cleared");
     }
 }
@@ -66,9 +65,9 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     
-    // Simple placeholder for inference logic. 
-    // Real implementation requires tokenization and llama_decode cycles.
-    std::string result = "Native echo: ";
+    // Placeholder for inference logic. 
+    // Latest API requires using llama_decode with llama_batch for processing.
+    std::string result = "Processed: ";
     result += prompt_str;
 
     env->ReleaseStringUTFChars(prompt, prompt_str);
@@ -83,10 +82,11 @@ Java_com_example_llmcodeassistant_LlamaNative_unloadModel(JNIEnv * /* env */, jo
         ctx = nullptr;
     }
     if (model) {
+        // Modern API: llama_model_free
         llama_model_free(model);
         model = nullptr;
     }
-    // Clean up backend resources
+    // Clean up backend resources properly
     llama_backend_free();
     LOGI("Model unloaded");
 }
