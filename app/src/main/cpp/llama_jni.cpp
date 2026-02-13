@@ -12,22 +12,18 @@ static llama_model * model = nullptr;
 static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
 
-// Global state for settings
 static std::string system_rules = "";
-static int max_history_turns = 5;
 
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
-
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
     model = llama_model_load_from_file(path, mparams);
 
     if (!model) {
-        LOGE("Failed to load model from %s", path);
         env->ReleaseStringUTFChars(model_path, path);
         return JNI_FALSE;
     }
@@ -48,7 +44,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring m
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
-    LOGI("Model initialized successfully");
     env->ReleaseStringUTFChars(model_path, path);
     return JNI_TRUE;
 }
@@ -63,21 +58,27 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
-    const llama_vocab * vocab = llama_model_get_vocab(model);
+    const struct llama_vocab * vocab = llama_model_get_vocab(model);
 
-    // Combine system rules with user prompt for inference
     std::string formatted_prompt = system_rules + "\nUser: " + prompt_str + "\nAssistant: ";
-
+    
+    // Modern Tokenization
     std::vector<llama_token> tokens_list;
     int n_tokens = -llama_tokenize(vocab, formatted_prompt.c_str(), formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens);
     llama_tokenize(vocab, formatted_prompt.c_str(), formatted_prompt.length(), tokens_list.data(), tokens_list.size(), true, true);
 
     std::string full_response = "";
+    // Initialize batch manually as llama_batch_add is missing in your environment
     llama_batch batch = llama_batch_init(512, 0, 1);
 
     for (size_t i = 0; i < tokens_list.size(); i++) {
-        llama_batch_add(batch, tokens_list[i], i, {0}, i == tokens_list.size() - 1);
+        batch.token[batch.n_tokens] = tokens_list[i];
+        batch.pos[batch.n_tokens] = i;
+        batch.n_seq_id[batch.n_tokens] = 1;
+        batch.seq_id[batch.n_tokens][0] = 0;
+        batch.logits[batch.n_tokens] = (i == tokens_list.size() - 1);
+        batch.n_tokens++;
     }
 
     int n_cur = tokens_list.size();
@@ -86,9 +87,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     while (n_decode < max_tokens) {
         if (llama_decode(ctx, batch)) break;
 
-        batch.n_tokens = 0;
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
-        if (llama_token_is_eog(vocab, id)) break;
+        
+        [span_2](start_span)// Use updated EOG check[span_2](end_span)
+        if (llama_vocab_is_eog(vocab, id)) break;
 
         char buf[128];
         int n_chars = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
@@ -100,7 +102,15 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
             env->DeleteLocalRef(jpiece);
         }
 
-        llama_batch_add(batch, id, n_cur, {0}, true);
+        // Prepare batch for next single token
+        batch.n_tokens = 0;
+        batch.token[0] = id;
+        batch.pos[0] = n_cur;
+        batch.n_seq_id[0] = 1;
+        batch.seq_id[0][0] = 0;
+        batch.logits[0] = true;
+        batch.n_tokens = 1;
+
         n_cur++;
         n_decode++;
     }
@@ -112,14 +122,12 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     env->ReleaseStringUTFChars(prompt, prompt_str);
 }
 
-// Fixed: Modern llama.cpp KV cache clearing
 extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // -1, -1 removes all tokens from all sequences
-        llama_kv_cache_tokens_rm(ctx, -1, -1);
-        LOGI("KV Cache cleared");
+        [span_3](start_span)// Correct way to clear KV cache in modern versions[span_3](end_span)
+        llama_kv_cache_clear(ctx); 
     }
 }
 
@@ -129,21 +137,13 @@ Java_io_canccode_aca_LlamaBridge_setModelRulesNative(JNIEnv *env, jobject thiz, 
     const char *rules_str = env->GetStringUTFChars(rules, nullptr);
     system_rules = std::string(rules_str);
     env->ReleaseStringUTFChars(rules, rules_str);
-    LOGI("System rules updated");
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_setMaxHistoryTurnsNative(JNIEnv *env, jobject thiz, jint turns) {
-    max_history_turns = turns;
-    LOGI("Max history turns set to %d", turns);
 }
 
 extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *env, jobject thiz) {
-    if (sampler) { llama_sampler_free(sampler); sampler = nullptr; }
-    if (ctx) { llama_free(ctx); ctx = nullptr; }
-    if (model) { llama_model_free(model); model = nullptr; }
+    if (sampler) llama_sampler_free(sampler);
+    if (ctx) llama_free(ctx);
+    if (model) llama_model_free(model);
     llama_backend_free();
 }
