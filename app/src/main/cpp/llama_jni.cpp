@@ -14,146 +14,129 @@ static llama_sampler * sampler = nullptr;
 
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* thiz */, jstring model_path) {
+Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
-    
+
     llama_backend_init();
-    
+
     llama_model_params mparams = llama_model_default_params();
     model = llama_model_load_from_file(path, mparams);
-    
+
     if (!model) {
         LOGE("Failed to load model from %s", path);
         env->ReleaseStringUTFChars(model_path, path);
-        llama_backend_free();
         return JNI_FALSE;
     }
 
     llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = 2048;
+    cparams.n_ctx = n_ctx;
     cparams.n_batch = 512;
-    cparams.n_threads = 4;
-    
+    cparams.n_threads = 4; // Adjust based on device CPU cores
+
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
-        LOGE("Failed to create llama context");
         llama_model_free(model);
         model = nullptr;
         env->ReleaseStringUTFChars(model_path, path);
-        llama_backend_free();
         return JNI_FALSE;
     }
 
-    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
-    sampler = llama_sampler_chain_init(sparams);
+    // Initialize sampler (Greedy for coding tasks)
+    sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
-    
-    LOGI("Model loaded successfully");
+
+    LOGI("Model initialized successfully with context size %d", n_ctx);
     env->ReleaseStringUTFChars(model_path, path);
     return JNI_TRUE;
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
-    if (ctx && model) {
-        llama_context_params cparams = llama_context_default_params();
-        cparams.n_ctx = 2048;
-        cparams.n_batch = 512;
-        cparams.n_threads = 4;
-        
-        llama_free(ctx);
-        ctx = llama_init_from_model(model, cparams);
-        
-        if (ctx) {
-            LOGI("Context recreated (cache cleared)");
-        } else {
-            LOGE("Failed to recreate context");
-        }
+Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstring prompt, jint max_tokens, jobject callback) {
+    if (!ctx || !model) {
+        return;
     }
-}
 
-extern "C"
-JNIEXPORT jstring JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /* thiz */, jstring prompt) {
-    if (!ctx || !model || !sampler) {
-        return env->NewStringUTF("Error: Model not loaded");
-    }
+    // Get Callback method IDs
+    jclass callbackClass = env->GetObjectClass(callback);
+    jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
+    jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
-    
     const llama_vocab * vocab = llama_model_get_vocab(model);
-    if (!vocab) {
-        env->ReleaseStringUTFChars(prompt, prompt_str);
-        return env->NewStringUTF("Error: Failed to get vocabulary");
+
+    // 1. Tokenize prompt
+    std::vector<llama_token> tokens_list;
+    int n_tokens = -llama_tokenize(vocab, prompt_str, strlen(prompt_str), NULL, 0, true, true);
+    tokens_list.resize(n_tokens);
+    llama_tokenize(vocab, prompt_str, strlen(prompt_str), tokens_list.data(), tokens_list.size(), true, true);
+
+    std::string full_response = "";
+    llama_batch batch = llama_batch_init(512, 0, 1);
+
+    // 2. Process Prompt
+    for (size_t i = 0; i < tokens_list.size(); i++) {
+        llama_batch_add(batch, tokens_list[i], i, {0}, i == tokens_list.size() - 1);
     }
-    
-    std::vector<llama_token> tokens;
-    const int n_tokens_prompt = -llama_tokenize(vocab, prompt_str, strlen(prompt_str), nullptr, 0, true, true);
-    
-    if (n_tokens_prompt <= 0) {
-        env->ReleaseStringUTFChars(prompt, prompt_str);
-        return env->NewStringUTF("Error: Tokenization failed");
+
+    int n_cur = tokens_list.size();
+    int n_decode = 0;
+
+    // 3. Generation Loop
+    while (n_decode < max_tokens) {
+        if (llama_decode(ctx, batch)) {
+            LOGE("Failed to decode");
+            break;
+        }
+
+        batch.n_tokens = 0;
+
+        // Sample next token
+        const llama_token id = llama_sampler_sample(sampler, ctx, -1);
+        
+        if (llama_token_is_eog(vocab, id)) break;
+
+        // Convert token to string
+        char buf[128];
+        int n_chars = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
+        if (n_chars > 0) {
+            std::string piece(buf, n_chars);
+            full_response += piece;
+            
+            // Stream token back to UI
+            jstring jpiece = env->NewStringUTF(piece.c_str());
+            env->CallVoidMethod(callback, onTokenMethod, jpiece);
+            env->DeleteLocalRef(jpiece);
+        }
+
+        llama_batch_add(batch, id, n_cur, {0}, true);
+        n_cur++;
+        n_decode++;
     }
-    
-    tokens.resize(n_tokens_prompt);
-    
-    if (llama_tokenize(vocab, prompt_str, strlen(prompt_str), tokens.data(), tokens.size(), true, true) < 0) {
-        env->ReleaseStringUTFChars(prompt, prompt_str);
-        return env->NewStringUTF("Error: Tokenization failed");
-    }
-    
-    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
-    
-    for (size_t i = 0; i < tokens.size(); i++) {
-        batch.token[batch.n_tokens] = tokens[i];
-        batch.pos[batch.n_tokens] = i;
-        batch.n_seq_id[batch.n_tokens] = 1;
-        batch.seq_id[batch.n_tokens][0] = 0;
-        batch.logits[batch.n_tokens] = (i == tokens.size() - 1);
-        batch.n_tokens++;
-    }
-    
-    if (llama_decode(ctx, batch) != 0) {
-        llama_batch_free(batch);
-        env->ReleaseStringUTFChars(prompt, prompt_str);
-        return env->NewStringUTF("Error: Decode failed");
-    }
-    
-    llama_token new_token = llama_sampler_sample(sampler, ctx, batch.n_tokens - 1);
-    
-    std::string result_str = prompt_str;
-    char buf[128];
-    int n_chars = llama_token_to_piece(vocab, new_token, buf, sizeof(buf), 0, true);
-    if (n_chars > 0) {
-        result_str += std::string(buf, n_chars);
-    }
+
+    // 4. Finalize
+    jstring jfull = env->NewStringUTF(full_response.c_str());
+    env->CallVoidMethod(callback, onCompleteMethod, jfull);
     
     llama_batch_free(batch);
     env->ReleaseStringUTFChars(prompt, prompt_str);
-    
-    return env->NewStringUTF(result_str.c_str());
 }
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_example_llmcodeassistant_LlamaNative_unloadModel(JNIEnv * /* env */, jobject /* thiz */) {
+Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *env, jobject thiz) {
     if (sampler) {
         llama_sampler_free(sampler);
         sampler = nullptr;
     }
-    
     if (ctx) {
         llama_free(ctx);
         ctx = nullptr;
     }
-    
     if (model) {
         llama_model_free(model);
         model = nullptr;
     }
-    
     llama_backend_free();
-    
-    LOGI("Model unloaded");
+    LOGI("Llama Native Shutdown Complete");
 }
