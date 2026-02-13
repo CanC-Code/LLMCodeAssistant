@@ -18,10 +18,6 @@ static llama_model * g_model = nullptr;
 static llama_context * g_ctx = nullptr;
 static llama_sampler * g_sampler = nullptr;
 
-// Tracking history for context-aware generation
-static std::vector<std::pair<std::string, std::string>> g_chat_history;
-static int g_max_history_turns = 3;
-
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring modelPath, jint nCtx) {
@@ -52,9 +48,10 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv * env, jobject, jstring model
         return JNI_FALSE;
     }
 
-    // 3. Initialize Sampler (Stable API Chain)
+    // 3. Initialize Sampler
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.8f));
+    llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.95f, 1));
     llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
@@ -70,62 +67,77 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv * env, jobject, jstring p
 
     if (!g_ctx || !g_model || !g_sampler) return;
 
-    // FIX: Use standard API for clearing KV cache
-    llama_kv_cache_clear(g_ctx);
+    // FIX: Replaced 'llama_kv_cache_clear' with standard sequence removal API
+    llama_kv_cache_seq_rm(g_ctx, -1, -1, -1);
 
     const char * c_prompt = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(g_model);
 
-    // 1. Tokenize input
+    // 1. Tokenize the input prompt
     std::vector<llama_token> tokens(strlen(c_prompt) + 32);
-    int n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, true);
+    int n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, false);
+
     if (n_tokens < 0) {
         tokens.resize(-n_tokens);
-        n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, true);
+        n_tokens = llama_tokenize(vocab, c_prompt, (int)strlen(c_prompt), tokens.data(), (int)tokens.size(), true, false);
     }
     tokens.resize(n_tokens);
     env->ReleaseStringUTFChars(prompt, c_prompt);
 
     if (n_tokens <= 0) return;
 
-    // 2. Manual Batch Setup (Most compatible with NDK toolchains)
-    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
-    for (int i = 0; i < n_tokens; i++) {
+    // 2. Decode (Pre-fill) the prompt
+    llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
+    for (int i = 0; i < (int)tokens.size(); i++) {
         batch.token[i] = tokens[i];
         batch.pos[i] = i;
         batch.n_seq_id[i] = 1;
         batch.seq_id[i][0] = 0;
-        batch.logits[i] = (i == n_tokens - 1);
+        batch.logits[i] = (i == (int)tokens.size() - 1);
     }
 
     if (llama_decode(g_ctx, batch) != 0) {
+        LOGE("llama_decode failed");
         llama_batch_free(batch);
         return;
     }
     llama_batch_free(batch);
 
+    // Setup Java callback method ID
     jclass cls = env->GetObjectClass(callback);
     jmethodID onToken = env->GetMethodID(cls, "onToken", "(Ljava/lang/String;)V");
 
     // 3. Generation Loop
     int n_past = n_tokens;
     for (int i = 0; i < maxTokens; i++) {
+        // Sample the next token
         llama_token tok = llama_sampler_sample(g_sampler, g_ctx, -1);
-        if (llama_vocab_is_eog(vocab, tok)) break;
 
+        // Check for End-of-Generation (EOG) token
+        if (llama_vocab_is_eog(vocab, tok)) {
+            break;
+        }
+
+        // Convert token to string and send to Java
         char buf[256];
         int len = llama_token_to_piece(vocab, tok, buf, sizeof(buf), 0, true);
         if (len > 0) {
             jstring jstr = env->NewStringUTF(std::string(buf, len).c_str());
             env->CallVoidMethod(callback, onToken, jstr);
-            // Safety: Clear local reference to prevent JNI table overflow
+
+            // CRITICAL FIX: Delete local reference to prevent JNI table overflow
             env->DeleteLocalRef(jstr);
         }
 
+        // Prepare the next batch with the single generated token
         llama_batch next = llama_batch_get_one(&tok, 1);
-        next.pos[0] = n_past++;
+        next.pos[0] = n_past;
 
-        if (llama_decode(g_ctx, next) != 0) break;
+        // Decode the next token
+        if (llama_decode(g_ctx, next) != 0) {
+            break;
+        }
+        n_past++;
     }
 }
 
@@ -133,6 +145,7 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    // Cleanup resources
     if (g_sampler) llama_sampler_free(g_sampler);
     if (g_ctx) llama_free(g_ctx);
     if (g_model) llama_model_free(g_model);
