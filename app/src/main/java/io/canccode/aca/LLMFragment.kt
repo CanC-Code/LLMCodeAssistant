@@ -28,209 +28,103 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     private val chatMessages = mutableListOf<Pair<String, String>>()
     private var lastPrompt: String = ""
-
     private var responseStartIndex: Int = 0
     private var currentResponse = StringBuilder()
     private var thinkingJob: Job? = null
-    private var isThinking: Boolean = false
+    private var isGenerating: Boolean = false
 
-    private fun getSelectedModelFile(): File? {
-        if (!isAdded) return null
-        val prefs = requireContext().getSharedPreferences("model_prefs", android.content.Context.MODE_PRIVATE)
-        val path = prefs.getString("model_path", null)
-        return if (path != null) File(path) else null
-    }
-
-    private val modelDisplayName: String
-        get() {
-            val file = getSelectedModelFile()
-            val fileName = file?.name ?: "Assistant"
-            return when {
-                fileName.contains("qwen", ignoreCase = true) -> "Qwen Coder"
-                fileName.contains("mistral", ignoreCase = true) -> "Mistral"
-                fileName.contains("llama", ignoreCase = true) -> "Llama 3"
-                else -> "AI Assistant"
-            }
-        }
-
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         setHasOptionsMenu(true)
         return inflater.inflate(R.layout.fragment_llm, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
         chatOutput = view.findViewById(R.id.chatOutput)
         chatScroll = view.findViewById(R.id.chatScroll)
         inputBox = view.findViewById(R.id.inputBox)
         sendBtn = view.findViewById(R.id.sendBtn)
         clearBtn = view.findViewById(R.id.clearBtn)
 
-        updateStatusHeader("Ready")
-        restoreChatHistory()
-
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString().trim()
-            if (prompt.isEmpty()) return@setOnClickListener
-
-            if (getSelectedModelFile() == null) {
-                Toast.makeText(context, "Please select a model in Settings", Toast.LENGTH_LONG).show()
+            if (prompt.isEmpty() || isGenerating) return@setOnClickListener
+            
+            // Validate model selection
+            val modelFile = getSelectedModelFile()
+            if (modelFile == null || !modelFile.exists()) {
+                Toast.makeText(context, "Select a model in Settings first", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             inputBox.text.clear()
-            lastPrompt = prompt
-            generate(prompt)
+            executeInference(prompt)
         }
 
         clearBtn.setOnClickListener {
-            AlertDialog.Builder(requireContext())
-                .setTitle("Clear Session")
-                .setMessage("Clear all context history?")
-                .setPositiveButton("Clear") { _, _ ->
-                    LlamaBridge.shutdownNative() // Safest way to reset context
-                    chatMessages.clear()
-                    updateStatusHeader("Context Cleared")
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            LlamaBridge.clearHistoryNative()
+            chatMessages.clear()
+            chatOutput.text = "🤖 Memory Cleared.\n\n"
         }
     }
 
-    private fun updateStatusHeader(status: String) {
-        val header = "🤖 $modelDisplayName | $status\n\n"
-        chatOutput.text = header
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        inflater.inflate(R.menu.llm_menu, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_model_rules -> { showModelRulesDialog(); true }
-            R.id.action_history_settings -> { showHistorySettingsDialog(); true }
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
-
-    private fun showModelRulesDialog() {
-        val input = EditText(requireContext()).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            hint = "e.g. You are a Senior Android Engineer..."
-            minLines = 3
-        }
-        AlertDialog.Builder(requireContext())
-            .setTitle("System Instructions")
-            .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                Toast.makeText(context, "System prompt updated", Toast.LENGTH_SHORT).show()
-            }.show()
-    }
-
-    private fun showHistorySettingsDialog() {
-        val options = arrayOf("Short (1 turn)", "Medium (3 turns)", "Long (10 turns)")
-        AlertDialog.Builder(requireContext())
-            .setTitle("Context Window")
-            .setItems(options) { _, _ -> }.show()
-    }
-
-    private fun restoreChatHistory() {
-        val sb = SpannableStringBuilder("🤖 $modelDisplayName Ready.\n\n")
-        chatMessages.forEach { (user, assistant) ->
-            sb.append("👤 You: $user\n\n")
-            sb.append("🤖 $modelDisplayName: $assistant\n\n")
-        }
-        chatOutput.text = sb
-        scrollToBottom()
-    }
-
-    private fun generate(prompt: String) {
-        isThinking = true
+    private fun executeInference(prompt: String) {
+        isGenerating = true
         sendBtn.isEnabled = false
-        inputBox.isEnabled = false
-
-        chatOutput.append("👤 You: $prompt\n\n")
-        chatOutput.append("🤖 $modelDisplayName: ")
-
+        lastPrompt = prompt
+        
+        chatOutput.append("👤 You: $prompt\n\n🤖 Assistant: ")
         responseStartIndex = chatOutput.text.length
         currentResponse.setLength(0)
-
+        
         startThinkingAnimation()
         scrollToBottom()
 
         lifecycleScope.launch(Dispatchers.Default) {
             try {
-                // Ensure model path is still valid
-                val modelFile = getSelectedModelFile()
-                if (modelFile == null || !modelFile.exists()) {
-                    throw Exception("Model file missing")
-                }
-
                 LlamaBridge.generateNative(prompt, 1024, this@LLMFragment)
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    onError(e.message ?: "Unknown Inference Error")
-                }
+                withContext(Dispatchers.Main) { onError(e.message ?: "Native failure") }
             }
         }
     }
 
     override fun onToken(piece: String) {
         activity?.runOnUiThread {
-            if (isThinking) {
-                stopThinkingAnimation()
-                isThinking = false
-            }
-
+            if (thinkingJob != null) stopThinkingAnimation()
+            
             currentResponse.append(piece)
-            
-            // Efficiently update only the active response area
-            val baseContent = chatOutput.text.subSequence(0, responseStartIndex)
-            chatOutput.text = SpannableStringBuilder()
-                .append(baseContent)
-                .append(currentResponse)
-            
+            val base = chatOutput.text.subSequence(0, responseStartIndex)
+            chatOutput.text = SpannableStringBuilder().append(base).append(currentResponse)
             scrollToBottom()
         }
     }
 
     override fun onComplete(fullResponse: String) {
         activity?.runOnUiThread {
-            isThinking = false
             stopThinkingAnimation()
-            chatOutput.append("\n\n") 
+            isGenerating = false
+            sendBtn.isEnabled = true
             chatMessages.add(Pair(lastPrompt, fullResponse))
-            resetInput()
+            chatOutput.append("\n\n")
+            scrollToBottom()
         }
     }
 
     override fun onError(error: String) {
         activity?.runOnUiThread {
-            isThinking = false
             stopThinkingAnimation()
-            chatOutput.append("\n\n❌ Error: $error\n\n")
-            resetInput()
+            isGenerating = false
+            sendBtn.isEnabled = true
+            chatOutput.append("\n❌ Error: $error\n\n")
         }
-    }
-
-    private fun resetInput() {
-        sendBtn.isEnabled = true
-        inputBox.isEnabled = true
-        inputBox.requestFocus()
-        scrollToBottom()
     }
 
     private fun startThinkingAnimation() {
         thinkingJob?.cancel()
         thinkingJob = lifecycleScope.launch(Dispatchers.Main) {
             var dots = 0
-            while (isThinking) {
+            while (isGenerating) {
                 val dotStr = ".".repeat(dots + 1)
                 val base = chatOutput.text.subSequence(0, responseStartIndex)
                 chatOutput.text = SpannableStringBuilder().append(base).append("Thinking$dotStr")
@@ -245,12 +139,16 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         thinkingJob = null
     }
 
+    private fun getSelectedModelFile(): File? {
+        val prefs = requireContext().getSharedPreferences("model_prefs", 0)
+        return prefs.getString("model_path", null)?.let { File(it) }
+    }
+
     private fun scrollToBottom() {
         chatScroll.post { chatScroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 
     override fun onDestroyView() {
-        isThinking = false
         stopThinkingAnimation()
         super.onDestroyView()
     }
