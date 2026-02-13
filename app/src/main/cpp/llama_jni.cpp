@@ -67,9 +67,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // Clear the entire KV cache
-        // Use llama_kv_cache_clear for the current API
-        llama_kv_cache_clear(ctx);
+        // Clear KV cache for all sequences from position 0 to end
+        // seq_id -1 means all sequences, pos -1 means to the end
+        llama_kv_cache_seq_rm(ctx, -1, 0, -1);
         LOGI("KV cache cleared");
     }
 }
@@ -97,12 +97,12 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
     }
     
     // Clear KV cache before processing new prompt
-    llama_kv_cache_clear(ctx);
+    llama_kv_cache_seq_rm(ctx, -1, 0, -1);
     
     // Create a batch for the prompt tokens
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     
-    // Add tokens to the batch manually (llama_batch_add is now a struct operation)
+    // Add tokens to the batch manually
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[batch.n_tokens] = tokens[i];
         batch.pos[batch.n_tokens] = i;
