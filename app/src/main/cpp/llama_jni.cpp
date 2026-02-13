@@ -1,7 +1,6 @@
 #include <jni.h>
 #include <string>
 #include <vector>
-#include <sstream>
 #include <android/log.h>
 #include "llama.h"
 
@@ -18,13 +17,13 @@ JNIEXPORT jboolean JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* thiz */, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     
-    // Initialize backend - mandatory for modern llama.cpp
+    // Initialize backend
     llama_backend_init();
     
     // Set up model parameters
     llama_model_params mparams = llama_model_default_params();
     
-    // Load model using modern API
+    // Load model
     model = llama_model_load_from_file(path, mparams);
     
     if (!model) {
@@ -40,7 +39,7 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
     cparams.n_batch = 512;
     cparams.n_threads = 4;
     
-    // Create context using modern API
+    // Create context
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         LOGE("Failed to create llama context");
@@ -51,11 +50,11 @@ Java_com_example_llmcodeassistant_LlamaNative_loadModel(JNIEnv *env, jobject /* 
         return JNI_FALSE;
     }
 
-    // Create a sampler for token generation
-    llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
-    sampler = llama_sampler_chain_init(chain_params);
+    // Create sampler chain
+    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+    sampler = llama_sampler_chain_init(sparams);
     
-    // Add sampling strategies
+    // Add greedy sampler (simplest, deterministic sampling)
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
     
     LOGI("Model loaded successfully");
@@ -67,8 +66,7 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, jobject /* thiz */) {
     if (ctx) {
-        // Clear KV cache for all sequences from position 0 to end
-        // seq_id -1 means all sequences, pos -1 means to the end
+        // Clear the KV cache for all sequences
         llama_kv_cache_seq_rm(ctx, -1, 0, -1);
         LOGI("KV cache cleared");
     }
@@ -77,18 +75,28 @@ Java_com_example_llmcodeassistant_LlamaNative_clearCache(JNIEnv * /* env */, job
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /* thiz */, jstring prompt) {
-    if (!ctx || !model) {
+    if (!ctx || !model || !sampler) {
         return env->NewStringUTF("Error: Model not loaded");
     }
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     
-    // Get vocabulary from model
+    // Get the model's vocabulary
     const llama_vocab * vocab = llama_model_get_vocab(model);
+    if (!vocab) {
+        env->ReleaseStringUTFChars(prompt, prompt_str);
+        return env->NewStringUTF("Error: Failed to get vocabulary");
+    }
     
-    // Tokenize the prompt - new API uses vocab instead of model
+    // Tokenize the prompt
     std::vector<llama_token> tokens;
     const int n_tokens_prompt = -llama_tokenize(vocab, prompt_str, strlen(prompt_str), nullptr, 0, true, true);
+    
+    if (n_tokens_prompt <= 0) {
+        env->ReleaseStringUTFChars(prompt, prompt_str);
+        return env->NewStringUTF("Error: Tokenization failed");
+    }
+    
     tokens.resize(n_tokens_prompt);
     
     if (llama_tokenize(vocab, prompt_str, strlen(prompt_str), tokens.data(), tokens.size(), true, true) < 0) {
@@ -96,33 +104,33 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
         return env->NewStringUTF("Error: Tokenization failed");
     }
     
-    // Clear KV cache before processing new prompt
+    // Clear KV cache before new inference
     llama_kv_cache_seq_rm(ctx, -1, 0, -1);
     
-    // Create a batch for the prompt tokens
+    // Create batch
     llama_batch batch = llama_batch_init(tokens.size(), 0, 1);
     
-    // Add tokens to the batch manually
+    // Fill batch with tokens
     for (size_t i = 0; i < tokens.size(); i++) {
         batch.token[batch.n_tokens] = tokens[i];
         batch.pos[batch.n_tokens] = i;
         batch.n_seq_id[batch.n_tokens] = 1;
         batch.seq_id[batch.n_tokens][0] = 0;
-        batch.logits[batch.n_tokens] = (i == tokens.size() - 1); // Only last token outputs logits
+        batch.logits[batch.n_tokens] = (i == tokens.size() - 1); // Only output logits for last token
         batch.n_tokens++;
     }
     
-    // Process the batch
+    // Decode the batch
     if (llama_decode(ctx, batch) != 0) {
         llama_batch_free(batch);
         env->ReleaseStringUTFChars(prompt, prompt_str);
-        return env->NewStringUTF("Error: Failed to decode");
+        return env->NewStringUTF("Error: Decode failed");
     }
     
-    // Sample the next token using the sampler
+    // Sample next token
     llama_token new_token = llama_sampler_sample(sampler, ctx, batch.n_tokens - 1);
     
-    // Detokenize the result - new API uses vocab
+    // Convert token back to text
     std::string result_str = prompt_str;
     char buf[128];
     int n_chars = llama_token_to_piece(vocab, new_token, buf, sizeof(buf), 0, true);
@@ -130,6 +138,7 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
         result_str += std::string(buf, n_chars);
     }
     
+    // Cleanup
     llama_batch_free(batch);
     env->ReleaseStringUTFChars(prompt, prompt_str);
     
@@ -139,19 +148,26 @@ Java_com_example_llmcodeassistant_LlamaNative_completion(JNIEnv *env, jobject /*
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_llmcodeassistant_LlamaNative_unloadModel(JNIEnv * /* env */, jobject /* thiz */) {
+    // Free sampler
     if (sampler) {
         llama_sampler_free(sampler);
         sampler = nullptr;
     }
+    
+    // Free context
     if (ctx) {
         llama_free(ctx);
         ctx = nullptr;
     }
+    
+    // Free model
     if (model) {
         llama_model_free(model);
         model = nullptr;
     }
-    // Clean up backend resources
+    
+    // Free backend
     llama_backend_free();
+    
     LOGI("Model unloaded");
 }
