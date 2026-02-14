@@ -87,7 +87,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
         
-        // EOG (End of Generation) check for modern llama.cpp
         if (llama_vocab_is_eog(vocab, id)) break;
 
         char buf[128];
@@ -121,10 +120,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject /*thiz*/) {
+Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // Modern KV cache clearing
-        llama_kv_cache_clear(ctx); 
+        // Correct API call for clearing KV cache: removes all tokens from -1 to infinity for seq_id 0
+        llama_kv_cache_tokens_rm(ctx, -1, -1); 
     }
 }
 
@@ -138,7 +137,7 @@ Java_io_canccode_aca_LlamaBridge_setModelRulesNative(JNIEnv *env, jobject /*thiz
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *env, jobject /*thiz*/) {
+Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (sampler) llama_sampler_free(sampler);
     if (ctx) llama_free(ctx);
     if (model) llama_model_free(model);
