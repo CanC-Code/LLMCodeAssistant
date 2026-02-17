@@ -15,10 +15,6 @@ static std::string system_rules = "";
 
 // --- Manual Batch Helpers for Modern llama.cpp ---
 
-/**
- * Manually adds a token to the llama_batch struct.
- * This replaces the undeclared 'llama_batch_add'.
- */
 static void common_batch_add(struct llama_batch & batch, llama_token id, int32_t pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
     batch.token[batch.n_tokens] = id;
     batch.pos[batch.n_tokens]   = pos;
@@ -30,10 +26,6 @@ static void common_batch_add(struct llama_batch & batch, llama_token id, int32_t
     batch.n_tokens++;
 }
 
-/**
- * Resets the token count for the next decode pass.
- * This replaces the undeclared 'llama_batch_clear'.
- */
 static void common_batch_clear(struct llama_batch & batch) {
     batch.n_tokens = 0;
 }
@@ -93,10 +85,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
     llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), tokens_list.data(), (int)tokens_list.size(), true, true);
 
     std::string full_response = "";
-    // Initialize batch for max possible tokens in a single decode
     llama_batch batch = llama_batch_init(512, 0, 1);
 
-    // Initial prompt ingestion
     for (size_t i = 0; i < tokens_list.size(); i++) {
         common_batch_add(batch, tokens_list[i], i, {0}, (i == tokens_list.size() - 1));
     }
@@ -121,7 +111,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
             env->DeleteLocalRef(jpiece);
         }
 
-        // Prepare batch for next single token
         common_batch_clear(batch);
         common_batch_add(batch, id, n_cur, {0}, true);
 
@@ -140,8 +129,10 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // Modern approach to clear the entire KV cache
-        llama_kv_cache_clear(ctx);
+        // Correct API for clearing the context/history:
+        // llama_kv_cache_seq_rm(context, sequence_id, p_start, p_end)
+        // -1 for all parameters clears everything.
+        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
     }
 }
 
