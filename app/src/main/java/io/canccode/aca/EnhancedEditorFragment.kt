@@ -8,7 +8,6 @@ import android.text.TextWatcher
 import android.view.*
 import android.widget.EditText
 import android.widget.HorizontalScrollView
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -19,11 +18,11 @@ class EnhancedEditorFragment : Fragment() {
     private lateinit var lineNumbersView: TextView
     private lateinit var editorView: EditText
     private lateinit var scrollContainer: HorizontalScrollView
-    
+
     private var filePath: String = ""
     private var fileUri: String = ""
     private lateinit var projectLoader: ProjectLoader
-    
+
     private val undoStack = Stack<String>()
     private val redoStack = Stack<String>()
     private var currentContent = ""
@@ -48,15 +47,16 @@ class EnhancedEditorFragment : Fragment() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setHasOptionsMenu(true)
-        
+
         arguments?.let {
             filePath = it.getString(ARG_FILE_PATH, "")
             fileUri = it.getString(ARG_FILE_URI, "")
         }
-        
+
         if (!::projectLoader.isInitialized) {
             projectLoader = (activity as? MainActivity)?.getProjectLoader() 
                 ?: ProjectLoader(requireContext())
@@ -86,7 +86,7 @@ class EnhancedEditorFragment : Fragment() {
         editorView.setTextColor(Color.parseColor("#D4D4D4"))
         editorView.textSize = 14f
         editorView.setHorizontallyScrolling(true)
-        
+
         // Line numbers styling
         lineNumbersView.setBackgroundColor(Color.parseColor("#252525"))
         lineNumbersView.setTextColor(Color.parseColor("#858585"))
@@ -96,19 +96,19 @@ class EnhancedEditorFragment : Fragment() {
         // Sync line numbers with content
         editorView.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            
+
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            
+
             override fun afterTextChanged(s: Editable?) {
                 updateLineNumbers()
-                
+
                 if (!isUndoRedoOperation) {
                     val newContent = s.toString()
                     if (newContent != currentContent) {
                         undoStack.push(currentContent)
                         redoStack.clear()
                         currentContent = newContent
-                        
+
                         // Limit undo stack size
                         if (undoStack.size > 100) {
                             undoStack.removeAt(0)
@@ -133,7 +133,7 @@ class EnhancedEditorFragment : Fragment() {
         } else {
             projectLoader.getFileContent(filePath)
         }
-        
+
         currentContent = content
         undoStack.push(content)
         editorView.setText(content)
@@ -143,19 +143,21 @@ class EnhancedEditorFragment : Fragment() {
     private fun updateLineNumbers() {
         val lines = editorView.text.toString().split("\n")
         val lineNumbers = StringBuilder()
-        
+
         for (i in 1..lines.size) {
             lineNumbers.append(i).append("\n")
         }
-        
+
         lineNumbersView.text = lineNumbers.toString()
     }
 
+    @Suppress("DEPRECATION")
     override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
         inflater.inflate(R.menu.editor_menu, menu)
         super.onCreateOptionsMenu(menu, inflater)
     }
 
+    @Suppress("DEPRECATION")
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_save -> {
@@ -190,8 +192,12 @@ class EnhancedEditorFragment : Fragment() {
                 Toast.makeText(requireContext(), "Error saving: ${e.message}", Toast.LENGTH_LONG).show()
             }
         } else {
-            projectLoader.updateFile(filePath, editorView.text.toString())
-            Toast.makeText(requireContext(), "File updated in memory", Toast.LENGTH_SHORT).show()
+            val saved = projectLoader.saveFile(filePath, editorView.text.toString())
+            if (saved) {
+                Toast.makeText(requireContext(), "File saved", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Error: could not save file", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
