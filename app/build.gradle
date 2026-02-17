@@ -7,6 +7,9 @@ android {
     namespace 'io.canccode.aca'
     compileSdk 34
 
+    // EXPLICIT NDK VERSION: Must match your .github/workflows/android.yml
+    ndkVersion "27.3.10554745" 
+
     defaultConfig {
         applicationId "io.canccode.aca"
         minSdk 26
@@ -16,17 +19,15 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        // Essential for LLMs: Qwen 3B requires 64-bit architecture for performance
+        // Essential for LLMs: Performance requires 64-bit architecture
         ndk {
             abiFilters "arm64-v8a"
         }
 
         externalNativeBuild {
             cmake {
-                // Optimized flags for llama.cpp on Android ARMv8
-                // -O3: Maximum optimization
-                // -flto: Link-time optimization for cross-file performance
                 cppFlags "-std=c++17 -O3 -flto -fexceptions -frtti"
+                // Optimized flags for the specific llama.h version (v9 session / v2 seq)
                 arguments "-DANDROID_STL=c++_shared", 
                           "-DLLAMA_K_QUANTS=ON",
                           "-DCMAKE_BUILD_TYPE=Release"
@@ -50,19 +51,18 @@ android {
     externalNativeBuild {
         cmake {
             path "src/main/cpp/CMakeLists.txt"
+            // Version 3.22.1 is compatible with the 3.24.1 installed by your CI
             version "3.22.1"
         }
     }
 
     buildTypes {
         debug {
-            // Keep debug fast, no minification
             ndk {
                 debugSymbolLevel 'FULL'
             }
         }
         release {
-            // CRITICAL: Minification helps reduce the binary footprint of the LLM bridge
             minifyEnabled true 
             shrinkResources true
             proguardFiles getDefaultProguardFile(
@@ -84,7 +84,7 @@ dependencies {
     implementation "androidx.constraintlayout:constraintlayout:2.1.4"
     implementation "androidx.drawerlayout:drawerlayout:1.2.0"
 
-    // Architecture Components (Critical for LLMFragment)
+    // Architecture Components (Required for ViewModel/Fragment interaction)
     implementation "androidx.fragment:fragment-ktx:1.6.2"
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.6.2"
