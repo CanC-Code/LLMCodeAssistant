@@ -40,26 +40,18 @@ jobs:
 
       - name: Generate App Assets
         run: |
-          # Create mipmap directories
           for res in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             mkdir -p app/src/main/res/mipmap-$res
           done
-          
-          # Base Icon (Adaptive background style)
           convert -size 512x512 xc:"#1e1e1e" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 150 -draw "text 0,0 'LLM'" /tmp/icon_base.png
-          
-          # Resize for all densities
           convert /tmp/icon_base.png -resize 48x48   app/src/main/res/mipmap-mdpi/ic_launcher.png
-          convert /tmp/icon_base.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
-          convert /tmp/icon_base.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          convert /tmp/icon_base.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           convert /tmp/icon_base.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # Verified function name from your uploaded llama-h.txt
-          grep "llama_kv_cache_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch!" && exit 1)
+          # Updated check for the sequence removal API
+          grep "llama_kv_cache_seq_rm" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_kv_cache_seq_rm not found!" && exit 1)
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
