@@ -16,8 +16,6 @@ import kotlinx.coroutines.withContext
 
 class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
-    private val TAG = "LLMFragment"
-
     private val viewModel: AppViewModel by activityViewModels()
 
     private lateinit var chatOutput: TextView
@@ -28,10 +26,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private lateinit var typingIndicator: TextView
     private lateinit var projectBadge: TextView
 
-    // Accumulates the streamed tokens for the current assistant turn
     private val streamBuffer = StringBuilder()
-
-    // Marker appended to chatOutput so we can replace it as tokens arrive
     private var streamStartLength = 0
 
     override fun onCreateView(
@@ -41,24 +36,22 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        chatOutput       = view.findViewById(R.id.chatOutput)
-        chatScroll       = view.findViewById(R.id.chatScroll)
-        inputBox         = view.findViewById(R.id.inputBox)
-        sendBtn          = view.findViewById(R.id.sendBtn)
-        clearBtn         = view.findViewById(R.id.clearBtn)
-        typingIndicator  = view.findViewById(R.id.typingIndicator)
-        projectBadge     = view.findViewById(R.id.projectBadge)
+        chatOutput      = view.findViewById(R.id.chatOutput)
+        chatScroll      = view.findViewById(R.id.chatScroll)
+        inputBox        = view.findViewById(R.id.inputBox)
+        sendBtn         = view.findViewById(R.id.sendBtn)
+        clearBtn        = view.findViewById(R.id.clearBtn)
+        typingIndicator = view.findViewById(R.id.typingIndicator)
+        projectBadge    = view.findViewById(R.id.projectBadge)
 
-        // Restore chat history from ViewModel (survives fragment transactions)
         restoreHistory()
-
         setupObservers()
 
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString().trim()
             if (prompt.isEmpty()) return@setOnClickListener
             if (viewModel.isModelLoaded.value != true) {
-                Toast.makeText(context, "Load a model first via Settings & Model", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Load a model first (Settings & Model)", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             inputBox.text.clear()
@@ -67,7 +60,6 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
         clearBtn.setOnClickListener { confirmClear() }
 
-        // Long-press on chat output → copy full text
         chatOutput.setOnLongClickListener {
             val text = chatOutput.text.toString()
             if (text.isNotBlank()) {
@@ -79,7 +71,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         }
     }
 
-    // ── History ────────────────────────────────────────────────────────────────
+    // ── History ───────────────────────────────────────────────────────────────
 
     private fun restoreHistory() {
         val history = viewModel.chatHistory.value ?: return
@@ -94,20 +86,20 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
                     sb.append("👤 You: ${msg.text}\n\n")
                 AppViewModel.ChatMessage.Role.ASSISTANT ->
                     sb.append("🤖 Assistant: ${msg.text}\n\n")
-                AppViewModel.ChatMessage.Role.SYSTEM -> { /* not shown */ }
+                AppViewModel.ChatMessage.Role.SYSTEM -> {}
             }
         }
         chatOutput.text = sb
         scrollToBottom()
     }
 
-    // ── Observers ──────────────────────────────────────────────────────────────
+    // ── Observers ─────────────────────────────────────────────────────────────
 
     private fun setupObservers() {
         viewModel.isModelLoaded.observe(viewLifecycleOwner) { loaded ->
-            sendBtn.isEnabled = loaded
+            sendBtn.isEnabled  = loaded
             inputBox.isEnabled = true
-            inputBox.hint = if (loaded) "Ask LLM..." else "Load a model first (Settings & Model)"
+            inputBox.hint      = if (loaded) "Ask LLM…" else "Load a model first (Settings & Model)"
         }
 
         viewModel.llmInput.observe(viewLifecycleOwner) { input ->
@@ -117,49 +109,109 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         viewModel.projectName.observe(viewLifecycleOwner) { name ->
             if (name != null) {
                 projectBadge.visibility = View.VISIBLE
-                projectBadge.text = "📁 $name"
+                projectBadge.text       = "📁 $name"
+                // Push a lightweight file-tree listing into the system rules so
+                // the model knows what files exist — but NOT file contents yet.
+                pushProjectSystemRules()
             } else {
                 projectBadge.visibility = View.GONE
+                LlamaBridge.setModelRules(null)
             }
         }
     }
 
-    // ── Sending ────────────────────────────────────────────────────────────────
+    // ── Project-aware system rules ────────────────────────────────────────────
+
+    /**
+     * Sets a system prompt that tells the model the project file tree.
+     * File CONTENTS are injected on-demand in submitUserMessage, only when
+     * the user's question appears to reference a specific file.
+     *
+     * Keeping system rules to just the file listing stays well under the
+     * context window limit on every turn.
+     */
+    private fun pushProjectSystemRules() {
+        val files       = viewModel.projectContext.value ?: return
+        val projectName = viewModel.projectName.value   ?: return
+        if (files.isEmpty()) return
+
+        val sb = StringBuilder()
+        sb.appendLine("You are a coding assistant with knowledge of the following project: $projectName")
+        sb.appendLine()
+        sb.appendLine("Project file tree:")
+        files.keys.sorted().forEach { sb.appendLine("  $it") }
+        sb.appendLine()
+        sb.appendLine("When asked about a specific file, I will provide its contents in the user message.")
+        sb.appendLine("Answer questions about the project based on the context provided.")
+
+        LlamaBridge.setModelRules(sb.toString())
+    }
+
+    // ── Sending ───────────────────────────────────────────────────────────────
 
     private fun submitUserMessage(userText: String) {
-        // Append to UI immediately
         chatOutput.append("👤 You: $userText\n\n")
         scrollToBottom()
 
-        // Persist to ViewModel
         viewModel.addChatMessage(
             AppViewModel.ChatMessage(AppViewModel.ChatMessage.Role.USER, userText)
         )
 
-        // Build the prompt with optional project context prepended
-        val projectFiles = viewModel.projectContext.value ?: emptyMap()
-        val projectName  = viewModel.projectName.value ?: ""
-        val contextBlock = if (projectFiles.isNotEmpty())
-            ProjectContextBuilder.formatForPrompt(projectName, projectFiles)
-        else ""
+        // Build a prompt that ONLY injects the content of files the user
+        // actually mentioned by name — not the entire project dump.
+        val augmentedPrompt = buildAugmentedPrompt(userText)
 
-        // Full prompt sent to the model: context block + user message
-        // The native layer wraps this in ChatML, so we just provide the user turn here.
-        // We prepend project context as extra user context in the message itself when present.
-        val fullPrompt = if (contextBlock.isNotEmpty())
-            "Use the following project context to answer accurately:\n\n$contextBlock\n\nUser question: $userText"
-        else
-            userText
+        executeInference(augmentedPrompt)
+    }
 
-        executeInference(fullPrompt)
+    /**
+     * Looks for file paths mentioned in the user's message and appends only
+     * those files' content — capped at MAX_INLINE_CHARS total.
+     *
+     * Example: "what does MainActivity.kt do?" → appends that file's content.
+     * Example: "hello" → returns the raw user text with no augmentation.
+     */
+    private fun buildAugmentedPrompt(userText: String): String {
+        val files = viewModel.projectContext.value
+        if (files.isNullOrEmpty()) return userText
+
+        val MAX_INLINE_CHARS = 3_000 // safe headroom within 4096 token context
+        val matchedFiles = mutableListOf<Pair<String, String>>()
+        var totalInline  = 0
+
+        // Find any file whose name or path fragment appears in the user's text
+        val lowerQuery = userText.lowercase()
+        files.entries
+            .sortedBy { it.key }
+            .forEach { (path, content) ->
+                val filename = path.substringAfterLast('/')
+                if (lowerQuery.contains(filename.lowercase()) ||
+                    lowerQuery.contains(path.lowercase())) {
+                    if (totalInline + content.length <= MAX_INLINE_CHARS) {
+                        matchedFiles.add(Pair(path, content))
+                        totalInline += content.length
+                    }
+                }
+            }
+
+        if (matchedFiles.isEmpty()) return userText
+
+        val sb = StringBuilder()
+        sb.appendLine("Relevant file contents:")
+        matchedFiles.forEach { (path, content) ->
+            sb.appendLine("--- $path ---")
+            sb.appendLine(content)
+            sb.appendLine()
+        }
+        sb.appendLine("User question: $userText")
+        return sb.toString()
     }
 
     private fun executeInference(prompt: String) {
-        sendBtn.isEnabled = false
+        sendBtn.isEnabled  = false
         inputBox.isEnabled = false
         typingIndicator.visibility = View.VISIBLE
 
-        // Prepare stream marker
         streamBuffer.clear()
         chatOutput.append("🤖 Assistant: ")
         streamStartLength = chatOutput.text.length
@@ -181,7 +233,6 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     override fun onToken(piece: String) {
         streamBuffer.append(piece)
         lifecycleScope.launch(Dispatchers.Main) {
-            // Replace everything after the "🤖 Assistant: " marker with the growing stream
             val current = chatOutput.text as? SpannableStringBuilder
                 ?: SpannableStringBuilder(chatOutput.text)
             if (current.length > streamStartLength) {
@@ -195,14 +246,10 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     override fun onComplete(fullResponse: String) {
         lifecycleScope.launch(Dispatchers.Main) {
-            // Final newline separation
             chatOutput.append("\n\n")
-
-            // Persist complete assistant turn to ViewModel
             viewModel.addChatMessage(
                 AppViewModel.ChatMessage(AppViewModel.ChatMessage.Role.ASSISTANT, fullResponse)
             )
-
             resetInputState()
             scrollToBottom()
         }
@@ -216,11 +263,11 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun resetInputState() {
         typingIndicator.visibility = View.GONE
-        sendBtn.isEnabled = viewModel.isModelLoaded.value == true
+        sendBtn.isEnabled  = viewModel.isModelLoaded.value == true
         inputBox.isEnabled = true
     }
 
@@ -231,10 +278,12 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     private fun confirmClear() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Clear conversation?")
-            .setMessage("This will clear the chat display and reset the model's memory of this conversation.")
+            .setMessage("Clears chat display and resets the model's conversation memory.")
             .setPositiveButton("Clear") { _, _ ->
                 LlamaBridge.clearHistory()
                 viewModel.clearChatHistory()
+                // Re-push system rules so the model still knows the project
+                pushProjectSystemRules()
                 chatOutput.text = "🤖 Conversation cleared. Ask anything.\n\n"
             }
             .setNegativeButton("Cancel", null)
