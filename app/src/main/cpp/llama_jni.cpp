@@ -28,23 +28,17 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     llama_backend_init();
-
     llama_model_params mparams = llama_model_default_params();
     model = llama_model_load_from_file(path, mparams);
-
     if (!model) {
         env->ReleaseStringUTFChars(model_path, path);
         return JNI_FALSE;
     }
-
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = n_ctx;
-    cparams.n_batch = 512;
-    
     ctx = llama_init_from_model(model, cparams);
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
-
     env->ReleaseStringUTFChars(model_path, path);
     return JNI_TRUE;
 }
@@ -52,14 +46,13 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring m
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstring prompt, jint max_tokens, jobject callback) {
     if (!ctx || !model) return;
-
     jclass callbackClass = env->GetObjectClass(callback);
     jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(model);
-    std::string formatted_prompt = system_rules + "\nUser: " + prompt_str + "\nAssistant: ";
+    std::string formatted_prompt = system_rules + "\n" + prompt_str;
 
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
@@ -77,7 +70,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
         if (llama_decode(ctx, batch)) break;
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
-
         char buf[128];
         int n_chars = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
         if (n_chars > 0) {
@@ -87,11 +79,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
             env->CallVoidMethod(callback, onTokenMethod, jpiece);
             env->DeleteLocalRef(jpiece);
         }
-
         batch.n_tokens = 0;
         common_batch_add(batch, id, n_cur++, {0}, true);
     }
-
     jstring jfull = env->NewStringUTF(full_response.c_str());
     env->CallVoidMethod(callback, onCompleteMethod, jfull);
     llama_batch_free(batch);
@@ -101,8 +91,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // Correct API for your version: llama_kv_cache_tokens_rm(ctx, start, end)
-        // Using 0 to -1 clears the entire cache.
+        // 
+        // Based on your llama.h version, use llama_kv_cache_tokens_rm
+        // Sequence -1 (all), from 0 to -1 (end) clears everything.
         llama_kv_cache_tokens_rm(ctx, 0, -1);
     }
 }
