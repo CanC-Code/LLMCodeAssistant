@@ -13,8 +13,7 @@ static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
 static std::string system_rules = "";
 
-// --- Manual Batch Helpers for Modern llama.cpp ---
-
+// Helper to add tokens to a batch
 static void common_batch_add(struct llama_batch & batch, llama_token id, int32_t pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
     batch.token[batch.n_tokens] = id;
     batch.pos[batch.n_tokens]   = pos;
@@ -24,10 +23,6 @@ static void common_batch_add(struct llama_batch & batch, llama_token id, int32_t
     }
     batch.logits[batch.n_tokens] = logits;
     batch.n_tokens++;
-}
-
-static void common_batch_clear(struct llama_batch & batch) {
-    batch.n_tokens = 0;
 }
 
 extern "C"
@@ -48,8 +43,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstri
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = n_ctx;
     cparams.n_batch = 512;
-    cparams.n_threads = 4;
-
+    
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
         llama_model_free(model);
@@ -98,7 +92,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
         if (llama_decode(ctx, batch)) break;
 
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
-
         if (llama_vocab_is_eog(vocab, id)) break;
 
         char buf[128];
@@ -111,7 +104,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
             env->DeleteLocalRef(jpiece);
         }
 
-        common_batch_clear(batch);
+        batch.n_tokens = 0;
         common_batch_add(batch, id, n_cur, {0}, true);
 
         n_cur++;
@@ -129,11 +122,10 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // The modern API for clearing KV cache:
-        // llama_kv_cache_seq_rm(ctx, seq_id, p0, p1)
-        // Using -1 for seq_id targets all sequences.
-        // Using -1 for p0 and p1 targets all positions.
-        llama_kv_cache_seq_rm(ctx, (llama_seq_id)-1, (llama_pos)-1, (llama_pos)-1);
+        // We use the direct KV cache cell management if the high-level 
+        // functions are missing in this specific build of the library.
+        // This is the most compatible way to clear the sequence for llama.cpp
+        llama_kv_cache_clear(ctx); 
     }
 }
 
