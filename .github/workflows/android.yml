@@ -36,8 +36,8 @@ jobs:
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # This will now pass based on your uploaded llama-h.txt
-          grep "llama_kv_self_free" external/llama.cpp/include/llama.h || (echo "API Mismatch!" && exit 1)
+          # Verified check for the memory clear API
+          grep "llama_memory_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch!" && exit 1)
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
