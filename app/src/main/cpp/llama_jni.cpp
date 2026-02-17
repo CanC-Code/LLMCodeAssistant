@@ -122,10 +122,11 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // We use the direct KV cache cell management if the high-level 
-        // functions are missing in this specific build of the library.
-        // This is the most compatible way to clear the sequence for llama.cpp
-        llama_kv_cache_clear(ctx); 
+        // llama_kv_cache_clear was removed. 
+        // In modern llama.cpp, we use llama_kv_cache_seq_rm.
+        // If your compiler complains it is undeclared, we use -1 to signal "all".
+        // Note: llama_pos and llama_seq_id are usually int32_t.
+        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
     }
 }
 
