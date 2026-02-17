@@ -91,8 +91,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // Updated to the most robust "clear all" function
-        llama_kv_cache_clear(ctx);
+        // Use the actual function name found in your llama-h.txt
+        llama_kv_self_free(ctx);
     }
 }
 
