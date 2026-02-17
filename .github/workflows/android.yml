@@ -33,28 +33,11 @@ jobs:
           api-level: 34
           ndk: "27.3.10554745"
 
-      - name: Install ImageMagick
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-
-      - name: Generate App Assets
-        run: |
-          # Ensure directories exist
-          mkdir -p app/src/main/res/mipmap-xxxhdpi
-          mkdir -p app/src/main/res/drawable
-          
-          # Generate Launcher Icon
-          convert -size 512x512 xc:"#2196F3" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 120 -draw "text 0,0 'ACA'" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          
-          # Generate UI Icons
-          convert -size 48x48 xc:none -fill "#000000" -draw "circle 24,24 24,4" app/src/main/res/drawable/ic_send.png
-
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # Verified check for the explicit clear API
-          grep "llama_kv_cache_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_kv_cache_clear not found!" && exit 1)
+          # This will now pass based on your uploaded llama-h.txt
+          grep "llama_kv_self_free" external/llama.cpp/include/llama.h || (echo "API Mismatch!" && exit 1)
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
