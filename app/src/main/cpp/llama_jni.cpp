@@ -85,7 +85,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
     tokens_list.resize(n_tokens_req);
     llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), tokens_list.data(), (int)tokens_list.size(), true, true);
 
-    // Initializing batch for sequence 0
     llama_batch batch = llama_batch_init(512, 0, 1);
     for (size_t i = 0; i < tokens_list.size(); i++) {
         common_batch_add(batch, tokens_list[i], (llama_pos)i, {0}, (i == tokens_list.size() - 1));
@@ -129,11 +128,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // Fix for 'undeclared identifier llama_kv_cache_seq_rm'
-        // In recent llama.cpp versions, llama_kv_cache_clear is the safest way 
-        // to reset the state for a single-sequence chat.
-        llama_kv_cache_clear(ctx);
-        LOGI("KV cache cleared");
+        // Updated to use llama_kv_cache_seq_rm which is widely supported 
+        // in recent llama.cpp versions. -1 for p_last/p_end removes all tokens.
+        llama_kv_cache_seq_rm(ctx, 0, -1, -1);
+        LOGI("KV cache cleared for sequence 0");
     }
 }
 
