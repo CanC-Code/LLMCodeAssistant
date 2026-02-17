@@ -13,7 +13,6 @@ static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
 static std::string system_rules = "";
 
-// Helper to manage batch processing for the current llama.cpp version
 static void common_batch_add(struct llama_batch & batch, llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
     batch.token[batch.n_tokens] = id;
     batch.pos[batch.n_tokens]   = pos;
@@ -42,7 +41,6 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring m
     cparams.n_ctx = n_ctx;
     ctx = llama_init_from_model(model, cparams);
     
-    // Initialize sampler chain for token selection
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
@@ -62,7 +60,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     const struct llama_vocab * vocab = llama_model_get_vocab(model);
     std::string formatted_prompt = system_rules + "\n" + prompt_str;
 
-    // Tokenization logic using the vocab struct
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens_req);
@@ -76,7 +73,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     std::string full_response = "";
     llama_pos n_cur = (llama_pos)tokens_list.size();
     
-    // Generation loop
     for (int i = 0; i < max_tokens; i++) {
         if (llama_decode(ctx, batch)) break;
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
@@ -106,11 +102,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        /*  */
-        // Retrieve the specialized memory handle from the context
-        llama_memory_t mem = llama_get_memory(ctx);
+        // Retrieve the memory handle confirmed in llama-h.txt
+        struct llama_memory * mem = llama_get_memory(ctx);
         if (mem) {
-            // Memory API: Clears all cached tokens across all sequences
+            // Memory API: Clears the entire KV cache state
             llama_memory_clear(mem, true);
         }
     }
