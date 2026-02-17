@@ -50,8 +50,11 @@ jobs:
             echo "ERROR: llama.h not found"
             exit 1
           fi
-          # [span_13](start_span)Verify the specific memory-clearing API from your header[span_13](end_span)
-          grep "llama_get_memory" external/llama.cpp/include/llama.h || (echo "API Mismatch detected!" && exit 1)
+          # [span_3](start_span)Verify specific memory-management API from your header[span_3](end_span)
+          grep "llama_get_memory" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_get_memory not found" && exit 1)
+
+      - name: Make Gradlew Executable
+        run: chmod +x gradlew
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
