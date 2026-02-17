@@ -58,6 +58,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstri
         return JNI_FALSE;
     }
 
+    // Initialize sampler chain
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
@@ -79,6 +80,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 
     std::string formatted_prompt = system_rules + "\nUser: " + prompt_str + "\nAssistant: ";
 
+    // Tokenization
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens_req);
@@ -129,10 +131,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // Correct API for clearing the context/history:
-        // llama_kv_cache_seq_rm(context, sequence_id, p_start, p_end)
-        // -1 for all parameters clears everything.
-        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
+        // FIX: In recent llama.cpp versions, llama_kv_cache_seq_rm was deprecated/changed.
+        // Use llama_kv_cache_clear to wipe the entire context memory.
+        llama_kv_cache_clear(ctx);
     }
 }
 
