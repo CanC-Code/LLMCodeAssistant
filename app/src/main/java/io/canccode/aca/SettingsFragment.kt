@@ -189,7 +189,7 @@ class SettingsFragment : Fragment() {
     suspend fun initModel(file: File) {
         withContext(Dispatchers.IO) {
             LlamaBridge.shutdown()
-            val success = LlamaBridge.init(file.absolutePath, 2048)
+            val success = LlamaBridge.init(file.absolutePath, 4096)
 
             withContext(Dispatchers.Main) {
                 progressBar.visibility = View.GONE
