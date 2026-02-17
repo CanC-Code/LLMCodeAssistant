@@ -25,18 +25,17 @@ import java.io.FileOutputStream
 
 class SettingsFragment : Fragment() {
 
-    // Define the interface to communicate with MainActivity
     interface OnSettingsChangedListener {
         fun onThemeChanged(isDarkMode: Boolean)
         fun onModelSelectionChanged(modelFile: File?)
     }
 
     companion object {
-        private const val TAG = "SettingsFragment"
-        const val KEY_MODEL_PATH = "model_path"
+        private const val TAG            = "SettingsFragment"
+        const val PREF_NAME              = "model_prefs"
+        const val KEY_MODEL_PATH         = "model_path"
     }
 
-    // Shared ViewModel — the single source of truth for model state across all fragments
     private val appViewModel: AppViewModel by activityViewModels()
 
     private lateinit var prefs: SharedPreferences
@@ -49,185 +48,186 @@ class SettingsFragment : Fragment() {
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        if (context is OnSettingsChangedListener) {
-            listener = context
-        }
+        if (context is OnSettingsChangedListener) listener = context
     }
 
     private val pickModelLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { handlePickedModelUri(it) }
-    }
+    ) { uri -> uri?.let { handlePickedModelUri(it) } }
 
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        return inflater.inflate(R.layout.fragment_settings, container, false)
-    }
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View? = inflater.inflate(R.layout.fragment_settings, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        prefs = requireContext().getSharedPreferences("model_prefs", Context.MODE_PRIVATE)
-
-        tvStatus = view.findViewById(R.id.tv_model_status)
-        progressBar = view.findViewById(R.id.progress_model)
+        prefs        = requireContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        tvStatus     = view.findViewById(R.id.tv_model_status)
+        progressBar  = view.findViewById(R.id.progress_model)
         btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
-        btnClear = view.findViewById(R.id.btn_clear_model)
+        btnClear     = view.findViewById(R.id.btn_clear_model)
 
         updateStatusText()
 
-        btnPickLocal.setOnClickListener {
-            pickModelLauncher.launch(arrayOf("*/*"))
-        }
-
-        btnClear.setOnClickListener {
-            clearModelSelection()
-        }
+        btnPickLocal.setOnClickListener { pickModelLauncher.launch(arrayOf("*/*")) }
+        btnClear.setOnClickListener    { clearModelSelection() }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Status
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun updateStatusText() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
-        if (path.isNullOrEmpty()) {
-            tvStatus.text = "No model selected"
-        } else {
-            val file = File(path)
-            if (file.exists()) {
-                val sizeMB = file.length() / (1024 * 1024)
-                tvStatus.text = "Model: ${file.name}\nSize: ${sizeMB}MB"
-            } else {
-                tvStatus.text = "Model path set but file not found:\n${file.name}"
+        tvStatus.text = when {
+            path.isNullOrEmpty() -> "No model selected"
+            else -> {
+                val file = File(path)
+                if (file.exists()) {
+                    val sizeMB = file.length() / (1024 * 1024)
+                    "Model: ${file.name}\nSize: ${sizeMB}MB"
+                } else {
+                    prefs.edit().remove(KEY_MODEL_PATH).apply()
+                    "Saved model not found — please re-select"
+                }
             }
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Pick & import
+    // ─────────────────────────────────────────────────────────────────────────
+
     private fun handlePickedModelUri(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val context = context ?: return@launch
+                val ctx = context ?: return@launch
 
-                // Get filename from URI using ContentResolver
-                val filename = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val filename = ctx.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) {
-                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (nameIndex != -1) cursor.getString(nameIndex) else "model.gguf"
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx != -1) cursor.getString(idx) else "model.gguf"
                     } else "model.gguf"
                 } ?: "model.gguf"
 
                 if (!filename.lowercase().endsWith(".gguf")) {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Please select a valid .gguf file", Toast.LENGTH_LONG).show()
+                        Toast.makeText(ctx, "Please select a .gguf file", Toast.LENGTH_LONG).show()
                     }
                     return@launch
                 }
 
                 withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.VISIBLE
+                    progressBar.visibility      = View.VISIBLE
                     progressBar.isIndeterminate = true
-                    btnPickLocal.isEnabled = false
-                    Toast.makeText(context, "Copying model, please wait...", Toast.LENGTH_SHORT).show()
+                    btnPickLocal.isEnabled      = false
+                    tvStatus.text               = "Copying model…"
+                    Toast.makeText(ctx, "Copying model, please wait…", Toast.LENGTH_SHORT).show()
                 }
 
-                // Copy into app's private filesDir so the native layer can open it by path
-                val destFile = File(context.filesDir, filename)
+                val destFile = File(ctx.filesDir, filename)
 
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    // Use ContentResolver to get the real file size for accurate progress
-                    val totalSize = context.contentResolver.openFileDescriptor(uri, "r")?.use {
-                        it.statSize
-                    } ?: -1L
+                ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    val totalSize = ctx.contentResolver.openFileDescriptor(uri, "r")
+                        ?.use { it.statSize } ?: -1L
 
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(64 * 1024)
                         var bytesRead: Int
                         var totalRead = 0L
-
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             totalRead += bytesRead
-
                             if (totalSize > 0) {
-                                val progress = (totalRead * 100 / totalSize).toInt()
+                                val pct = (totalRead * 100 / totalSize).toInt()
                                 withContext(Dispatchers.Main) {
                                     progressBar.isIndeterminate = false
-                                    progressBar.progress = progress
+                                    progressBar.progress        = pct
+                                    tvStatus.text               = "Copying… $pct%"
                                 }
                             }
                         }
                     }
                 }
 
-                Log.i(TAG, "Model copy complete: ${destFile.absolutePath}")
+                Log.i(TAG, "Copy complete: ${destFile.absolutePath}")
 
-                // --- FIX: Actually initialize the LLM after copying ---
                 withContext(Dispatchers.Main) {
                     progressBar.isIndeterminate = true
-                    Toast.makeText(context, "Loading model into memory...", Toast.LENGTH_SHORT).show()
+                    tvStatus.text               = "Loading model into memory…"
                 }
 
-                // Shut down any previously loaded model before loading the new one
-                LlamaBridge.shutdown()
-
-                val success = LlamaBridge.init(destFile.absolutePath, 2048)
-
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnPickLocal.isEnabled = true
-
-                    if (success) {
-                        // Persist the path
-                        prefs.edit().putString(KEY_MODEL_PATH, destFile.absolutePath).apply()
-                        updateStatusText()
-
-                        // Update the shared ViewModel so LLMFragment unlocks immediately
-                        appViewModel.setModelLoaded(destFile.absolutePath)
-
-                        // Notify MainActivity (for any legacy UI updates)
-                        listener?.onModelSelectionChanged(destFile)
-
-                        Toast.makeText(context, "✅ Model ready!", Toast.LENGTH_SHORT).show()
-                    } else {
-                        // Clean up the broken copy so it doesn't appear to be valid next launch
-                        destFile.delete()
-                        Toast.makeText(
-                            context,
-                            "❌ Model failed to load. The file may be corrupt or incompatible.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
+                initModel(destFile)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to copy/init model", e)
+                Log.e(TAG, "Import failed", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
                     btnPickLocal.isEnabled = true
+                    tvStatus.text          = "Import failed: ${e.message}"
                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Model init — also called by MainActivity on cold start
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Shuts down any running model, inits [file], and if successful:
+     *   - persists the absolute path to SharedPreferences
+     *   - updates the shared ViewModel so LLMFragment unlocks
+     *
+     * KEY FIX for "model forgotten on close":
+     * We save the ABSOLUTE PATH of the private-storage copy (inside filesDir).
+     * On every cold start, MainActivity reads this and calls initModel() again,
+     * so the model is always ready without the user having to re-pick it.
+     */
+    suspend fun initModel(file: File) {
+        withContext(Dispatchers.IO) {
+            LlamaBridge.shutdown()
+            val success = LlamaBridge.init(file.absolutePath, 2048)
+
+            withContext(Dispatchers.Main) {
+                progressBar.visibility = View.GONE
+                btnPickLocal.isEnabled = true
+
+                if (success) {
+                    prefs.edit().putString(KEY_MODEL_PATH, file.absolutePath).apply()
+                    appViewModel.setModelLoaded(file.absolutePath)
+                    listener?.onModelSelectionChanged(file)
+                    updateStatusText()
+                    Toast.makeText(context, "✅ Model ready!", Toast.LENGTH_SHORT).show()
+                } else {
+                    file.delete()
+                    tvStatus.text = "Load failed — file may be corrupt or incompatible"
+                    Toast.makeText(
+                        context,
+                        "❌ Model failed to load. File may be corrupt.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Clear
+    // ─────────────────────────────────────────────────────────────────────────
+
     private fun clearModelSelection() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
-        path?.let {
-            val file = File(it)
-            if (file.exists()) file.delete()
-        }
+        path?.let { File(it).delete() }
 
-        // Shut down the native layer cleanly
         LlamaBridge.shutdown()
-
         prefs.edit().remove(KEY_MODEL_PATH).apply()
-        updateStatusText()
 
-        // Clear the shared ViewModel so LLMFragment re-locks
         appViewModel.clearModel()
-
         listener?.onModelSelectionChanged(null)
+        updateStatusText()
         Toast.makeText(requireContext(), "Model cleared", Toast.LENGTH_SHORT).show()
     }
 
