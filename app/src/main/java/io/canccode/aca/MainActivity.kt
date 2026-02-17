@@ -100,7 +100,7 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             LlamaBridge.shutdown()
-            val success = LlamaBridge.init(savedPath, 2048)
+            val success = LlamaBridge.init(savedPath, 4096)
             withContext(Dispatchers.Main) {
                 if (success) {
                     appViewModel.setModelLoaded(savedPath)
