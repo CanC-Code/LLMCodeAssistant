@@ -13,7 +13,7 @@ static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
 static std::string system_rules = "";
 
-// Helper to add tokens to a batch with alignment to your header's llama_batch struct
+[span_1](start_span)// Helper to add tokens to a batch with alignment to your header's llama_batch struct[span_1](end_span)
 static void common_batch_add(struct llama_batch & batch, llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
     batch.token[batch.n_tokens] = id;
     batch.pos[batch.n_tokens]   = pos;
@@ -21,7 +21,7 @@ static void common_batch_add(struct llama_batch & batch, llama_token id, llama_p
     for (size_t i = 0; i < seq_ids.size(); ++i) {
         batch.seq_id[batch.n_tokens][i] = seq_ids[i];
     }
-    batch.logits[batch.n_tokens] = logits;
+    batch.logits[batch.n_tokens] = logits ? 1 : 0;
     batch.n_tokens++;
 }
 
@@ -29,12 +29,12 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
-    
-    // Modern llama.cpp uses no-arg backend init
+
+    [span_2](start_span)// Initializing backend[span_2](end_span)
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
-    model = llama_model_load_from_file(path, mparams);
+    [span_3](start_span)model = llama_model_load_from_file(path, mparams);[span_3](end_span)
 
     if (!model) {
         LOGE("Failed to load model from: %s", path);
@@ -42,11 +42,11 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstri
         return JNI_FALSE;
     }
 
-    llama_context_params cparams = llama_context_default_params();
+    [span_4](start_span)llama_context_params cparams = llama_context_default_params();[span_4](end_span)
     cparams.n_ctx   = n_ctx;
-    cparams.n_batch = 512; // Matches common Android hardware constraints
-    
-    ctx = llama_init_from_model(model, cparams);
+    cparams.n_batch = 512; 
+
+    [span_5](start_span)ctx = llama_init_from_model(model, cparams);[span_5](end_span)
     if (!ctx) {
         LOGE("Failed to initialize context");
         llama_model_free(model);
@@ -55,7 +55,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstri
         return JNI_FALSE;
     }
 
-    // Initialize the sampler chain as per your header's chain logic
+    [span_6](start_span)// Sampler initialization as per llama.h chain logic[span_6](end_span)
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
@@ -73,22 +73,19 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
-    const struct llama_vocab * vocab = llama_model_get_vocab(model);
+    [span_7](start_span)const struct llama_vocab * vocab = llama_model_get_vocab(model);[span_7](end_span)
 
-    // Context construction
     std::string formatted_prompt = system_rules.empty() ? prompt_str : system_rules + "\n" + prompt_str;
 
-    // Tokenize using the vocab pointer (Modern API)
+    [span_8](start_span)// Tokenization using the vocab pointer[span_8](end_span)
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens_req);
     llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), tokens_list.data(), (int)tokens_list.size(), true, true);
 
     std::string full_response = "";
-    // Initialize batch for sequence 0
     llama_batch batch = llama_batch_init(512, 0, 1);
 
-    // Load prompt into batch
     for (size_t i = 0; i < tokens_list.size(); i++) {
         common_batch_add(batch, tokens_list[i], (llama_pos)i, {0}, (i == tokens_list.size() - 1));
     }
@@ -102,13 +99,10 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
             break;
         }
 
-        // Sample the next token
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
-        
-        // Check for End of Generation using vocab pointer
+
         if (llama_vocab_is_eog(vocab, id)) break;
 
-        // Convert token to piece (text)
         char buf[128];
         int n_chars = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
         if (n_chars > 0) {
@@ -119,7 +113,6 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
             env->DeleteLocalRef(jpiece);
         }
 
-        // Prepare batch for next single token
         batch.n_tokens = 0;
         common_batch_add(batch, id, n_cur, {0}, true);
 
@@ -138,12 +131,13 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // PER YOUR LLAMA.H:
-        // llama_kv_cache_seq_rm(ctx, seq_id, p0, p1)
-        // -1 for seq_id = all sequences
-        // 0 for p0 = from start
-        // -1 for p1 = to end
-        llama_kv_cache_seq_rm(ctx, -1, 0, -1);
+        // CORRECTED FOR YOUR LLAMA.H VERSION:
+        [span_9](start_span)// Use llama_get_memory and llama_memory_clear[span_9](end_span)
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem) {
+            // Clearing the memory sequence history
+            llama_memory_clear(mem, true);
+        }
     }
 }
 
@@ -163,12 +157,12 @@ Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv * /*env*/, jobject /*thiz
         sampler = nullptr;
     }
     if (ctx) {
-        llama_free(ctx);
+        [span_10](start_span)llama_free(ctx);[span_10](end_span)
         ctx = nullptr;
     }
     if (model) {
-        llama_model_free(model);
+        [span_11](start_span)llama_model_free(model);[span_11](end_span)
         model = nullptr;
     }
-    llama_backend_free();
+    [span_12](start_span)llama_backend_free();[span_12](end_span)
 }
