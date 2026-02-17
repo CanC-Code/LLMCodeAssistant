@@ -13,6 +13,7 @@ static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
 static std::string system_rules = "";
 
+// Helper to manage batch processing for the current llama.cpp version
 static void common_batch_add(struct llama_batch & batch, llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
     batch.token[batch.n_tokens] = id;
     batch.pos[batch.n_tokens]   = pos;
@@ -28,17 +29,23 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     llama_backend_init();
+
     llama_model_params mparams = llama_model_default_params();
     model = llama_model_load_from_file(path, mparams);
+
     if (!model) {
         env->ReleaseStringUTFChars(model_path, path);
         return JNI_FALSE;
     }
+
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx = n_ctx;
     ctx = llama_init_from_model(model, cparams);
+    
+    // Initialize sampler chain for token selection
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+
     env->ReleaseStringUTFChars(model_path, path);
     return JNI_TRUE;
 }
@@ -46,6 +53,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring m
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstring prompt, jint max_tokens, jobject callback) {
     if (!ctx || !model) return;
+
     jclass callbackClass = env->GetObjectClass(callback);
     jmethodID onTokenMethod = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)V");
     jmethodID onCompleteMethod = env->GetMethodID(callbackClass, "onComplete", "(Ljava/lang/String;)V");
@@ -54,6 +62,7 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
     const struct llama_vocab * vocab = llama_model_get_vocab(model);
     std::string formatted_prompt = system_rules + "\n" + prompt_str;
 
+    // Tokenization logic using the vocab struct
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens_req);
@@ -66,10 +75,13 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 
     std::string full_response = "";
     llama_pos n_cur = (llama_pos)tokens_list.size();
+    
+    // Generation loop
     for (int i = 0; i < max_tokens; i++) {
         if (llama_decode(ctx, batch)) break;
         const llama_token id = llama_sampler_sample(sampler, ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
+
         char buf[128];
         int n_chars = llama_token_to_piece(vocab, id, buf, sizeof(buf), 0, true);
         if (n_chars > 0) {
@@ -79,11 +91,14 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
             env->CallVoidMethod(callback, onTokenMethod, jpiece);
             env->DeleteLocalRef(jpiece);
         }
+
         batch.n_tokens = 0;
         common_batch_add(batch, id, n_cur++, {0}, true);
     }
+
     jstring jfull = env->NewStringUTF(full_response.c_str());
     env->CallVoidMethod(callback, onCompleteMethod, jfull);
+    
     llama_batch_free(batch);
     env->ReleaseStringUTFChars(prompt, prompt_str);
 }
@@ -91,9 +106,13 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // Use llama_get_memory to retrieve the memory handle from context
-        // Then clear it (true = full clear)
-        llama_memory_clear(llama_get_memory(ctx), true);
+        /*  */
+        // Retrieve the specialized memory handle from the context
+        llama_memory_t mem = llama_get_memory(ctx);
+        if (mem) {
+            // Memory API: Clears all cached tokens across all sequences
+            llama_memory_clear(mem, true);
+        }
     }
 }
 
