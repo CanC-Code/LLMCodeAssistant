@@ -15,6 +15,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -35,12 +36,15 @@ class SettingsFragment : Fragment() {
         const val KEY_MODEL_PATH = "model_path"
     }
 
+    // Shared ViewModel — the single source of truth for model state across all fragments
+    private val appViewModel: AppViewModel by activityViewModels()
+
     private lateinit var prefs: SharedPreferences
     private lateinit var tvStatus: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var btnPickLocal: Button
     private lateinit var btnClear: Button
-    
+
     private var listener: OnSettingsChangedListener? = null
 
     override fun onAttach(context: Context) {
@@ -61,7 +65,6 @@ class SettingsFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Ensure fragment_settings.xml exists in your layout resources
         return inflater.inflate(R.layout.fragment_settings, container, false)
     }
 
@@ -123,29 +126,33 @@ class SettingsFragment : Fragment() {
 
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.VISIBLE
-                    progressBar.isIndeterminate = false
-                    progressBar.progress = 0
-                    Toast.makeText(context, "Importing model...", Toast.LENGTH_SHORT).show()
+                    progressBar.isIndeterminate = true
+                    btnPickLocal.isEnabled = false
+                    Toast.makeText(context, "Copying model, please wait...", Toast.LENGTH_SHORT).show()
                 }
 
+                // Copy into app's private filesDir so the native layer can open it by path
                 val destFile = File(context.filesDir, filename)
-                
+
                 context.contentResolver.openInputStream(uri)?.use { input ->
+                    // Use ContentResolver to get the real file size for accurate progress
+                    val totalSize = context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                        it.statSize
+                    } ?: -1L
+
                     FileOutputStream(destFile).use { output ->
                         val buffer = ByteArray(64 * 1024)
                         var bytesRead: Int
                         var totalRead = 0L
-                        // Note: input.available() isn't always reliable for large files
-                        // but serves as a basic progress estimator here
-                        val estimatedSize = input.available().toLong()
 
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             totalRead += bytesRead
-                            
-                            if (estimatedSize > 0) {
-                                val progress = (totalRead * 100 / estimatedSize).toInt()
+
+                            if (totalSize > 0) {
+                                val progress = (totalRead * 100 / totalSize).toInt()
                                 withContext(Dispatchers.Main) {
+                                    progressBar.isIndeterminate = false
                                     progressBar.progress = progress
                                 }
                             }
@@ -153,27 +160,55 @@ class SettingsFragment : Fragment() {
                     }
                 }
 
+                Log.i(TAG, "Model copy complete: ${destFile.absolutePath}")
+
+                // --- FIX: Actually initialize the LLM after copying ---
                 withContext(Dispatchers.Main) {
-                    saveModelPath(destFile)
                     progressBar.isIndeterminate = true
-                    Toast.makeText(context, "Model imported successfully", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Loading model into memory...", Toast.LENGTH_SHORT).show()
+                }
+
+                // Shut down any previously loaded model before loading the new one
+                LlamaBridge.shutdown()
+
+                val success = LlamaBridge.init(destFile.absolutePath, 2048)
+
+                withContext(Dispatchers.Main) {
+                    progressBar.visibility = View.GONE
+                    btnPickLocal.isEnabled = true
+
+                    if (success) {
+                        // Persist the path
+                        prefs.edit().putString(KEY_MODEL_PATH, destFile.absolutePath).apply()
+                        updateStatusText()
+
+                        // Update the shared ViewModel so LLMFragment unlocks immediately
+                        appViewModel.setModelLoaded(destFile.absolutePath)
+
+                        // Notify MainActivity (for any legacy UI updates)
+                        listener?.onModelSelectionChanged(destFile)
+
+                        Toast.makeText(context, "✅ Model ready!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // Clean up the broken copy so it doesn't appear to be valid next launch
+                        destFile.delete()
+                        Toast.makeText(
+                            context,
+                            "❌ Model failed to load. The file may be corrupt or incompatible.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to copy model", e)
+                Log.e(TAG, "Failed to copy/init model", e)
                 withContext(Dispatchers.Main) {
                     progressBar.visibility = View.GONE
+                    btnPickLocal.isEnabled = true
                     Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
-    }
-
-    private fun saveModelPath(file: File) {
-        prefs.edit().putString(KEY_MODEL_PATH, file.absolutePath).apply()
-        updateStatusText()
-        // Notify MainActivity via the interface
-        listener?.onModelSelectionChanged(file)
     }
 
     private fun clearModelSelection() {
@@ -183,20 +218,17 @@ class SettingsFragment : Fragment() {
             if (file.exists()) file.delete()
         }
 
+        // Shut down the native layer cleanly
+        LlamaBridge.shutdown()
+
         prefs.edit().remove(KEY_MODEL_PATH).apply()
         updateStatusText()
-        listener?.onModelSelectionChanged(null)
-        Toast.makeText(requireContext(), "Selection cleared", Toast.LENGTH_SHORT).show()
-    }
 
-    fun onModelInitComplete(success: Boolean) {
-        if (!isAdded) return
-        progressBar.visibility = View.GONE
-        if (success) {
-            Toast.makeText(requireContext(), "Model loaded and ready!", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), "Model initialization failed.", Toast.LENGTH_LONG).show()
-        }
+        // Clear the shared ViewModel so LLMFragment re-locks
+        appViewModel.clearModel()
+
+        listener?.onModelSelectionChanged(null)
+        Toast.makeText(requireContext(), "Model cleared", Toast.LENGTH_SHORT).show()
     }
 
     override fun onDetach() {
