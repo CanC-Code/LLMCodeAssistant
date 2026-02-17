@@ -1,67 +1,65 @@
 package io.canccode.aca
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
+/**
+ * Handles model lifecycle management. 
+ * Refactored to support SAF (Storage Access Framework) instead of downloads.
+ */
 class LLMHandler(private val context: Context) {
 
     private val TAG = "LLMHandler"
-    private val MODEL_NAME = "ggml-alpaca-7b-q4.bin"  // change to your desired GGUF
-    private val MODEL_URL = "https://huggingface.co/ccvo/alpaca-7b-q4/resolve/main/$MODEL_NAME"
-
-    private val modelDir: File by lazy {
-        File(context.filesDir, "models").also { it.mkdirs() }
-    }
-
-    private val modelFile: File by lazy {
-        File(modelDir, MODEL_NAME)
+    
+    // The directory where we will store a temporary copy of the selected GGUF
+    private val modelCacheDir: File by lazy {
+        File(context.cacheDir, "llm_models").also { it.mkdirs() }
     }
 
     /**
-     * Ensures the model file exists locally. Downloads if missing.
+     * Prepares a model selected via SAF for the native layer.
+     * @param uri The URI returned by the Android File Picker.
+     * @return The absolute path to the local copy, or null if failed.
      */
-    fun ensureModelReady() {
-        if (!modelFile.exists()) {
-            Log.i(TAG, "Model file not found, downloading...")
-            downloadModel()
-        } else {
-            Log.i(TAG, "Model file exists: ${modelFile.absolutePath}")
-        }
-
-        // Initialize native LLM bridge
-        LlamaBridge.initNative(modelFile.absolutePath, 512) // 512-context example
-        Log.i(TAG, "Model ready at: ${modelFile.absolutePath}")
-    }
-
-    private fun downloadModel() {
-        var connection: HttpURLConnection? = null
+    fun prepareModelFromUri(uri: Uri): String? {
         try {
-            val url = URL(MODEL_URL)
-            connection = url.openConnection() as HttpURLConnection
-            connection.connectTimeout = 15000
-            connection.readTimeout = 30000
-            connection.requestMethod = "GET"
-            connection.connect()
+            // Create a temporary file name
+            val localFile = File(modelCacheDir, "loaded_model.gguf")
+            
+            Log.i(TAG, "Importing model from URI to: ${localFile.absolutePath}")
 
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                throw Exception("Server returned HTTP ${connection.responseCode} ${connection.responseMessage}")
-            }
-
-            connection.inputStream.use { input ->
-                FileOutputStream(modelFile).use { output ->
+            // Open the SAF stream and copy it to internal storage
+            context.contentResolver.openInputStream(uri).use { input ->
+                if (input == null) return null
+                FileOutputStream(localFile).use { output ->
                     input.copyTo(output)
                 }
             }
-            Log.i(TAG, "Model downloaded successfully")
+
+            Log.i(TAG, "Model import successful.")
+            return localFile.absolutePath
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to download model", e)
-            throw e
-        } finally {
-            connection?.disconnect()
+            Log.e(TAG, "Failed to import model from SAF", e)
+            return null
         }
+    }
+
+    /**
+     * Initializes the LLM with the provided path.
+     */
+    fun initializeModel(path: String, contextSize: Int = 2048): Boolean {
+        Log.i(TAG, "Initializing LlamaBridge with context: $contextSize")
+        return LlamaBridge.init(path, contextSize)
+    }
+
+    /**
+     * Cleans up the cached model to save storage space.
+     */
+    fun clearModelCache() {
+        modelCacheDir.deleteRecursively()
+        Log.i(TAG, "Model cache cleared.")
     }
 }
