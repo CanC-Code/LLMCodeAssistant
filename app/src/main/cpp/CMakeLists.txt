@@ -9,7 +9,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # ----------------------------
 # llama.cpp path
 # ----------------------------
-# This path goes up from app/src/main/cpp to the project root and into external/
 set(LLAMA_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../external/llama.cpp)
 
 if(NOT EXISTS ${LLAMA_ROOT}/CMakeLists.txt)
@@ -21,17 +20,17 @@ endif()
 # ----------------------------
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-# Optimization settings for Android
+# Optimization settings for Android ARM
 set(GGML_USE_CPU ON CACHE BOOL "" FORCE)
-set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_USE_ACCELERATE OFF CACHE BOOL "" FORCE)
-set(GGML_USE_METAL OFF CACHE BOOL "" FORCE)
-set(GGML_USE_VULKAN OFF CACHE BOOL "" FORCE)
-set(GGML_USE_CUDA OFF CACHE BOOL "" FORCE)
+# Most Android devices don't benefit from OpenMP due to thermal throttling
+set(GGML_USE_OPENMP OFF CACHE BOOL "" FORCE) 
 
-# [span_1](start_span)CRITICAL: Disable llamafile to avoid FP16 issues on ARM hardware[span_1](end_span)
+# CRITICAL: Disable llamafile to avoid FP16 issues on ARM hardware
 set(GGML_USE_LLAMAFILE OFF CACHE BOOL "" FORCE)
 set(GGML_USE_CPU_REPACK OFF CACHE BOOL "" FORCE)
+
+# Enable K-Quants for GGUF support (required for Qwen2.5-Coder-3B)
+set(LLAMA_K_QUANTS ON CACHE BOOL "" FORCE)
 
 # Add the llama.cpp directory
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_BINARY_DIR}/llama)
@@ -48,7 +47,7 @@ target_include_directories(llama_jni PRIVATE
     ${LLAMA_ROOT}/include
 )
 
-# [span_2](start_span)Android log library[span_2](end_span)
+# Android log library
 find_library(log-lib log)
 
 target_link_libraries(llama_jni
@@ -56,12 +55,18 @@ target_link_libraries(llama_jni
     ${log-lib}
 )
 
+# Advanced Compiler Flags for Mobile
 target_compile_options(llama_jni PRIVATE
     -Wall
     -Wextra
     -Wpedantic
     -fexceptions
-    $<$<CONFIG:Release>:-O3>
+    $<$<CONFIG:Release>:
+        -O3 
+        -flto 
+        -march=armv8-a+dotprod+crypto
+        -mcpu=generic
+    >
 )
 
 set_target_properties(llama_jni PROPERTIES
