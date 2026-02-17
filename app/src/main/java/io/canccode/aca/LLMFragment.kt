@@ -5,7 +5,7 @@ import android.util.Log
 import android.view.*
 import android.widget.*
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.viewModels
+import androidx.fragment.app.activityViewModels // Changed to activityViewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -13,7 +13,9 @@ import kotlinx.coroutines.launch
 class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     private val TAG = "LLMFragment"
-    private val viewModel: LLMViewModel by viewModels()
+    
+    // USE activityViewModels to share state with the FileBrowser and Editor
+    private val viewModel: AppViewModel by activityViewModels()
 
     private lateinit var chatOutput: TextView
     private lateinit var chatScroll: ScrollView
@@ -27,7 +29,7 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        
+
         chatOutput = view.findViewById(R.id.chatOutput)
         chatScroll = view.findViewById(R.id.chatScroll)
         inputBox = view.findViewById(R.id.inputBox)
@@ -39,56 +41,58 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
         sendBtn.setOnClickListener {
             val prompt = inputBox.text.toString().trim()
             if (prompt.isEmpty()) return@setOnClickListener
-            
-            // Check if model is initialized in the bridge
-            // In a production app, you'd track this state in a Repository
+
+            // FIX: Check the SHARED ViewModel state before attempting inference
+            if (viewModel.isModelLoaded.value != true) {
+                Toast.makeText(context, "A model needs to be selected", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
             executeInference(prompt)
             inputBox.text.clear()
         }
 
         clearBtn.setOnClickListener {
             LlamaBridge.clearHistoryNative()
-            viewModel.clearOutput()
             chatOutput.text = "🤖 Conversation history cleared.\n\n"
         }
     }
 
     private fun setupObservers() {
-        // Observe output for real-time streaming updates
-        viewModel.output.observe(viewLifecycleOwner) { text ->
-            chatOutput.text = text
-            scrollToBottom()
-        }
-
-        // Handle button states
-        viewModel.isGenerating.observe(viewLifecycleOwner) { isGenerating ->
-            sendBtn.isEnabled = !isGenerating
-            inputBox.isEnabled = !isGenerating
-            if (isGenerating) {
-                // Potential for a progress bar here
+        // Observe changes to the prompt if sent from the Editor Fragment
+        viewModel.llmInput.observe(viewLifecycleOwner) { input ->
+            if (!input.isNullOrBlank()) {
+                inputBox.setText(input)
             }
         }
 
-        // Handle errors
-        viewModel.errorMessage.observe(viewLifecycleOwner) { error ->
-            error?.let {
-                Toast.makeText(context, "Error: $it", Toast.LENGTH_SHORT).show()
+        // Observe model loading status to update UI hint
+        viewModel.isModelLoaded.observe(viewLifecycleOwner) { isLoaded ->
+            if (!isLoaded) {
+                chatOutput.append("\n⚠️ System: No model loaded. Please go to File Browser to pick a .gguf file.\n")
             }
         }
     }
 
     private fun executeInference(prompt: String) {
-        viewModel.setGenerating(true)
-        
-        // Append user prompt to the visual log
-        val currentLog = viewModel.output.value ?: ""
-        viewModel.setFullResponse("$currentLog\n👤 You: $prompt\n\n🤖 Assistant: ")
+        // UI Feedback: Disable input
+        sendBtn.isEnabled = false
+        inputBox.isEnabled = false
+
+        // Append user prompt visually
+        chatOutput.append("\n👤 You: $prompt\n\n🤖 Assistant: ")
+        scrollToBottom()
 
         lifecycleScope.launch(Dispatchers.Default) {
             try {
+                // Ensure the bridge is actually called
                 LlamaBridge.generateNative(prompt, 1024, this@LLMFragment)
             } catch (e: Exception) {
-                viewModel.setError(e.message ?: "Inference failed")
+                launch(Dispatchers.Main) {
+                    Toast.makeText(context, "Inference failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    sendBtn.isEnabled = true
+                    inputBox.isEnabled = true
+                }
             }
         }
     }
@@ -96,17 +100,28 @@ class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
     // --- LlamaBridge.GenerateCallback Implementation ---
 
     override fun onToken(piece: String) {
-        // Tokens arrive from C++ background thread
-        viewModel.appendToken(piece)
+        // Update UI on main thread as tokens stream in
+        lifecycleScope.launch(Dispatchers.Main) {
+            chatOutput.append(piece)
+            scrollToBottom()
+        }
     }
 
     override fun onComplete(fullResponse: String) {
-        viewModel.setGenerating(false)
-        viewModel.appendToken("\n\n")
+        lifecycleScope.launch(Dispatchers.Main) {
+            chatOutput.append("\n\n")
+            sendBtn.isEnabled = true
+            inputBox.isEnabled = true
+            scrollToBottom()
+        }
     }
 
     override fun onError(error: String) {
-        viewModel.setError(error)
+        lifecycleScope.launch(Dispatchers.Main) {
+            Toast.makeText(context, "LLM Error: $error", Toast.LENGTH_SHORT).show()
+            sendBtn.isEnabled = true
+            inputBox.isEnabled = true
+        }
     }
 
     private fun scrollToBottom() {
