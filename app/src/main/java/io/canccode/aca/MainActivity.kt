@@ -43,32 +43,32 @@ class MainActivity : AppCompatActivity(),
     private lateinit var llmInputGlobal: EditText
     private lateinit var llmSendGlobal: Button
 
-    private lateinit var modelManager: ModelManager
+    private lateinit var llmHandler: LLMHandler
     private val projectLoader = ProjectLoader(this)
     private var llmInitialized = false
 
     override fun getProjectLoader(): ProjectLoader = projectLoader
 
+    // SAF Picker for the Project Directory
     private val directoryPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { handleProjectLoad(it) }
     }
 
+    // SAF Picker for the GGUF Model File
     private val modelPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { handleModelImport(it) }
+        uri?.let { handleModelImport(uri) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        modelManager = ModelManager(this)
+        llmHandler = LLMHandler(this)
 
         initDrawer()
         initFloatingButton()
         initGlobalLLMInputs()
         setupBackPressed()
-
-        tryAutoInitLLM()
 
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
@@ -77,61 +77,52 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onModelSelectionChanged(modelFile: File?) {
-        if (modelFile != null) {
-            tryAutoInitLLM()
-        } else {
-            lifecycleScope.launch(Dispatchers.IO) {
-                LlamaBridge.shutdownNative()
-                withContext(Dispatchers.Main) {
-                    updateLLMUIState(false, "Model unloaded")
-                }
-            }
-        }
-    }
-
-    override fun onThemeChanged(isDarkMode: Boolean) {
-        // Implement Theme change logic if needed
-    }
-
     private fun handleModelImport(uri: Uri) {
-        lifecycleScope.launch {
-            Toast.makeText(this@MainActivity, "Importing model...", Toast.LENGTH_SHORT).show()
-            val success = modelManager.importModelFromUri(uri) { /* Progress */ }
-            if (success) tryAutoInitLLM()
+        lifecycleScope.launch(Dispatchers.Main) {
+            updateLLMUIState(false, "Importing Model...")
+            
+            val cachedPath = withContext(Dispatchers.IO) {
+                llmHandler.prepareModelFromUri(uri)
+            }
+
+            if (cachedPath != null) {
+                initLLM(cachedPath)
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to import model", Toast.LENGTH_LONG).show()
+                updateLLMUIState(false, "Import Failed")
+            }
         }
     }
 
-    private fun tryAutoInitLLM() {
-        val path = modelManager.getModelPath()
-        if (path.isNullOrBlank()) {
-            updateLLMUIState(false, "No model selected")
-            return
-        }
-
+    private fun initLLM(path: String) {
         lifecycleScope.launch(Dispatchers.IO) {
-            var success = false
-            try {
-                val file = File(path)
-                if (file.exists()) {
-                    LlamaBridge.shutdownNative()
-                    // 4096 context is standard for Qwen/Llama coding models
-                    success = LlamaBridge.initNative(file.absolutePath, 4096)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Init Error", e)
-            }
+            // Free previous model memory before loading new one
+            LlamaBridge.shutdownNative()
+            
+            // Qwen2.5-Coder-3B works best with 2048-4096 context on mobile
+            val success = LlamaBridge.init(path, 2048)
 
             withContext(Dispatchers.Main) {
                 llmInitialized = success
-                updateLLMUIState(success, if (success) "" else "Init failed")
-                
-                val currentFrag = supportFragmentManager.findFragmentById(R.id.fragment_container)
-                if (currentFrag is SettingsFragment) {
-                    currentFrag.onModelInitComplete(success)
+                if (success) {
+                    updateLLMUIState(true, "")
+                    Toast.makeText(this@MainActivity, "Model Loaded Successfully", Toast.LENGTH_SHORT).show()
+                } else {
+                    updateLLMUIState(false, "JNI Load Failed")
                 }
             }
         }
+    }
+
+    /**
+     * SettingsFragment.OnSettingsChangedListener implementations
+     */
+    override fun onModelSelectionChanged(modelFile: File?) {
+        // Handled via SAF picker in this refactored version
+    }
+
+    override fun onThemeChanged(isDarkMode: Boolean) {
+        // Implementation for theme switching
     }
 
     private fun initDrawer() {
@@ -163,26 +154,27 @@ class MainActivity : AppCompatActivity(),
 
     private fun sendToLLM(prompt: String) {
         if (!llmInitialized) {
-            Toast.makeText(this, "Model not ready", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Select a model first", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Run generation in background to prevent UI freeze
         lifecycleScope.launch(Dispatchers.Default) {
             LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
                 override fun onToken(piece: String) {
-                    // Streaming global output isn't implemented in the UI yet, but we could log it
+                    // Log or stream to a specialized Console Fragment here
                 }
 
                 override fun onComplete(fullResponse: String) {
                     runOnUiThread {
-                        Toast.makeText(this@MainActivity, "AI: ${fullResponse.take(100)}...", Toast.LENGTH_LONG).show()
+                        // For global input, we show a snippet. 
+                        // In LLMFragment, we would append to a RecyclerView.
+                        Toast.makeText(this@MainActivity, "Response received", Toast.LENGTH_SHORT).show()
                     }
                 }
 
                 override fun onError(error: String) {
                     runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Error: $error", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "LLM Error: $error", Toast.LENGTH_SHORT).show()
                     }
                 }
             })
@@ -211,6 +203,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun handleProjectLoad(treeUri: Uri) {
+        // Persist access so the user doesn't have to pick the folder every time
         contentResolver.takePersistableUriPermission(
             treeUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -220,6 +213,7 @@ class MainActivity : AppCompatActivity(),
             try {
                 projectLoader.loadProject(treeUri)
                 withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Project Loaded", Toast.LENGTH_SHORT).show()
                     supportFragmentManager.beginTransaction()
                         .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
                         .commit()
@@ -230,12 +224,16 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun updateLLMUIState(isReady: Boolean, reason: String) {
+    private fun updateLLMUIState(isReady: Boolean, status: String) {
         llmInitialized = isReady
         llmSendGlobal.isEnabled = isReady
-        llmInputGlobal.isEnabled = isReady
-        val modelName = if (isReady) modelManager.getModelDisplayName() else "None"
-        llmInputGlobal.hint = if (isReady) "Ask $modelName..." else "Model Not Ready: $reason"
+        llmInputGlobal.isEnabled = true 
+        
+        if (isReady) {
+            llmInputGlobal.hint = "Ask the Assistant..."
+        } else {
+            llmInputGlobal.hint = if (status.isEmpty()) "Select Model via Drawer" else status
+        }
     }
 
     private fun enableDragAndClick(view: View) {
@@ -283,7 +281,6 @@ class MainActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
-        // Ensure native resources are freed
         LlamaBridge.shutdownNative()
     }
 }
