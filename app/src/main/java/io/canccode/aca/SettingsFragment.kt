@@ -1,238 +1,243 @@
 package io.canccode.aca
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
-import android.content.SharedPreferences
-import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
-import android.util.Log
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.ProgressBar
-import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
+import android.text.SpannableStringBuilder
+import android.view.*
+import android.widget.*
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
-class SettingsFragment : Fragment() {
+class LLMFragment : Fragment(), LlamaBridge.GenerateCallback {
 
-    interface OnSettingsChangedListener {
-        fun onThemeChanged(isDarkMode: Boolean)
-        fun onModelSelectionChanged(modelFile: File?)
-    }
+    private val TAG = "LLMFragment"
 
-    companion object {
-        private const val TAG            = "SettingsFragment"
-        const val PREF_NAME              = "model_prefs"
-        const val KEY_MODEL_PATH         = "model_path"
-    }
+    private val viewModel: AppViewModel by activityViewModels()
 
-    private val appViewModel: AppViewModel by activityViewModels()
+    private lateinit var chatOutput: TextView
+    private lateinit var chatScroll: ScrollView
+    private lateinit var inputBox: EditText
+    private lateinit var sendBtn: Button
+    private lateinit var clearBtn: Button
+    private lateinit var typingIndicator: TextView
+    private lateinit var projectBadge: TextView
 
-    private lateinit var prefs: SharedPreferences
-    private lateinit var tvStatus: TextView
-    private lateinit var progressBar: ProgressBar
-    private lateinit var btnPickLocal: Button
-    private lateinit var btnClear: Button
+    // Accumulates the streamed tokens for the current assistant turn
+    private val streamBuffer = StringBuilder()
 
-    private var listener: OnSettingsChangedListener? = null
-
-    override fun onAttach(context: Context) {
-        super.onAttach(context)
-        if (context is OnSettingsChangedListener) listener = context
-    }
-
-    private val pickModelLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { handlePickedModelUri(it) } }
+    // Marker appended to chatOutput so we can replace it as tokens arrive
+    private var streamStartLength = 0
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
-    ): View? = inflater.inflate(R.layout.fragment_settings, container, false)
+    ): View = inflater.inflate(R.layout.fragment_llm, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        prefs        = requireContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        tvStatus     = view.findViewById(R.id.tv_model_status)
-        progressBar  = view.findViewById(R.id.progress_model)
-        btnPickLocal = view.findViewById(R.id.btn_pick_local_model)
-        btnClear     = view.findViewById(R.id.btn_clear_model)
+        chatOutput       = view.findViewById(R.id.chatOutput)
+        chatScroll       = view.findViewById(R.id.chatScroll)
+        inputBox         = view.findViewById(R.id.inputBox)
+        sendBtn          = view.findViewById(R.id.sendBtn)
+        clearBtn         = view.findViewById(R.id.clearBtn)
+        typingIndicator  = view.findViewById(R.id.typingIndicator)
+        projectBadge     = view.findViewById(R.id.projectBadge)
 
-        updateStatusText()
+        // Restore chat history from ViewModel (survives fragment transactions)
+        restoreHistory()
 
-        btnPickLocal.setOnClickListener { pickModelLauncher.launch(arrayOf("*/*")) }
-        btnClear.setOnClickListener    { clearModelSelection() }
+        setupObservers()
+
+        sendBtn.setOnClickListener {
+            val prompt = inputBox.text.toString().trim()
+            if (prompt.isEmpty()) return@setOnClickListener
+            if (viewModel.isModelLoaded.value != true) {
+                Toast.makeText(context, "Load a model first via Settings & Model", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            inputBox.text.clear()
+            submitUserMessage(prompt)
+        }
+
+        clearBtn.setOnClickListener { confirmClear() }
+
+        // Long-press on chat output → copy full text
+        chatOutput.setOnLongClickListener {
+            val text = chatOutput.text.toString()
+            if (text.isNotBlank()) {
+                val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Chat", text))
+                Toast.makeText(context, "Chat copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Status
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── History ────────────────────────────────────────────────────────────────
 
-    private fun updateStatusText() {
-        val path = prefs.getString(KEY_MODEL_PATH, null)
-        tvStatus.text = when {
-            path.isNullOrEmpty() -> "No model selected"
-            else -> {
-                val file = File(path)
-                if (file.exists()) {
-                    val sizeMB = file.length() / (1024 * 1024)
-                    "Model: ${file.name}\nSize: ${sizeMB}MB"
-                } else {
-                    prefs.edit().remove(KEY_MODEL_PATH).apply()
-                    "Saved model not found — please re-select"
-                }
+    private fun restoreHistory() {
+        val history = viewModel.chatHistory.value ?: return
+        if (history.isEmpty()) {
+            chatOutput.text = "🤖 Assistant ready. Ask anything about your project or code.\n\n"
+            return
+        }
+        val sb = SpannableStringBuilder()
+        history.forEach { msg ->
+            when (msg.role) {
+                AppViewModel.ChatMessage.Role.USER ->
+                    sb.append("👤 You: ${msg.text}\n\n")
+                AppViewModel.ChatMessage.Role.ASSISTANT ->
+                    sb.append("🤖 Assistant: ${msg.text}\n\n")
+                AppViewModel.ChatMessage.Role.SYSTEM -> { /* not shown */ }
+            }
+        }
+        chatOutput.text = sb
+        scrollToBottom()
+    }
+
+    // ── Observers ──────────────────────────────────────────────────────────────
+
+    private fun setupObservers() {
+        viewModel.isModelLoaded.observe(viewLifecycleOwner) { loaded ->
+            sendBtn.isEnabled = loaded
+            inputBox.isEnabled = true
+            inputBox.hint = if (loaded) "Ask LLM..." else "Load a model first (Settings & Model)"
+        }
+
+        viewModel.llmInput.observe(viewLifecycleOwner) { input ->
+            if (!input.isNullOrBlank()) inputBox.setText(input)
+        }
+
+        viewModel.projectName.observe(viewLifecycleOwner) { name ->
+            if (name != null) {
+                projectBadge.visibility = View.VISIBLE
+                projectBadge.text = "📁 $name"
+            } else {
+                projectBadge.visibility = View.GONE
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Pick & import
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Sending ────────────────────────────────────────────────────────────────
 
-    private fun handlePickedModelUri(uri: Uri) {
-        lifecycleScope.launch(Dispatchers.IO) {
+    private fun submitUserMessage(userText: String) {
+        // Append to UI immediately
+        chatOutput.append("👤 You: $userText\n\n")
+        scrollToBottom()
+
+        // Persist to ViewModel
+        viewModel.addChatMessage(
+            AppViewModel.ChatMessage(AppViewModel.ChatMessage.Role.USER, userText)
+        )
+
+        // Build the prompt with optional project context prepended
+        val projectFiles = viewModel.projectContext.value ?: emptyMap()
+        val projectName  = viewModel.projectName.value ?: ""
+        val contextBlock = if (projectFiles.isNotEmpty())
+            ProjectContextBuilder.formatForPrompt(projectName, projectFiles)
+        else ""
+
+        // Full prompt sent to the model: context block + user message
+        // The native layer wraps this in ChatML, so we just provide the user turn here.
+        // We prepend project context as extra user context in the message itself when present.
+        val fullPrompt = if (contextBlock.isNotEmpty())
+            "Use the following project context to answer accurately:\n\n$contextBlock\n\nUser question: $userText"
+        else
+            userText
+
+        executeInference(fullPrompt)
+    }
+
+    private fun executeInference(prompt: String) {
+        sendBtn.isEnabled = false
+        inputBox.isEnabled = false
+        typingIndicator.visibility = View.VISIBLE
+
+        // Prepare stream marker
+        streamBuffer.clear()
+        chatOutput.append("🤖 Assistant: ")
+        streamStartLength = chatOutput.text.length
+
+        lifecycleScope.launch(Dispatchers.Default) {
             try {
-                val ctx = context ?: return@launch
-
-                val filename = ctx.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (idx != -1) cursor.getString(idx) else "model.gguf"
-                    } else "model.gguf"
-                } ?: "model.gguf"
-
-                if (!filename.lowercase().endsWith(".gguf")) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(ctx, "Please select a .gguf file", Toast.LENGTH_LONG).show()
-                    }
-                    return@launch
-                }
-
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility      = View.VISIBLE
-                    progressBar.isIndeterminate = true
-                    btnPickLocal.isEnabled      = false
-                    tvStatus.text               = "Copying model…"
-                    Toast.makeText(ctx, "Copying model, please wait…", Toast.LENGTH_SHORT).show()
-                }
-
-                val destFile = File(ctx.filesDir, filename)
-
-                ctx.contentResolver.openInputStream(uri)?.use { input ->
-                    val totalSize = ctx.contentResolver.openFileDescriptor(uri, "r")
-                        ?.use { it.statSize } ?: -1L
-
-                    FileOutputStream(destFile).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        var bytesRead: Int
-                        var totalRead = 0L
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            totalRead += bytesRead
-                            if (totalSize > 0) {
-                                val pct = (totalRead * 100 / totalSize).toInt()
-                                withContext(Dispatchers.Main) {
-                                    progressBar.isIndeterminate = false
-                                    progressBar.progress        = pct
-                                    tvStatus.text               = "Copying… $pct%"
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Log.i(TAG, "Copy complete: ${destFile.absolutePath}")
-
-                withContext(Dispatchers.Main) {
-                    progressBar.isIndeterminate = true
-                    tvStatus.text               = "Loading model into memory…"
-                }
-
-                initModel(destFile)
-
+                LlamaBridge.generateNative(prompt, 1024, this@LLMFragment)
             } catch (e: Exception) {
-                Log.e(TAG, "Import failed", e)
                 withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnPickLocal.isEnabled = true
-                    tvStatus.text          = "Import failed: ${e.message}"
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    chatOutput.append("[Error: ${e.message}]\n\n")
+                    resetInputState()
                 }
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Model init — also called by MainActivity on cold start
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── LlamaBridge.GenerateCallback ──────────────────────────────────────────
 
-    /**
-     * Shuts down any running model, inits [file], and if successful:
-     *   - persists the absolute path to SharedPreferences
-     *   - updates the shared ViewModel so LLMFragment unlocks
-     *
-     * KEY FIX for "model forgotten on close":
-     * We save the ABSOLUTE PATH of the private-storage copy (inside filesDir).
-     * On every cold start, MainActivity reads this and calls initModel() again,
-     * so the model is always ready without the user having to re-pick it.
-     */
-    suspend fun initModel(file: File) {
-        withContext(Dispatchers.IO) {
-            LlamaBridge.shutdown()
-            val success = LlamaBridge.init(file.absolutePath, 2048)
-
-            withContext(Dispatchers.Main) {
-                progressBar.visibility = View.GONE
-                btnPickLocal.isEnabled = true
-
-                if (success) {
-                    prefs.edit().putString(KEY_MODEL_PATH, file.absolutePath).apply()
-                    appViewModel.setModelLoaded(file.absolutePath)
-                    listener?.onModelSelectionChanged(file)
-                    updateStatusText()
-                    Toast.makeText(context, "✅ Model ready!", Toast.LENGTH_SHORT).show()
-                } else {
-                    file.delete()
-                    tvStatus.text = "Load failed — file may be corrupt or incompatible"
-                    Toast.makeText(
-                        context,
-                        "❌ Model failed to load. File may be corrupt.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+    override fun onToken(piece: String) {
+        streamBuffer.append(piece)
+        lifecycleScope.launch(Dispatchers.Main) {
+            // Replace everything after the "🤖 Assistant: " marker with the growing stream
+            val current = chatOutput.text as? SpannableStringBuilder
+                ?: SpannableStringBuilder(chatOutput.text)
+            if (current.length > streamStartLength) {
+                current.delete(streamStartLength, current.length)
             }
+            current.append(streamBuffer)
+            chatOutput.text = current
+            scrollToBottom()
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Clear
-    // ─────────────────────────────────────────────────────────────────────────
+    override fun onComplete(fullResponse: String) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            // Final newline separation
+            chatOutput.append("\n\n")
 
-    private fun clearModelSelection() {
-        val path = prefs.getString(KEY_MODEL_PATH, null)
-        path?.let { File(it).delete() }
+            // Persist complete assistant turn to ViewModel
+            viewModel.addChatMessage(
+                AppViewModel.ChatMessage(AppViewModel.ChatMessage.Role.ASSISTANT, fullResponse)
+            )
 
-        LlamaBridge.shutdown()
-        prefs.edit().remove(KEY_MODEL_PATH).apply()
-
-        appViewModel.clearModel()
-        listener?.onModelSelectionChanged(null)
-        updateStatusText()
-        Toast.makeText(requireContext(), "Model cleared", Toast.LENGTH_SHORT).show()
+            resetInputState()
+            scrollToBottom()
+        }
     }
 
-    override fun onDetach() {
-        super.onDetach()
-        listener = null
+    override fun onError(error: String) {
+        lifecycleScope.launch(Dispatchers.Main) {
+            chatOutput.append("[Error: $error]\n\n")
+            resetInputState()
+            scrollToBottom()
+        }
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+
+    private fun resetInputState() {
+        typingIndicator.visibility = View.GONE
+        sendBtn.isEnabled = viewModel.isModelLoaded.value == true
+        inputBox.isEnabled = true
+    }
+
+    private fun scrollToBottom() {
+        chatScroll.post { chatScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun confirmClear() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Clear conversation?")
+            .setMessage("This will clear the chat display and reset the model's memory of this conversation.")
+            .setPositiveButton("Clear") { _, _ ->
+                LlamaBridge.clearHistory()
+                viewModel.clearChatHistory()
+                chatOutput.text = "🤖 Conversation cleared. Ask anything.\n\n"
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }
