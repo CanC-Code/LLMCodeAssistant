@@ -91,8 +91,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // Correct API for your build to clear the memory contents
-        // llama_get_memory(ctx) retrieves the llama_memory_t object
+        // Use llama_get_memory to retrieve the memory handle from context
+        // Then clear it (true = full clear)
         llama_memory_clear(llama_get_memory(ctx), true);
     }
 }
