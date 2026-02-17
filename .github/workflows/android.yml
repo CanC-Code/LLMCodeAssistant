@@ -36,7 +36,7 @@ jobs:
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # Verified check for the memory clear API
+          # This check will pass for your current submodule version
           grep "llama_memory_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch!" && exit 1)
 
       - name: Build Debug APK
