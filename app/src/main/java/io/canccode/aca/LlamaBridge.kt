@@ -30,16 +30,22 @@ object LlamaBridge {
 
     /**
      * Initializes the model.
-     * @param modelPath Absolute path to the .gguf file.
-     * @param nCtx Context size (e.g., 4096). Note: Large context increases RAM usage.
+     * @param modelPath Absolute path to the .gguf file. 
+     * Note: For SAF, this should be the path to the cached copy in context.cacheDir.
+     * @param nCtx Context size (e.g., 2048 for Qwen2.5-Coder-3B).
      */
-    external fun initNative(modelPath: String, nCtx: Int): Boolean
+    fun init(modelPath: String, nCtx: Int): Boolean {
+        if (modelPath.isEmpty()) {
+            Log.e(TAG, "Model path is empty")
+            return false
+        }
+        return initNative(modelPath, nCtx)
+    }
+
+    private external fun initNative(modelPath: String, nCtx: Int): Boolean
 
     /**
      * Starts inference.
-     * @param prompt The user message.
-     * @param maxTokens Maximum new tokens to generate.
-     * @param callback The interface to receive stream events.
      */
     external fun generateNative(
         prompt: String,
@@ -49,23 +55,16 @@ object LlamaBridge {
 
     /**
      * Updates the system prompt used in the ChatML template.
-     * Pass null or empty string to reset to default.
      */
     external fun setModelRulesNative(rules: String?)
 
     /**
-     * Sets how many previous conversation turns are included in the prompt context.
-     */
-    external fun setMaxHistoryTurnsNative(turns: Int)
-
-    /**
-     * Clears the internal C++ chat history vector.
+     * Clears the internal KV cache and chat history.
      */
     external fun clearHistoryNative()
 
     /**
-     * Frees all native memory (model, context, sampler, and backend).
-     * Should be called in Activity.onDestroy().
+     * Frees all native memory.
      */
     external fun shutdownNative()
 }
