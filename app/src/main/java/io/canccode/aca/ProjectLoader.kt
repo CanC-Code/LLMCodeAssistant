@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
-import java.io.BufferedReader
 
 /**
  * Represents a node in the project tree.
@@ -60,7 +59,7 @@ class ProjectLoader(private val context: Context) {
         )
 
         Log.i(TAG, "Indexing project: $rootName")
-        
+
         // Initial scan of the top-level directory
         traverseDirectory(treeUri, rootDocId, rootNode, "", 0)
     }
@@ -180,6 +179,11 @@ class ProjectLoader(private val context: Context) {
         return context.contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
             ?.use { if (it.moveToFirst()) it.getString(0) else null }
     }
+
+    /**
+     * Alias for saveFile — updates file content via SAF and refreshes the cache.
+     */
+    fun updateFile(path: String, content: String): Boolean = saveFile(path, content)
 
     fun getRootNode(): FileNode = rootNode
 }
