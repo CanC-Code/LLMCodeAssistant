@@ -6,7 +6,7 @@ plugins {
 android {
     namespace 'io.canccode.aca'
     compileSdk 34
-    ndkVersion "27.3.10554745" 
+    ndkVersion "27.3.10554745"
 
     defaultConfig {
         applicationId "io.canccode.aca"
@@ -21,7 +21,9 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17 -O3 -flto -fexceptions -frtti"
-                arguments "-DANDROID_STL=c++_shared", "-DLLAMA_K_QUANTS=ON", "-DCMAKE_BUILD_TYPE=Release"
+                arguments "-DANDROID_STL=c++_shared",
+                          "-DLLAMA_K_QUANTS=ON",
+                          "-DCMAKE_BUILD_TYPE=Release"
             }
         }
     }
