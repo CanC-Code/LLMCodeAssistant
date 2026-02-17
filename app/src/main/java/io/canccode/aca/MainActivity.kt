@@ -1,5 +1,6 @@
 package io.canccode.aca
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -44,17 +45,19 @@ class MainActivity : AppCompatActivity(),
     private lateinit var llmInputGlobal: EditText
     private lateinit var llmSendGlobal: Button
 
-    // Shared ViewModel — the single source of truth for model state
     private val appViewModel: AppViewModel by viewModels()
-
     private val projectLoader = ProjectLoader(this)
 
     override fun getProjectLoader(): ProjectLoader = projectLoader
 
-    // SAF Picker for the Project Directory
-    private val directoryPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let { handleProjectLoad(it) }
-    }
+    // SAF picker for the project directory
+    private val directoryPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let { handleProjectLoad(it) } }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ─────────────────────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +69,9 @@ class MainActivity : AppCompatActivity(),
         setupBackPressed()
         observeViewModel()
 
+        // Auto-reload the last-used model so the user never has to re-pick it
+        autoReloadModel()
+
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, LLMFragment())
@@ -74,51 +80,84 @@ class MainActivity : AppCompatActivity(),
     }
 
     /**
-     * Observe the shared ViewModel to keep the global send bar in sync
-     * with whatever SettingsFragment does.
+     * On every cold start, re-initialise the native context from the persisted
+     * model file in filesDir.  The file itself never leaves app-private storage,
+     * so it always exists until the user explicitly clears it.
      */
+    private fun autoReloadModel() {
+        val prefs      = getSharedPreferences(SettingsFragment.PREF_NAME, Context.MODE_PRIVATE)
+        val savedPath  = prefs.getString(SettingsFragment.KEY_MODEL_PATH, null) ?: return
+        val file       = File(savedPath)
+
+        if (!file.exists()) {
+            Log.w(TAG, "Saved model missing at $savedPath — clearing pref")
+            prefs.edit().remove(SettingsFragment.KEY_MODEL_PATH).apply()
+            return
+        }
+
+        Log.i(TAG, "Auto-reloading model: ${file.name}")
+        llmInputGlobal.hint = "Loading saved model…"
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            LlamaBridge.shutdown()
+            val success = LlamaBridge.init(savedPath, 2048)
+            withContext(Dispatchers.Main) {
+                if (success) {
+                    appViewModel.setModelLoaded(savedPath)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Model restored: ${file.name}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Log.e(TAG, "Auto-reload failed for $savedPath")
+                    prefs.edit().remove(SettingsFragment.KEY_MODEL_PATH).apply()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Saved model could not be loaded — please re-select",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // Do NOT shut down the native layer in onDestroy.
+    // The model file lives in filesDir and the next cold start reloads it.
+    // The OS reclaims the process memory on its own.
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ViewModel observation
+    // ─────────────────────────────────────────────────────────────────────────
+
     private fun observeViewModel() {
         appViewModel.isModelLoaded.observe(this) { isLoaded ->
             llmSendGlobal.isEnabled = isLoaded
-            llmInputGlobal.hint = if (isLoaded) "Ask the Assistant..." else "Select a model first (Settings & Model)"
+            llmInputGlobal.hint = if (isLoaded) "Ask the Assistant…"
+                                  else           "Select a model (Settings & Model)"
         }
     }
 
-    // -------------------------------------------------------------------------
-    // SettingsFragment.OnSettingsChangedListener
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // SettingsFragment callbacks
+    // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Called by SettingsFragment after model init succeeds.
-     * The heavy lifting (LlamaBridge.init + appViewModel.setModelLoaded) is already
-     * done inside SettingsFragment. This callback is kept for any additional
-     * MainActivity-level UI updates that may be needed in the future.
-     */
     override fun onModelSelectionChanged(modelFile: File?) {
-        if (modelFile != null) {
-            Log.i(TAG, "Model selection confirmed: ${modelFile.name}")
-            // ViewModel is already updated by SettingsFragment; nothing extra needed here.
-        } else {
-            Log.i(TAG, "Model cleared")
-            // ViewModel is already cleared by SettingsFragment.
-        }
+        Log.i(TAG, if (modelFile != null) "Model ready: ${modelFile.name}" else "Model cleared")
     }
 
-    override fun onThemeChanged(isDarkMode: Boolean) {
-        // Implementation for theme switching if needed
-    }
+    override fun onThemeChanged(isDarkMode: Boolean) { /* future */ }
 
-    // -------------------------------------------------------------------------
-    // Global LLM input bar (bottom of activity_main layout)
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Global LLM input bar
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun initGlobalLLMInputs() {
         llmInputGlobal = findViewById(R.id.llm_input_global)
-        llmSendGlobal = findViewById(R.id.llm_send_global)
+        llmSendGlobal  = findViewById(R.id.llm_send_global)
 
-        // Start disabled — enabled by ViewModel observer when model is ready
         llmSendGlobal.isEnabled = false
-        llmInputGlobal.hint = "Select a model first (Settings & Model)"
+        llmInputGlobal.hint     = "Select a model (Settings & Model)"
 
         llmSendGlobal.setOnClickListener {
             val prompt = llmInputGlobal.text.toString().trim()
@@ -134,34 +173,33 @@ class MainActivity : AppCompatActivity(),
             Toast.makeText(this, "Select a model first", Toast.LENGTH_SHORT).show()
             return
         }
-
         lifecycleScope.launch(Dispatchers.Default) {
             LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
-                override fun onToken(piece: String) { /* streamed to LLMFragment */ }
-
+                override fun onToken(piece: String) {}
                 override fun onComplete(fullResponse: String) {
                     runOnUiThread {
-                        Toast.makeText(this@MainActivity, "Response received", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Done", Toast.LENGTH_SHORT).show()
                     }
                 }
-
                 override fun onError(error: String) {
                     runOnUiThread {
-                        Toast.makeText(this@MainActivity, "LLM Error: $error", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Error: $error", Toast.LENGTH_SHORT).show()
                     }
                 }
             })
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Navigation
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Navigation drawer
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun initDrawer() {
         drawerLayout = findViewById(R.id.drawer_layout)
-        navView = findViewById(R.id.nav_view)
-        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
+        navView      = findViewById(R.id.nav_view)
+        toggle       = ActionBarDrawerToggle(
+            this, drawerLayout, R.string.drawer_open, R.string.drawer_close
+        )
         drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
         navView.setNavigationItemSelectedListener(this)
@@ -171,21 +209,23 @@ class MainActivity : AppCompatActivity(),
         val fragment = when (item.itemId) {
             R.id.nav_load_project -> { directoryPicker.launch(null); null }
             R.id.nav_file_browser -> FileBrowserFragment.newInstance(projectLoader)
-            R.id.nav_llm -> LLMFragment()
-            R.id.nav_settings -> SettingsFragment()
-            else -> null
+            R.id.nav_llm          -> LLMFragment()
+            R.id.nav_settings     -> SettingsFragment()
+            else                  -> null
         }
-
         fragment?.let {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, it)
                 .addToBackStack(null)
                 .commit()
         }
-
         drawerLayout.closeDrawer(GravityCompat.START)
         return true
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Project loading — builds LLM context from the SAF tree
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun handleProjectLoad(treeUri: Uri) {
         contentResolver.takePersistableUriPermission(
@@ -195,22 +235,44 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // Load the file tree for the browser / editor
                 projectLoader.loadProject(treeUri)
+
+                // Build a flat content map for LLM context injection
+                val (projectName, files) = ProjectContextBuilder.build(this@MainActivity, treeUri)
+
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Project Loaded", Toast.LENGTH_SHORT).show()
+                    appViewModel.setProjectContext(projectName, files)
+
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Project loaded: $projectName (${files.size} files indexed for LLM)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+
                     supportFragmentManager.beginTransaction()
-                        .replace(R.id.fragment_container, FileBrowserFragment.newInstance(projectLoader))
+                        .replace(
+                            R.id.fragment_container,
+                            FileBrowserFragment.newInstance(projectLoader)
+                        )
                         .commit()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Project Load Error", e)
+                Log.e(TAG, "Project load error", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Load failed: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
 
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
     // Floating button
-    // -------------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun initFloatingButton() {
         floatingMenuButton = findViewById(R.id.floatingMenuButton)
@@ -223,7 +285,7 @@ class MainActivity : AppCompatActivity(),
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     dX = v.x - event.rawX; dY = v.y - event.rawY
-                    downX = event.rawX; downY = event.rawY
+                    downX = event.rawX;    downY = event.rawY
                     isDragging = false; true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -251,23 +313,14 @@ class MainActivity : AppCompatActivity(),
     private fun setupBackPressed() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-                    drawerLayout.closeDrawer(GravityCompat.START)
-                } else if (supportFragmentManager.backStackEntryCount > 0) {
-                    supportFragmentManager.popBackStack()
-                } else {
-                    finish()
+                when {
+                    drawerLayout.isDrawerOpen(GravityCompat.START) ->
+                        drawerLayout.closeDrawer(GravityCompat.START)
+                    supportFragmentManager.backStackEntryCount > 0 ->
+                        supportFragmentManager.popBackStack()
+                    else -> finish()
                 }
             }
         })
-    }
-
-    // -------------------------------------------------------------------------
-    // Lifecycle
-    // -------------------------------------------------------------------------
-
-    override fun onDestroy() {
-        super.onDestroy()
-        LlamaBridge.shutdown()
     }
 }
