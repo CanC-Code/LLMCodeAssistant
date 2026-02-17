@@ -3,7 +3,7 @@ package io.canccode.aca
 import android.util.Log
 
 /**
- * JNI Bridge for llama.cpp optimized for Qwen2.5-Coder.
+ * JNI Bridge for llama.cpp.
  * This object manages the lifecycle of the native LLM context.
  */
 object LlamaBridge {
@@ -30,9 +30,8 @@ object LlamaBridge {
 
     /**
      * Initializes the model.
-     * @param modelPath Absolute path to the .gguf file. 
-     * Note: For SAF, this should be the path to the cached copy in context.cacheDir.
-     * @param nCtx Context size (e.g., 2048 for Qwen2.5-Coder-3B).
+     * @param modelPath Absolute path to the .gguf file.
+     * @param nCtx Context size (e.g., 2048).
      */
     fun init(modelPath: String, nCtx: Int): Boolean {
         if (modelPath.isEmpty()) {
@@ -47,24 +46,40 @@ object LlamaBridge {
     /**
      * Starts inference.
      */
-    external fun generateNative(
+    fun generate(prompt: String, maxTokens: Int, callback: GenerateCallback) {
+        generateNative(prompt, maxTokens, callback)
+    }
+
+    private external fun generateNative(
         prompt: String,
         maxTokens: Int,
         callback: GenerateCallback
     )
 
     /**
-     * Updates the system prompt used in the ChatML template.
+     * Updates the system prompt/rules.
      */
-    external fun setModelRulesNative(rules: String?)
+    fun setModelRules(rules: String?) {
+        setModelRulesNative(rules)
+    }
+
+    private external fun setModelRulesNative(rules: String?)
 
     /**
      * Clears the internal KV cache and chat history.
      */
-    external fun clearHistoryNative()
+    fun clearHistory() {
+        clearHistoryNative()
+    }
+
+    private external fun clearHistoryNative()
 
     /**
      * Frees all native memory.
      */
-    external fun shutdownNative()
+    fun shutdown() {
+        shutdownNative()
+    }
+
+    private external fun shutdownNative()
 }
