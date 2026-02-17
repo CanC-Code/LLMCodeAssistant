@@ -31,6 +31,8 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           api-level: 34
+          # Your log specifically mentions a missing NDK. 
+          # Ensure this matches exactly what is in your app/build.gradle
           ndk: "27.3.10554745"
 
       - name: Install ImageMagick
@@ -38,19 +40,22 @@ jobs:
 
       - name: Generate App Icons
         run: |
-          # 
           mkdir -p app/src/main/res/mipmap-xxxhdpi
           convert -size 512x512 xc:"#2196F3" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 120 -draw "text 0,0 'ACA'" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Build Setup
         run: |
-          # Fix the permission denied error (Exit Code 126)
           chmod +x gradlew
-          # Verify the Memory API confirmed in llama-h.txt
-          grep "llama_memory_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch detected!" && exit 1)
+          # Based on your llama-h.txt, llama_memory_clear is the correct modern API
+          grep "llama_memory_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_memory_clear not found!" && exit 1)
 
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          # Pass the NDK path explicitly to Gradle to solve the "NDK not configured" error
+          ./gradlew :app:assembleDebug \
+            -Dandroid.ndkVersion="27.3.10554745" \
+            -Dandroid.ndkDirectory="${ANDROID_HOME}/ndk/27.3.10554745" \
+            --no-daemon --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
