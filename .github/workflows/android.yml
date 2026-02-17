@@ -46,11 +46,39 @@ jobs:
       - name: Generate App Icons
         run: |
           mkdir -p app/src/main/res/mipmap-xxxhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+
+          # Generate base icon
           convert -size 512x512 xc:"#2196F3" \
             -gravity center -fill white \
             -font DejaVu-Sans-Bold -pointsize 120 \
             -draw "text 0,0 'ACA'" \
-            app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            /tmp/ic_launcher_base.png
+
+          # Generate round icon (circle mask)
+          convert -size 512x512 xc:none -fill "#2196F3" \
+            -draw "circle 256,256 256,0" \
+            -gravity center -fill white \
+            -font DejaVu-Sans-Bold -pointsize 120 \
+            -draw "text 0,0 'ACA'" \
+            /tmp/ic_launcher_round_base.png
+
+          # Scale to all densities - ic_launcher
+          convert /tmp/ic_launcher_base.png       -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          convert /tmp/ic_launcher_base.png       -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          convert /tmp/ic_launcher_base.png       -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          convert /tmp/ic_launcher_base.png       -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
+          convert /tmp/ic_launcher_base.png       -resize 48x48   app/src/main/res/mipmap-mdpi/ic_launcher.png
+
+          # Scale to all densities - ic_launcher_round
+          convert /tmp/ic_launcher_round_base.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          convert /tmp/ic_launcher_round_base.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          convert /tmp/ic_launcher_round_base.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+          convert /tmp/ic_launcher_round_base.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+          convert /tmp/ic_launcher_round_base.png -resize 48x48   app/src/main/res/mipmap-mdpi/ic_launcher_round.png
 
       - name: Build Setup
         run: |
