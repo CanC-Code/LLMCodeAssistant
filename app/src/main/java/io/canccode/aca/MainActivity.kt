@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
@@ -29,8 +30,8 @@ interface ProjectProvider {
     fun getProjectLoader(): ProjectLoader
 }
 
-class MainActivity : AppCompatActivity(), 
-    NavigationView.OnNavigationItemSelectedListener, 
+class MainActivity : AppCompatActivity(),
+    NavigationView.OnNavigationItemSelectedListener,
     SettingsFragment.OnSettingsChangedListener,
     ProjectProvider {
 
@@ -43,9 +44,10 @@ class MainActivity : AppCompatActivity(),
     private lateinit var llmInputGlobal: EditText
     private lateinit var llmSendGlobal: Button
 
-    private lateinit var llmHandler: LLMHandler
+    // Shared ViewModel — the single source of truth for model state
+    private val appViewModel: AppViewModel by viewModels()
+
     private val projectLoader = ProjectLoader(this)
-    private var llmInitialized = false
 
     override fun getProjectLoader(): ProjectLoader = projectLoader
 
@@ -54,21 +56,15 @@ class MainActivity : AppCompatActivity(),
         uri?.let { handleProjectLoad(it) }
     }
 
-    // SAF Picker for the GGUF Model File
-    private val modelPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { handleModelImport(uri) }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        llmHandler = LLMHandler(this)
 
         initDrawer()
         initFloatingButton()
         initGlobalLLMInputs()
         setupBackPressed()
+        observeViewModel()
 
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
@@ -77,97 +73,74 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun handleModelImport(uri: Uri) {
-        lifecycleScope.launch(Dispatchers.Main) {
-            updateLLMUIState(false, "Importing Model...")
-            
-            val cachedPath = withContext(Dispatchers.IO) {
-                llmHandler.prepareModelFromUri(uri)
-            }
-
-            if (cachedPath != null) {
-                initLLM(cachedPath)
-            } else {
-                Toast.makeText(this@MainActivity, "Failed to import model", Toast.LENGTH_LONG).show()
-                updateLLMUIState(false, "Import Failed")
-            }
+    /**
+     * Observe the shared ViewModel to keep the global send bar in sync
+     * with whatever SettingsFragment does.
+     */
+    private fun observeViewModel() {
+        appViewModel.isModelLoaded.observe(this) { isLoaded ->
+            llmSendGlobal.isEnabled = isLoaded
+            llmInputGlobal.hint = if (isLoaded) "Ask the Assistant..." else "Select a model first (Settings & Model)"
         }
     }
 
-    private fun initLLM(path: String) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            // Free previous model memory before loading new one
-            LlamaBridge.shutdownNative()
-            
-            // Qwen2.5-Coder-3B works best with 2048-4096 context on mobile
-            val success = LlamaBridge.init(path, 2048)
-
-            withContext(Dispatchers.Main) {
-                llmInitialized = success
-                if (success) {
-                    updateLLMUIState(true, "")
-                    Toast.makeText(this@MainActivity, "Model Loaded Successfully", Toast.LENGTH_SHORT).show()
-                } else {
-                    updateLLMUIState(false, "JNI Load Failed")
-                }
-            }
-        }
-    }
+    // -------------------------------------------------------------------------
+    // SettingsFragment.OnSettingsChangedListener
+    // -------------------------------------------------------------------------
 
     /**
-     * SettingsFragment.OnSettingsChangedListener implementations
+     * Called by SettingsFragment after model init succeeds.
+     * The heavy lifting (LlamaBridge.init + appViewModel.setModelLoaded) is already
+     * done inside SettingsFragment. This callback is kept for any additional
+     * MainActivity-level UI updates that may be needed in the future.
      */
     override fun onModelSelectionChanged(modelFile: File?) {
-        // Handled via SAF picker in this refactored version
+        if (modelFile != null) {
+            Log.i(TAG, "Model selection confirmed: ${modelFile.name}")
+            // ViewModel is already updated by SettingsFragment; nothing extra needed here.
+        } else {
+            Log.i(TAG, "Model cleared")
+            // ViewModel is already cleared by SettingsFragment.
+        }
     }
 
     override fun onThemeChanged(isDarkMode: Boolean) {
-        // Implementation for theme switching
+        // Implementation for theme switching if needed
     }
 
-    private fun initDrawer() {
-        drawerLayout = findViewById(R.id.drawer_layout)
-        navView = findViewById(R.id.nav_view)
-        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
-        drawerLayout.addDrawerListener(toggle)
-        toggle.syncState()
-        navView.setNavigationItemSelectedListener(this)
-    }
-
-    private fun initFloatingButton() {
-        floatingMenuButton = findViewById(R.id.floatingMenuButton)
-        enableDragAndClick(floatingMenuButton)
-    }
+    // -------------------------------------------------------------------------
+    // Global LLM input bar (bottom of activity_main layout)
+    // -------------------------------------------------------------------------
 
     private fun initGlobalLLMInputs() {
         llmInputGlobal = findViewById(R.id.llm_input_global)
         llmSendGlobal = findViewById(R.id.llm_send_global)
 
+        // Start disabled — enabled by ViewModel observer when model is ready
+        llmSendGlobal.isEnabled = false
+        llmInputGlobal.hint = "Select a model first (Settings & Model)"
+
         llmSendGlobal.setOnClickListener {
             val prompt = llmInputGlobal.text.toString().trim()
             if (prompt.isNotEmpty()) {
-                sendToLLM(prompt)
+                sendToLLMGlobal(prompt)
                 llmInputGlobal.text.clear()
             }
         }
     }
 
-    private fun sendToLLM(prompt: String) {
-        if (!llmInitialized) {
+    private fun sendToLLMGlobal(prompt: String) {
+        if (appViewModel.isModelLoaded.value != true) {
             Toast.makeText(this, "Select a model first", Toast.LENGTH_SHORT).show()
             return
         }
 
         lifecycleScope.launch(Dispatchers.Default) {
             LlamaBridge.generateNative(prompt, 512, object : LlamaBridge.GenerateCallback {
-                override fun onToken(piece: String) {
-                    // Log or stream to a specialized Console Fragment here
-                }
+                override fun onToken(piece: String) { /* streamed to LLMFragment */ }
 
                 override fun onComplete(fullResponse: String) {
                     runOnUiThread {
-                        // For global input, we show a snippet. 
-                        // In LLMFragment, we would append to a RecyclerView.
                         Toast.makeText(this@MainActivity, "Response received", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -181,10 +154,22 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Navigation
+    // -------------------------------------------------------------------------
+
+    private fun initDrawer() {
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navView = findViewById(R.id.nav_view)
+        toggle = ActionBarDrawerToggle(this, drawerLayout, R.string.drawer_open, R.string.drawer_close)
+        drawerLayout.addDrawerListener(toggle)
+        toggle.syncState()
+        navView.setNavigationItemSelectedListener(this)
+    }
+
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val fragment = when (item.itemId) {
             R.id.nav_load_project -> { directoryPicker.launch(null); null }
-            R.id.nav_load_model -> { modelPicker.launch(arrayOf("*/*")); null }
             R.id.nav_file_browser -> FileBrowserFragment.newInstance(projectLoader)
             R.id.nav_llm -> LLMFragment()
             R.id.nav_settings -> SettingsFragment()
@@ -203,7 +188,6 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun handleProjectLoad(treeUri: Uri) {
-        // Persist access so the user doesn't have to pick the folder every time
         contentResolver.takePersistableUriPermission(
             treeUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -224,16 +208,13 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    private fun updateLLMUIState(isReady: Boolean, status: String) {
-        llmInitialized = isReady
-        llmSendGlobal.isEnabled = isReady
-        llmInputGlobal.isEnabled = true 
-        
-        if (isReady) {
-            llmInputGlobal.hint = "Ask the Assistant..."
-        } else {
-            llmInputGlobal.hint = if (status.isEmpty()) "Select Model via Drawer" else status
-        }
+    // -------------------------------------------------------------------------
+    // Floating button
+    // -------------------------------------------------------------------------
+
+    private fun initFloatingButton() {
+        floatingMenuButton = findViewById(R.id.floatingMenuButton)
+        enableDragAndClick(floatingMenuButton)
     }
 
     private fun enableDragAndClick(view: View) {
@@ -254,8 +235,10 @@ class MainActivity : AppCompatActivity(),
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!isDragging) {
-                        if (drawerLayout.isDrawerOpen(GravityCompat.START)) drawerLayout.closeDrawer(GravityCompat.START)
-                        else drawerLayout.openDrawer(GravityCompat.START)
+                        if (drawerLayout.isDrawerOpen(GravityCompat.START))
+                            drawerLayout.closeDrawer(GravityCompat.START)
+                        else
+                            drawerLayout.openDrawer(GravityCompat.START)
                         v.performClick()
                     }
                     true
@@ -279,8 +262,12 @@ class MainActivity : AppCompatActivity(),
         })
     }
 
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
+
     override fun onDestroy() {
         super.onDestroy()
-        LlamaBridge.shutdownNative()
+        LlamaBridge.shutdown()
     }
 }
