@@ -25,7 +25,7 @@ static void common_batch_add(struct llama_batch & batch, llama_token id, llama_p
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx) {
+Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstring model_path, jint n_ctx) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     llama_backend_init();
 
@@ -57,7 +57,7 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject thiz, jstring m
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstring prompt, jint max_tokens, jobject callback) {
+Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, jstring prompt, jint max_tokens, jobject callback) {
     if (!ctx || !model) {
         LOGE("generateNative called but model/ctx is null");
         return;
@@ -118,9 +118,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
+Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        struct llama_memory * mem = llama_get_memory(ctx);
+        llama_memory_t mem = llama_get_memory(ctx);
         if (mem) {
             llama_memory_clear(mem, true);
         }
@@ -128,14 +128,14 @@ Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_setModelRulesNative(JNIEnv *env, jobject thiz, jstring rules) {
+Java_io_canccode_aca_LlamaBridge_setModelRulesNative(JNIEnv *env, jobject /*thiz*/, jstring rules) {
     const char *rules_str = env->GetStringUTFChars(rules, nullptr);
     system_rules = std::string(rules_str);
     env->ReleaseStringUTFChars(rules, rules_str);
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv *env, jobject thiz) {
+Java_io_canccode_aca_LlamaBridge_shutdownNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (sampler) { llama_sampler_free(sampler); sampler = nullptr; }
     if (ctx)     { llama_free(ctx);             ctx     = nullptr; }
     if (model)   { llama_model_free(model);     model   = nullptr; }
