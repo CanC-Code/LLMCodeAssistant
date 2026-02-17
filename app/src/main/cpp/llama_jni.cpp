@@ -128,9 +128,12 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // llama_kv_cache_seq_rm was renamed to llama_kv_self_seq_rm in newer llama.cpp versions.
-        // -1 for p0/p1 removes all tokens from sequence 0.
-        llama_kv_self_seq_rm(ctx, 0, -1, -1);
+        // The KV cache API has been replaced by the Memory API in recent llama.cpp.
+        // llama_kv_cache_seq_rm -> llama_kv_self_seq_rm -> llama_memory_seq_rm
+        // llama_memory_seq_rm takes a llama_memory_t (obtained via llama_get_memory)
+        // rather than a llama_context* directly.
+        llama_memory_t mem = llama_get_memory(ctx);
+        llama_memory_seq_rm(mem, 0, -1, -1);
         LOGI("KV cache cleared for sequence 0");
     }
 }
