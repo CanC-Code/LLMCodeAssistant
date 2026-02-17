@@ -11,8 +11,32 @@
 static llama_model * model = nullptr;
 static llama_context * ctx = nullptr;
 static llama_sampler * sampler = nullptr;
-
 static std::string system_rules = "";
+
+// --- Manual Batch Helpers for Modern llama.cpp ---
+
+/**
+ * Manually adds a token to the llama_batch struct.
+ * This replaces the undeclared 'llama_batch_add'.
+ */
+static void common_batch_add(struct llama_batch & batch, llama_token id, int32_t pos, const std::vector<llama_seq_id> & seq_ids, bool logits) {
+    batch.token[batch.n_tokens] = id;
+    batch.pos[batch.n_tokens]   = pos;
+    batch.n_seq_id[batch.n_tokens] = seq_ids.size();
+    for (size_t i = 0; i < seq_ids.size(); ++i) {
+        batch.seq_id[batch.n_tokens][i] = seq_ids[i];
+    }
+    batch.logits[batch.n_tokens] = logits;
+    batch.n_tokens++;
+}
+
+/**
+ * Resets the token count for the next decode pass.
+ * This replaces the undeclared 'llama_batch_clear'.
+ */
+static void common_batch_clear(struct llama_batch & batch) {
+    batch.n_tokens = 0;
+}
 
 extern "C"
 JNIEXPORT jboolean JNICALL
@@ -33,17 +57,15 @@ Java_io_canccode_aca_LlamaBridge_initNative(JNIEnv *env, jobject /*thiz*/, jstri
     cparams.n_ctx = n_ctx;
     cparams.n_batch = 512;
     cparams.n_threads = 4;
-    
+
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
-        LOGE("Failed to initialize context");
         llama_model_free(model);
         model = nullptr;
         env->ReleaseStringUTFChars(model_path, path);
         return JNI_FALSE;
     }
 
-    // Modern Sampler initialization
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
@@ -62,21 +84,21 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
 
     const char *prompt_str = env->GetStringUTFChars(prompt, nullptr);
     const struct llama_vocab * vocab = llama_model_get_vocab(model);
-    
-    // Formatting for Qwen2.5-Coder style
+
     std::string formatted_prompt = system_rules + "\nUser: " + prompt_str + "\nAssistant: ";
 
-    // Modern Tokenization
     std::vector<llama_token> tokens_list;
     int n_tokens_req = -llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), NULL, 0, true, true);
     tokens_list.resize(n_tokens_req);
     llama_tokenize(vocab, formatted_prompt.c_str(), (int)formatted_prompt.length(), tokens_list.data(), (int)tokens_list.size(), true, true);
 
     std::string full_response = "";
+    // Initialize batch for max possible tokens in a single decode
     llama_batch batch = llama_batch_init(512, 0, 1);
 
+    // Initial prompt ingestion
     for (size_t i = 0; i < tokens_list.size(); i++) {
-        llama_batch_add(batch, tokens_list[i], i, {0}, (i == tokens_list.size() - 1));
+        common_batch_add(batch, tokens_list[i], i, {0}, (i == tokens_list.size() - 1));
     }
 
     int n_cur = (int)tokens_list.size();
@@ -99,8 +121,9 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject /*thiz*/, j
             env->DeleteLocalRef(jpiece);
         }
 
-        llama_batch_clear(batch);
-        llama_batch_add(batch, id, n_cur, {0}, true);
+        // Prepare batch for next single token
+        common_batch_clear(batch);
+        common_batch_add(batch, id, n_cur, {0}, true);
 
         n_cur++;
         n_decode++;
@@ -117,8 +140,8 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv * /*env*/, jobject /*thiz*/) {
     if (ctx) {
-        // Modern API fix for llama_kv_cache_clear
-        llama_kv_cache_seq_rm(ctx, -1, -1, -1);
+        // Modern approach to clear the entire KV cache
+        llama_kv_cache_clear(ctx);
     }
 }
 
