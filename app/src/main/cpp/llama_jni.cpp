@@ -91,10 +91,8 @@ Java_io_canccode_aca_LlamaBridge_generateNative(JNIEnv *env, jobject thiz, jstri
 extern "C" JNIEXPORT void JNICALL
 Java_io_canccode_aca_LlamaBridge_clearHistoryNative(JNIEnv *env, jobject thiz) {
     if (ctx) {
-        // 
-        // Based on your llama.h version, use llama_kv_cache_tokens_rm
-        // Sequence -1 (all), from 0 to -1 (end) clears everything.
-        llama_kv_cache_tokens_rm(ctx, 0, -1);
+        // Aligned with the exact API in your llama-h.txt
+        llama_kv_cache_clear(ctx);
     }
 }
 
