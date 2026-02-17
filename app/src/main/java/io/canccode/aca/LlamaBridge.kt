@@ -30,8 +30,6 @@ object LlamaBridge {
 
     /**
      * Initializes the model.
-     * @param modelPath Absolute path to the .gguf file.
-     * @param nCtx Context size (e.g., 2048).
      */
     fun init(modelPath: String, nCtx: Int): Boolean {
         if (modelPath.isEmpty()) {
@@ -44,13 +42,16 @@ object LlamaBridge {
     private external fun initNative(modelPath: String, nCtx: Int): Boolean
 
     /**
-     * Starts inference.
+     * Starts inference. 
+     * CHANGED: Renamed from generateNative to generate to match your Fragment calls, 
+     * or keep as public so Fragment can see it.
      */
     fun generate(prompt: String, maxTokens: Int, callback: GenerateCallback) {
         generateNative(prompt, maxTokens, callback)
     }
 
-    private external fun generateNative(
+    // Keep this public if your Fragments are explicitly calling "generateNative"
+    external fun generateNative(
         prompt: String,
         maxTokens: Int,
         callback: GenerateCallback
@@ -63,7 +64,7 @@ object LlamaBridge {
         setModelRulesNative(rules)
     }
 
-    private external fun setModelRulesNative(rules: String?)
+    external fun setModelRulesNative(rules: String?)
 
     /**
      * Clears the internal KV cache and chat history.
@@ -72,7 +73,7 @@ object LlamaBridge {
         clearHistoryNative()
     }
 
-    private external fun clearHistoryNative()
+    external fun clearHistoryNative()
 
     /**
      * Frees all native memory.
@@ -81,5 +82,5 @@ object LlamaBridge {
         shutdownNative()
     }
 
-    private external fun shutdownNative()
+    external fun shutdownNative()
 }
