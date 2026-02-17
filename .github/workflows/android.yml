@@ -40,18 +40,21 @@ jobs:
 
       - name: Generate App Assets
         run: |
-          for res in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p app/src/main/res/mipmap-$res
-          done
-          convert -size 512x512 xc:"#1e1e1e" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 150 -draw "text 0,0 'LLM'" /tmp/icon_base.png
-          convert /tmp/icon_base.png -resize 48x48   app/src/main/res/mipmap-mdpi/ic_launcher.png
-          convert /tmp/icon_base.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          # Ensure directories exist
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          mkdir -p app/src/main/res/drawable
+          
+          # Generate Launcher Icon
+          convert -size 512x512 xc:"#2196F3" -gravity center -fill white -font DejaVu-Sans-Bold -pointsize 120 -draw "text 0,0 'ACA'" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          
+          # Generate UI Icons
+          convert -size 48x48 xc:none -fill "#000000" -draw "circle 24,24 24,4" app/src/main/res/drawable/ic_send.png
 
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # Updated check for the sequence removal API
-          grep "llama_kv_cache_seq_rm" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_kv_cache_seq_rm not found!" && exit 1)
+          # Verified check for the explicit clear API
+          grep "llama_kv_cache_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_kv_cache_clear not found!" && exit 1)
 
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
