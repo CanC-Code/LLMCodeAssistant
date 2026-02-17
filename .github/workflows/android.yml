@@ -29,11 +29,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          api-level: 34
-          # Your log specifically mentions a missing NDK. 
-          # Ensure this matches exactly what is in your app/build.gradle
-          ndk: "27.3.10554745"
+
+      - name: Install NDK 25.1.8937393 explicitly
+        run: |
+          sdkmanager "ndk;25.1.8937393"
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/25.1.8937393" >> $GITHUB_ENV
 
       - name: Install ImageMagick
         run: sudo apt-get update && sudo apt-get install -y imagemagick
@@ -46,15 +46,13 @@ jobs:
       - name: Build Setup
         run: |
           chmod +x gradlew
-          # Based on your llama-h.txt, llama_memory_clear is the correct modern API
           grep "llama_memory_clear" external/llama.cpp/include/llama.h || (echo "API Mismatch: llama_memory_clear not found!" && exit 1)
 
       - name: Build Debug APK
         run: |
-          # Pass the NDK path explicitly to Gradle to solve the "NDK not configured" error
           ./gradlew :app:assembleDebug \
-            -Dandroid.ndkVersion="27.3.10554745" \
-            -Dandroid.ndkDirectory="${ANDROID_HOME}/ndk/27.3.10554745" \
+            -Pandroid.ndkVersion="25.1.8937393" \
+            -Pandroid.ndkDirectory="${ANDROID_HOME}/ndk/25.1.8937393" \
             --no-daemon --stacktrace
 
       - name: Upload Debug APK
