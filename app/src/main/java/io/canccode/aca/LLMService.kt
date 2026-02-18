@@ -16,38 +16,44 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 
 /**
- * Foreground Service that keeps the LLM inference thread alive regardless of:
+ * Foreground Service that keeps the LLM inference coroutine alive regardless of:
  *   - Screen lock / display off
  *   - App being moved to background
  *   - System attempting to pause the process
  *
  * Architecture:
  *   Activities/Fragments bind to this service and submit inference jobs.
- *   The service runs its own CoroutineScope (SupervisorJob) so cancellation of
- *   the UI does not cancel the inference.
+ *   The service runs its own CoroutineScope (SupervisorJob) so cancellation
+ *   of UI lifecycles does NOT cancel in-flight inference.
  *
- * Lifecycle:
- *   - Started when the model is first loaded (MainActivity.autoReloadModel)
- *   - Stays alive until the user explicitly clears the model
- *   - Stopped in onDestroy only if not currently generating
+ * Android 14+ (API 34) requirements for specialUse foreground services:
+ *   1. AndroidManifest: foregroundServiceType="specialUse"
+ *   2. AndroidManifest: FOREGROUND_SERVICE_SPECIAL_USE permission
+ *   3. AndroidManifest: PROPERTY_SPECIAL_USE_FGS_SUBTYPE property in <service>
+ *   4. Code: startForeground(id, notification, FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+ *      on API 34+  ← this file handles #4.
+ *
+ * The type passed to startForeground() MUST match the manifest declaration.
+ * Mismatching causes InvalidForegroundServiceTypeException (immediate crash).
  */
 class LlmService : Service() {
 
     companion object {
-        private const val TAG              = "LlmService"
-        private const val CHANNEL_ID       = "llm_inference"
-        private const val NOTIF_ID         = 1001
-        const val ACTION_STOP              = "io.canccode.aca.STOP_SERVICE"
+        private const val TAG        = "LlmService"
+        private const val CHANNEL_ID = "llm_inference"
+        private const val NOTIF_ID   = 1001
+        const val ACTION_STOP        = "io.canccode.aca.STOP_SERVICE"
 
-        /** Convenience: start service and bind in one call. */
+        /** Returns an Intent that starts this service. Use with startService() + bindService(). */
         fun startAndBind(context: Context): Intent =
             Intent(context, LlmService::class.java)
     }
 
-    // Own scope — outlives any Fragment/Activity lifecycle
+    /** SupervisorJob: one failed coroutine does not cancel siblings. */
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private var isGenerating = false
+    /** Volatile so reads from the UI thread see writes from the coroutine thread. */
+    @Volatile private var isGenerating = false
 
     // ── Binder ────────────────────────────────────────────────────────────────
 
@@ -65,9 +71,8 @@ class LlmService : Service() {
         super.onCreate()
         createNotificationChannel()
 
-        // On Android 14+ (API 34+), startForeground() MUST declare the service type
-        // that matches the foregroundServiceType in AndroidManifest.xml.
-        // Omitting this on API 34+ causes a ForegroundServiceStartNotAllowedException.
+        // API 34 (UPSIDE_DOWN_CAKE) requires the service type to be specified
+        // explicitly. The type MUST be SPECIAL_USE to match AndroidManifest.xml.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIF_ID,
@@ -82,10 +87,9 @@ class LlmService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-        }
-        return START_STICKY   // Restart automatically if killed by OS
+        if (intent?.action == ACTION_STOP) stopSelf()
+        // START_STICKY: if the OS kills the service, restart it with a null intent
+        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -97,9 +101,9 @@ class LlmService : Service() {
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Submit a generation request.
-     * The [callback] is invoked from a background thread — callers must
-     * dispatch UI updates themselves (e.g. with lifecycleScope.launch(Main)).
+     * Submits a generation request to the service's coroutine scope.
+     * [callback] is invoked from a background thread — callers must dispatch
+     * UI updates to the main thread themselves (e.g. runOnUiThread / lifecycleScope).
      */
     fun generate(prompt: String, maxTokens: Int, callback: LlamaBridge.GenerateCallback) {
         if (isGenerating) {
@@ -115,7 +119,7 @@ class LlmService : Service() {
                 LlamaBridge.generateNative(prompt, maxTokens, callback)
             } catch (e: Exception) {
                 Log.e(TAG, "Inference error", e)
-                callback.onError(e.message ?: "Unknown error")
+                callback.onError(e.message ?: "Unknown inference error")
             } finally {
                 isGenerating = false
                 updateNotification("Idle — model ready")
@@ -132,7 +136,7 @@ class LlmService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "LLM Inference",
-                NotificationManager.IMPORTANCE_LOW      // Silent — no sound/vibration
+                NotificationManager.IMPORTANCE_LOW   // Silent — no sound/vibration
             ).apply {
                 description = "Keeps the LLM running when the screen is off"
                 setShowBadge(false)
@@ -169,7 +173,7 @@ class LlmService : Service() {
     }
 
     private fun updateNotification(status: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIF_ID, buildNotification(status))
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIF_ID, buildNotification(status))
     }
 }
