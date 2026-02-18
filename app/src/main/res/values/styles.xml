@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Base application theme - Use AppCompat, NOT Material3 -->
+    <!--
+        Base application theme.
+        Name MUST exactly match android:theme in AndroidManifest.xml.
+        Parent uses AppCompat (NOT Material3) for full compatibility with
+        all AppCompat widgets and DrawerLayout used in this project.
+    -->
     <style name="Theme.LLMCodeAssistant" parent="Theme.AppCompat.Light.DarkActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryVariant</item>
         <item name="colorAccent">@color/colorSecondary</item>
-        
         <item name="android:statusBarColor">@color/colorPrimaryVariant</item>
     </style>
 
-    <!-- Editor text style -->
+    <!-- Monospace text style for the code editor -->
     <style name="CodeEditorText">
         <item name="android:textColor">@color/colorOnSurface</item>
         <item name="android:textSize">14sp</item>
         <item name="android:typeface">monospace</item>
     </style>
 
-    <!-- Console output -->
+    <!-- Monospace text style for the output console -->
     <style name="ConsoleText">
         <item name="android:textColor">@color/colorOnSurface</item>
         <item name="android:textSize">13sp</item>
