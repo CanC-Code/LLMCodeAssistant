@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -63,7 +64,20 @@ class LlmService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification("Idle — model ready"))
+
+        // On Android 14+ (API 34+), startForeground() MUST declare the service type
+        // that matches the foregroundServiceType in AndroidManifest.xml.
+        // Omitting this on API 34+ causes a ForegroundServiceStartNotAllowedException.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIF_ID,
+                buildNotification("Idle — model ready"),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIF_ID, buildNotification("Idle — model ready"))
+        }
+
         Log.i(TAG, "LlmService created")
     }
 
