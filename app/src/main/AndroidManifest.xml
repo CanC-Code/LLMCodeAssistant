@@ -8,9 +8,15 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
-    <!-- Required for the LlmService foreground service (keeps inference alive when screen is off) -->
+    <!-- Required for all foreground services -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Required on API 34+ when foregroundServiceType="specialUse".
+        Without this the OS throws SecurityException on startForeground().
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="true"
@@ -18,7 +24,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.DarkActionBar"
+        android:theme="@style/Theme.LLMCodeAssistant"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="true">
 
@@ -34,16 +40,25 @@
         </activity>
 
         <!--
-            LlmService — foreground service that keeps the inference coroutine alive
+            LlmService — foreground service that keeps the LLM inference coroutine alive
             when the screen is off or the app is backgrounded.
 
-            android:foregroundServiceType="dataProcessing" is required on Android 14+
-            for long-running CPU computation tasks.
+            foregroundServiceType="specialUse" is the correct type for long-running
+            on-device CPU computation (LLM inference) that does not fit standard categories.
+            It requires:
+              1. FOREGROUND_SERVICE_SPECIAL_USE permission (declared above)
+              2. The PROPERTY_SPECIAL_USE_FGS_SUBTYPE property below (required by Play Store)
+              3. ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE passed to startForeground()
+                 on API 34+ (handled in LlmService.kt)
         -->
         <service
             android:name=".LlmService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-device LLM inference — keeps AI model active during background use" />
+        </service>
 
     </application>
 
