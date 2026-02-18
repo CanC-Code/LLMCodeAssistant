@@ -54,7 +54,7 @@ class FileTreeAdapter(
         private val icon: ImageView = itemView.findViewById(R.id.fileIcon)
         private val name: TextView  = itemView.findViewById(R.id.fileName)
 
-        fun bind(node: TreeNode) {
+        internal fun bind(node: TreeNode) {
             name.text = node.file.name
 
             itemView.setPadding(
