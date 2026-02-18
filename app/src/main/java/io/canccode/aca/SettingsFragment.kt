@@ -31,9 +31,9 @@ class SettingsFragment : Fragment() {
     }
 
     companion object {
-        private const val TAG            = "SettingsFragment"
-        const val PREF_NAME              = "model_prefs"
-        const val KEY_MODEL_PATH         = "model_path"
+        private const val TAG        = "SettingsFragment"
+        const val PREF_NAME          = "model_prefs"
+        const val KEY_MODEL_PATH     = "model_path"
     }
 
     private val appViewModel: AppViewModel by activityViewModels()
@@ -74,10 +74,6 @@ class SettingsFragment : Fragment() {
         btnClear.setOnClickListener    { clearModelSelection() }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Status
-    // ─────────────────────────────────────────────────────────────────────────
-
     private fun updateStatusText() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
         tvStatus.text = when {
@@ -86,7 +82,7 @@ class SettingsFragment : Fragment() {
                 val file = File(path)
                 if (file.exists()) {
                     val sizeMB = file.length() / (1024 * 1024)
-                    "Model: ${file.name}\nSize: ${sizeMB}MB"
+                    "✅ Model: ${file.name}\nSize: ${sizeMB}MB"
                 } else {
                     prefs.edit().remove(KEY_MODEL_PATH).apply()
                     "Saved model not found — please re-select"
@@ -94,10 +90,6 @@ class SettingsFragment : Fragment() {
             }
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Pick & import
-    // ─────────────────────────────────────────────────────────────────────────
 
     private fun handlePickedModelUri(uri: Uri) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -123,7 +115,6 @@ class SettingsFragment : Fragment() {
                     progressBar.isIndeterminate = true
                     btnPickLocal.isEnabled      = false
                     tvStatus.text               = "Copying model…"
-                    Toast.makeText(ctx, "Copying model, please wait…", Toast.LENGTH_SHORT).show()
                 }
 
                 val destFile = File(ctx.filesDir, filename)
@@ -151,8 +142,6 @@ class SettingsFragment : Fragment() {
                     }
                 }
 
-                Log.i(TAG, "Copy complete: ${destFile.absolutePath}")
-
                 withContext(Dispatchers.Main) {
                     progressBar.isIndeterminate = true
                     tvStatus.text               = "Loading model into memory…"
@@ -172,20 +161,6 @@ class SettingsFragment : Fragment() {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Model init — also called by MainActivity on cold start
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Shuts down any running model, inits [file], and if successful:
-     *   - persists the absolute path to SharedPreferences
-     *   - updates the shared ViewModel so LLMFragment unlocks
-     *
-     * KEY FIX for "model forgotten on close":
-     * We save the ABSOLUTE PATH of the private-storage copy (inside filesDir).
-     * On every cold start, MainActivity reads this and calls initModel() again,
-     * so the model is always ready without the user having to re-pick it.
-     */
     suspend fun initModel(file: File) {
         withContext(Dispatchers.IO) {
             LlamaBridge.shutdown()
@@ -206,7 +181,7 @@ class SettingsFragment : Fragment() {
                     tvStatus.text = "Load failed — file may be corrupt or incompatible"
                     Toast.makeText(
                         context,
-                        "❌ Model failed to load. File may be corrupt.",
+                        "❌ Model failed to load",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -214,17 +189,11 @@ class SettingsFragment : Fragment() {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Clear
-    // ─────────────────────────────────────────────────────────────────────────
-
     private fun clearModelSelection() {
         val path = prefs.getString(KEY_MODEL_PATH, null)
         path?.let { File(it).delete() }
-
         LlamaBridge.shutdown()
         prefs.edit().remove(KEY_MODEL_PATH).apply()
-
         appViewModel.clearModel()
         listener?.onModelSelectionChanged(null)
         updateStatusText()
