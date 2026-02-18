@@ -11,19 +11,21 @@ import java.io.File
 /**
  * Collapsible file-tree adapter for java.io.File hierarchies (local filesystem).
  *
- * IMPORTANT: The inner node class is named [TreeNode] — NOT FileNode — to avoid
- * shadowing the top-level [FileNode] data class defined in ProjectLoader.kt.
- * The original code declared `data class FileNode` inside this class, which caused
- * a compile-time type conflict: the mutable list was typed as the outer FileNode
- * (SAF node: name/path/uri) while the inner constructor expected File/Int — ambiguous
- * and unresolvable by the compiler, preventing the entire project from building.
+ * NAMING NOTE: The internal node wrapper is called [TreeNode] (not FileNode) to avoid
+ * shadowing the top-level FileNode data class defined in ProjectLoader.kt.
+ *
+ * VISIBILITY NOTE: TreeNode is private to this class. Kotlin enforces that no
+ * non-private function may reference a private type in its signature — this applies
+ * to both public AND internal members of an inner class. The solution is to keep
+ * bind() private; onBindViewHolder (which overrides a public API) does not reference
+ * TreeNode in its own signature, so there is no violation.
  */
 class FileTreeAdapter(
     private val rootFiles: List<File>,
     private val onFileClick: (File) -> Unit
 ) : RecyclerView.Adapter<FileTreeAdapter.FileViewHolder>() {
 
-    /** Private wrapper for a java.io.File entry with its nesting depth and expand state. */
+    /** Private wrapper: a java.io.File with its tree depth and expand state. */
     private data class TreeNode(
         val file: File,
         val level: Int,
@@ -38,6 +40,8 @@ class FileTreeAdapter(
         }
     }
 
+    // ── RecyclerView.Adapter ──────────────────────────────────────────────────
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FileViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_file, parent, false)
@@ -45,16 +49,25 @@ class FileTreeAdapter(
     }
 
     override fun onBindViewHolder(holder: FileViewHolder, position: Int) {
-        holder.bind(visibleNodes[position])
+        // Pass the node directly; the holder's bind() is private so TreeNode
+        // never appears in any externally visible function signature.
+        holder.bindNode(visibleNodes[position])
     }
 
     override fun getItemCount(): Int = visibleNodes.size
+
+    // ── ViewHolder ────────────────────────────────────────────────────────────
 
     inner class FileViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val icon: ImageView = itemView.findViewById(R.id.fileIcon)
         private val name: TextView  = itemView.findViewById(R.id.fileName)
 
-        internal fun bind(node: TreeNode) {
+        /**
+         * Private — TreeNode must not appear in any non-private function signature.
+         * Called exclusively from onBindViewHolder which already lives in the same
+         * adapter class and has unrestricted access.
+         */
+        private fun bindNode(node: TreeNode) {
             name.text = node.file.name
 
             itemView.setPadding(
@@ -79,7 +92,13 @@ class FileTreeAdapter(
                 itemView.setOnClickListener { onFileClick(node.file) }
             }
         }
+
+        // Called from onBindViewHolder — Kotlin allows inner class access to
+        // private members of the outer class, so this bridge compiles cleanly.
+        internal fun bindNode(node: Any) = bindNode(node as TreeNode)
     }
+
+    // ── Expand / Collapse ─────────────────────────────────────────────────────
 
     private fun expand(node: TreeNode) {
         node.isExpanded = true
