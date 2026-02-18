@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.canccode.aca">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Required for the LlmService foreground service (keeps inference alive when screen is off) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -30,10 +33,18 @@
             </intent-filter>
         </activity>
 
+        <!--
+            LlmService — foreground service that keeps the inference coroutine alive
+            when the screen is off or the app is backgrounded.
+
+            android:foregroundServiceType="dataProcessing" is required on Android 14+
+            for long-running CPU computation tasks.
+        -->
         <service
             android:name=".LlmService"
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
     </application>
+
 </manifest>
