@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Enhanced editor layout.
+
+    Key structural change vs original:
+    The inner ScrollView now has android:id="@+id/editorInnerScroll" so
+    EnhancedEditorFragment can attach a ViewTreeObserver.OnScrollChangedListener
+    to sync the lineNumberScroll position in real time.
+-->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -6,7 +14,7 @@
     android:orientation="vertical"
     android:background="#1E1E1E">
 
-    <!-- Editor toolbar -->
+    <!-- ── Toolbar ──────────────────────────────────────────────────────────── -->
     <LinearLayout
         android:id="@+id/editorToolbar"
         android:layout_width="match_parent"
@@ -17,7 +25,6 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
 
-        <!-- Undo -->
         <ImageButton
             android:id="@+id/btnUndo"
             android:layout_width="40dp"
@@ -27,7 +34,6 @@
             android:tint="#CCCCCC"
             android:contentDescription="Undo" />
 
-        <!-- Redo -->
         <ImageButton
             android:id="@+id/btnRedo"
             android:layout_width="40dp"
@@ -38,7 +44,6 @@
             android:contentDescription="Redo"
             android:layout_marginStart="4dp" />
 
-        <!-- Save -->
         <ImageButton
             android:id="@+id/btnSave"
             android:layout_width="40dp"
@@ -49,7 +54,6 @@
             android:contentDescription="Save"
             android:layout_marginStart="4dp" />
 
-        <!-- Ask LLM -->
         <ImageButton
             android:id="@+id/btnAskLlm"
             android:layout_width="40dp"
@@ -79,20 +83,21 @@
 
     </LinearLayout>
 
-    <!-- Editor body: line numbers + code area side by side -->
+    <!-- ── Editor body: line numbers + code area ────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal">
 
-        <!-- Line numbers -->
+        <!-- Line numbers — scroll position driven by editorInnerScroll listener -->
         <ScrollView
             android:id="@+id/lineNumberScroll"
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:scrollbars="none"
-            android:fillViewport="true">
+            android:fillViewport="true"
+            android:overScrollMode="never">
 
             <TextView
                 android:id="@+id/lineNumbers"
@@ -110,18 +115,32 @@
 
         </ScrollView>
 
-        <!-- Code editor area -->
+        <!-- Divider -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:background="#444444" />
+
+        <!-- Horizontal scroll wrapper for long lines -->
         <HorizontalScrollView
             android:id="@+id/editorScrollContainer"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:scrollbars="horizontal">
+            android:scrollbars="horizontal"
+            android:overScrollMode="never">
 
+            <!--
+                ID "editorInnerScroll" is new — required so the fragment can
+                attach an OnScrollChangedListener for line-number sync.
+            -->
             <ScrollView
+                android:id="@+id/editorInnerScroll"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
-                android:fillViewport="true">
+                android:fillViewport="true"
+                android:overScrollMode="never"
+                android:scrollbars="vertical">
 
                 <EditText
                     android:id="@+id/editorText"
