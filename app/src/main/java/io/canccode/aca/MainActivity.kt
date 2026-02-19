@@ -33,37 +33,47 @@ class MainActivity : AppCompatActivity(),
 
     private val TAG = "MainActivity"
 
-    private lateinit var drawerLayout: DrawerLayout
-    private lateinit var navView: NavigationView
-    private lateinit var toggle: ActionBarDrawerToggle
+    private lateinit var drawerLayout:      DrawerLayout
+    private lateinit var navView:           NavigationView
+    private lateinit var toggle:            ActionBarDrawerToggle
     private lateinit var floatingMenuButton: ImageView
-    private lateinit var llmInputGlobal: EditText
-    private lateinit var llmSendGlobal: Button
+    private lateinit var llmInputGlobal:    EditText
+    private lateinit var llmSendGlobal:     Button
 
     val appViewModel: AppViewModel by viewModels()
     private val projectLoader = ProjectLoader(this)
 
     // ── LlmService binding ────────────────────────────────────────────────────
-    private var llmService: LlmService? = null
+
+    private var llmService:  LlmService? = null
     private var serviceBound = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, iBinder: IBinder?) {
-            llmService = (iBinder as LlmService.LocalBinder).getService()
+            val svc      = (iBinder as LlmService.LocalBinder).getService()
+            llmService   = svc
             serviceBound = true
             Log.i(TAG, "LlmService bound")
+
+            // If the model was already loaded before the service bound (race condition
+            // on cold start), sync the notification so it doesn't stay on "No model".
+            if (appViewModel.isModelLoaded.value == true) {
+                val modelName = appViewModel.activeModelPath.value
+                    ?.substringAfterLast('/') ?: "model"
+                svc.notifyModelReady(modelName)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             serviceBound = false
-            llmService = null
+            llmService   = null
         }
     }
 
-    /** Expose service to fragments so they can call generate(). */
     fun getLlmService(): LlmService? = llmService
 
     // ── SAF pickers ───────────────────────────────────────────────────────────
+
     private val directoryPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> uri?.let { handleProjectLoad(it) } }
@@ -82,7 +92,6 @@ class MainActivity : AppCompatActivity(),
         setupBackPressed()
         observeViewModel()
 
-        // Bind to (and start) the foreground service
         val serviceIntent = LlmService.startAndBind(this)
         startService(serviceIntent)
         bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
@@ -102,8 +111,7 @@ class MainActivity : AppCompatActivity(),
         if (!serviceBound) {
             bindService(
                 LlmService.startAndBind(this),
-                serviceConnection,
-                Context.BIND_AUTO_CREATE
+                serviceConnection, Context.BIND_AUTO_CREATE
             )
         }
     }
@@ -130,27 +138,31 @@ class MainActivity : AppCompatActivity(),
         }
 
         Log.i(TAG, "Auto-reloading model: ${file.name}")
-        llmInputGlobal.hint = "Loading model…"
+        llmInputGlobal.hint = "Loading ${file.name}…"
 
         lifecycleScope.launch(Dispatchers.IO) {
             LlamaBridge.shutdown()
+            // Use optimal thread count — was hardcoded at 4 in native layer
             val ok = LlamaBridge.init(savedPath, 4096)
             withContext(Dispatchers.Main) {
                 if (ok) {
                     appViewModel.setModelLoaded(savedPath)
-                    Toast.makeText(this@MainActivity, "Model ready: ${file.name}", Toast.LENGTH_SHORT).show()
+                    // ── Tell the service the model is actually ready ──────────
+                    // This fixes the misleading "Idle — model ready" notification
+                    // that appeared even before a model was selected.
+                    llmService?.notifyModelReady(file.name)
+                    Toast.makeText(this@MainActivity,
+                        "✅ Model ready: ${file.name}", Toast.LENGTH_SHORT).show()
                 } else {
                     prefs.edit().remove(SettingsFragment.KEY_MODEL_PATH).apply()
-                    Toast.makeText(this@MainActivity, "Saved model could not load — please re-select", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity,
+                        "Saved model failed to load — please re-select in Settings & Model",
+                        Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
-    /**
-     * If the user loaded a project last session, the SAF persistable permission
-     * is still held. Rebuild the project context silently in the background.
-     */
     private fun autoRestoreProject() {
         val savedUri = appViewModel.projectUri.value ?: return
         Log.i(TAG, "Auto-restoring project from $savedUri")
@@ -165,9 +177,7 @@ class MainActivity : AppCompatActivity(),
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Project restore failed", e)
-                withContext(Dispatchers.Main) {
-                    appViewModel.clearProjectContext()
-                }
+                withContext(Dispatchers.Main) { appViewModel.clearProjectContext() }
             }
         }
     }
@@ -177,14 +187,21 @@ class MainActivity : AppCompatActivity(),
     private fun observeViewModel() {
         appViewModel.isModelLoaded.observe(this) { loaded ->
             llmSendGlobal.isEnabled = loaded
-            llmInputGlobal.hint = if (loaded) "Ask the Assistant…"
-                                  else         "Select a model (Settings & Model)"
+            llmInputGlobal.hint     = if (loaded) "Ask the assistant…"
+                                      else         "Select a model in Settings & Model"
         }
     }
 
     // ── SettingsFragment callbacks ────────────────────────────────────────────
 
     override fun onModelSelectionChanged(modelFile: File?) {
+        if (modelFile != null) {
+            // SettingsFragment already called LlamaBridge.init() and appViewModel.setModelLoaded()
+            // before invoking this callback. Now sync the notification.
+            llmService?.notifyModelReady(modelFile.name)
+        } else {
+            llmService?.notifyModelCleared()
+        }
         Log.i(TAG, if (modelFile != null) "Model ready: ${modelFile.name}" else "Model cleared")
     }
 
@@ -197,17 +214,15 @@ class MainActivity : AppCompatActivity(),
         llmSendGlobal  = findViewById(R.id.llm_send_global)
 
         llmSendGlobal.isEnabled = false
-        llmInputGlobal.hint     = "Select a model (Settings & Model)"
+        llmInputGlobal.hint     = "Select a model in Settings & Model"
 
         llmSendGlobal.setOnClickListener {
             val prompt = llmInputGlobal.text.toString().trim()
             if (prompt.isEmpty()) return@setOnClickListener
             llmInputGlobal.text.clear()
 
-            // Route the prompt through the shared ViewModel so LLMFragment picks it up
             appViewModel.sendToLLM(prompt)
 
-            // Navigate to LLMFragment if not already visible
             val current = supportFragmentManager.findFragmentById(R.id.fragment_container)
             if (current !is LLMFragment) {
                 supportFragmentManager.beginTransaction()
@@ -261,25 +276,21 @@ class MainActivity : AppCompatActivity(),
             try {
                 projectLoader.loadProject(treeUri)
                 val (name, files) = ProjectContextBuilder.build(this@MainActivity, treeUri)
-
                 withContext(Dispatchers.Main) {
                     appViewModel.setProjectContext(name, treeUri, files)
-                    Toast.makeText(
-                        this@MainActivity,
+                    Toast.makeText(this@MainActivity,
                         "Project: $name (${files.size} files indexed)",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                        Toast.LENGTH_SHORT).show()
                     supportFragmentManager.beginTransaction()
-                        .replace(
-                            R.id.fragment_container,
-                            FileBrowserFragment.newInstance(projectLoader)
-                        )
+                        .replace(R.id.fragment_container,
+                            FileBrowserFragment.newInstance(projectLoader))
                         .commit()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Project load error", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "Load failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity,
+                        "Load failed: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }
