@@ -13,14 +13,11 @@ import java.io.File
 /**
  * Single source of truth for all shared UI state.
  *
- * Extends AndroidViewModel so we have access to Application context for
- * SharedPreferences-based persistence of chat history and project URI.
- *
- * Persistence strategy:
- *   - Chat history  → JSON in SharedPreferences (survives process death)
- *   - Project URI   → String in SharedPreferences (SAF permission already held)
- *   - Model path    → SharedPreferences (written by SettingsFragment)
- *   - Project files → In-memory Map (re-loaded from URI on cold start by MainActivity)
+ * New in this revision:
+ *  - [pendingDiff]: LLM-suggested code change waiting for Accept/Reject.
+ *    Published by LLMFragment, consumed by EnhancedEditorFragment.
+ *  - [scrollToLine]: signals editor to scroll to a specific line
+ *    (used after undo/redo to bring changed region into view).
  */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -41,15 +38,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _editorContent   = MutableLiveData<String>()
     val editorContent: LiveData<String> = _editorContent
 
-    /**
-     * The currently open file's path and content — injected into LLM context
-     * automatically so the user can ask about whatever file they have open.
-     */
     private val _activeFilePath    = MutableLiveData<String?>(null)
     val activeFilePath: LiveData<String?> = _activeFilePath
 
     private val _activeFileContent = MutableLiveData<String?>(null)
     val activeFileContent: LiveData<String?> = _activeFileContent
+
+    // ── Diff / suggestion pipeline ────────────────────────────────────────────
+
+    /**
+     * A code suggestion produced by the LLM.
+     *
+     * @param originalContent  Full original file content (for 3-way diff display)
+     * @param suggestedContent Full suggested replacement content
+     * @param description      Human-readable summary of the change (from LLM)
+     * @param targetFilePath   Which file this diff applies to
+     */
+    data class DiffSuggestion(
+        val originalContent: String,
+        val suggestedContent: String,
+        val description: String,
+        val targetFilePath: String
+    )
+
+    private val _pendingDiff = MutableLiveData<DiffSuggestion?>(null)
+    val pendingDiff: LiveData<DiffSuggestion?> = _pendingDiff
+
+    fun postDiffSuggestion(diff: DiffSuggestion) { _pendingDiff.value = diff }
+    fun clearDiffSuggestion()                     { _pendingDiff.value = null }
+
+    // ── Scroll-to-line signal (undo/redo) ─────────────────────────────────────
+
+    private val _scrollToLine = MutableLiveData<Int?>(null)
+    val scrollToLine: LiveData<Int?> = _scrollToLine
+
+    fun requestScrollToLine(line: Int) { _scrollToLine.value = line }
+    fun consumeScrollToLine()          { _scrollToLine.value = null }
 
     // ── Model ─────────────────────────────────────────────────────────────────
 
@@ -61,10 +85,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Project ───────────────────────────────────────────────────────────────
 
-    /**
-     * Persisted across process death. On cold start, MainActivity reads this
-     * and calls ProjectContextBuilder.build() to repopulate projectContext.
-     */
     private val _projectUri = MutableLiveData<Uri?>(
         prefs.getString(KEY_PROJ_URI, null)?.let { Uri.parse(it) }
     )
@@ -73,10 +93,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _projectName = MutableLiveData<String?>(null)
     val projectName: LiveData<String?> = _projectName
 
-    /**
-     * Flat map of relative-path -> content for LLM context injection.
-     * Populated by ProjectContextBuilder. In-memory only — rebuilt on cold start.
-     */
     private val _projectContext = MutableLiveData<Map<String, String>>(emptyMap())
     val projectContext: LiveData<Map<String, String>> = _projectContext
 
@@ -135,7 +151,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Called when the editor opens a file (SAF path, content already loaded). */
     fun setActiveEditorFile(relativePath: String, content: String) {
         _activeFilePath.value = relativePath
         _activeFileContent.value = content
