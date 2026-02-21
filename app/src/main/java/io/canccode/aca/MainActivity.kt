@@ -33,12 +33,12 @@ class MainActivity : AppCompatActivity(),
 
     private val TAG = "MainActivity"
 
-    private lateinit var drawerLayout:      DrawerLayout
-    private lateinit var navView:           NavigationView
-    private lateinit var toggle:            ActionBarDrawerToggle
+    private lateinit var drawerLayout:       DrawerLayout
+    private lateinit var navView:            NavigationView
+    private lateinit var toggle:             ActionBarDrawerToggle
     private lateinit var floatingMenuButton: ImageView
-    private lateinit var llmInputGlobal:    EditText
-    private lateinit var llmSendGlobal:     Button
+    private lateinit var llmInputGlobal:     EditText
+    private lateinit var llmSendGlobal:      Button
 
     val appViewModel: AppViewModel by viewModels()
     private val projectLoader = ProjectLoader(this)
@@ -55,8 +55,8 @@ class MainActivity : AppCompatActivity(),
             serviceBound = true
             Log.i(TAG, "LlmService bound")
 
-            // If the model was already loaded before the service bound (race condition
-            // on cold start), sync the notification so it doesn't stay on "No model".
+            // If the model was already loaded before the service bound (race on cold start),
+            // sync the notification.
             if (appViewModel.isModelLoaded.value == true) {
                 val modelName = appViewModel.activeModelPath.value
                     ?.substringAfterLast('/') ?: "model"
@@ -142,14 +142,10 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             LlamaBridge.shutdown()
-            // Use optimal thread count — was hardcoded at 4 in native layer
             val ok = LlamaBridge.init(savedPath, 4096)
             withContext(Dispatchers.Main) {
                 if (ok) {
                     appViewModel.setModelLoaded(savedPath)
-                    // ── Tell the service the model is actually ready ──────────
-                    // This fixes the misleading "Idle — model ready" notification
-                    // that appeared even before a model was selected.
                     llmService?.notifyModelReady(file.name)
                     Toast.makeText(this@MainActivity,
                         "✅ Model ready: ${file.name}", Toast.LENGTH_SHORT).show()
@@ -169,6 +165,7 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // FIX: loadProject is now suspend — call correctly on IO
                 projectLoader.loadProject(savedUri)
                 val (name, files) = ProjectContextBuilder.build(this@MainActivity, savedUri)
                 withContext(Dispatchers.Main) {
@@ -196,8 +193,6 @@ class MainActivity : AppCompatActivity(),
 
     override fun onModelSelectionChanged(modelFile: File?) {
         if (modelFile != null) {
-            // SettingsFragment already called LlamaBridge.init() and appViewModel.setModelLoaded()
-            // before invoking this callback. Now sync the notification.
             llmService?.notifyModelReady(modelFile.name)
         } else {
             llmService?.notifyModelCleared()
@@ -274,6 +269,7 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // FIX: loadProject is suspend — awaited properly here
                 projectLoader.loadProject(treeUri)
                 val (name, files) = ProjectContextBuilder.build(this@MainActivity, treeUri)
                 withContext(Dispatchers.Main) {
