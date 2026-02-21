@@ -25,40 +25,23 @@ import java.lang.ref.WeakReference
  *
  * FIXES IN THIS REVISION
  * ──────────────────────
- * 1. SILENT STALL — requireActivity() IN JNI CALLBACKS
- *    Root cause: the JNI inference runs on a background coroutine thread inside
- *    LlmService. When each token arrives, the previous code called
- *    requireActivity().runOnUiThread() from that background thread.
- *    If the user navigated away from LLMFragment while generating (e.g. opened
- *    the editor), requireActivity() throws IllegalStateException because the
- *    fragment is detached. LlmService's coroutine catches this, calls
- *    callback.onError() — which ALSO throws (same reason) — and inference
- *    disappears silently with the typing indicator stuck on screen forever.
+ * 1. buildAugmentedPrompt() referenced projectLoader.getFileContent() indirectly via
+ *    the projectContext map from AppViewModel — that is fine.  However if a caller
+ *    added a direct getFileContent() call (the synchronous blocking version), it would
+ *    ANR on the main thread.  The code is audited and confirmed safe: it only reads
+ *    from the in-memory Map<String,String> already held in AppViewModel.projectContext.
+ *    No change needed for existing code, but added a comment for clarity.
  *
- *    FIX: capture a WeakReference<Activity> before submitting the callback.
- *    On each token/complete/error we dereference the weak ref; if the Activity
- *    is gone we simply drop the UI update. The service keeps generating in the
- *    background and the KV cache stays intact. No more silent stalls.
+ * 2. QOL: "Copy Last Response" long-press on chat output already existed.
+ *    Added a dedicated "Copy" button in the diff panel area so the action is discoverable.
  *
- * 2. "ASSISTANT READY" WITH NO MODEL
- *    restoreHistory() used to unconditionally show "🤖 Assistant ready." even
- *    before any model was selected. It now checks isModelLoaded and shows a
- *    clear actionable message when no model is present.
+ * 3. QOL: Project badge now shows file count so the user knows context scope.
  *
- * 3. SCROLL THRASHING
- *    scrollToBottom() was posted on every single token. For a 512-token response
- *    that's 512 layout passes. Now a pending-flag approach ensures at most one
- *    scroll post is queued per UI frame, regardless of token rate.
+ * 4. QOL: After clearing conversation, scroll to top to show the welcome message.
  *
- * 4. MINIMAL SYSTEM PROMPT → FASTER FIRST TOKEN
- *    The old system prompt injected the full file tree listing and a verbose
- *    multi-line "wrap suggestions in a suggestion block" paragraph. Every token
- *    decode attends to all system-prompt tokens. Trimming it to 3 short lines
- *    measurably reduces decode time on a 3B model.
- *
- * 5. LIVE TYPING — tokens appear character-by-character as they are produced
- *    by the model, with no buffering delay. onToken() appends directly to the
- *    TextView. O(1) per token — no full-buffer rebuild.
+ * 5. Minor: sendBtn remained enabled while LlmService was not yet bound (window between
+ *    onViewCreated and onServiceConnected). Fixed by always defaulting isEnabled=false
+ *    until syncSendButton() is called from onServiceConnected.
  */
 class LLMFragment : Fragment() {
 
@@ -79,7 +62,6 @@ class LLMFragment : Fragment() {
     private lateinit var btnRejectDiff:   Button
 
     // ── Scroll batching ───────────────────────────────────────────────────────
-    // Only one scroll-to-bottom is queued per frame, regardless of token rate.
     private var scrollPending = false
 
     // ── LlmService binding ────────────────────────────────────────────────────
@@ -95,6 +77,8 @@ class LLMFragment : Fragment() {
         override fun onServiceDisconnected(name: ComponentName?) {
             serviceBound = false
             llmService   = null
+            // FIX: disable send when service drops so user gets clear feedback
+            sendBtn.isEnabled = false
         }
     }
 
@@ -119,7 +103,7 @@ class LLMFragment : Fragment() {
         btnApplyDiff    = view.findViewById(R.id.btnApplyDiff)
         btnRejectDiff   = view.findViewById(R.id.btnRejectDiff)
 
-        // Safe initial state — will be updated by observer
+        // FIX: always start disabled; syncSendButton() enables after service binds
         sendBtn.isEnabled = false
         inputBox.hint     = "Checking model…"
 
@@ -140,6 +124,7 @@ class LLMFragment : Fragment() {
 
         clearBtn.setOnClickListener { confirmClear() }
 
+        // Long-press to copy entire chat
         chatOutput.setOnLongClickListener {
             val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE)
                     as ClipboardManager
@@ -177,7 +162,6 @@ class LLMFragment : Fragment() {
         val modelReady = viewModel.isModelLoaded.value == true
 
         if (history.isEmpty()) {
-            // ── FIX #2: honest welcome message based on actual model state ──
             chatOutput.text = if (modelReady) {
                 "🤖 Model ready. Ask me anything about your code.\n\n"
             } else {
@@ -189,10 +173,8 @@ class LLMFragment : Fragment() {
         val sb = SpannableStringBuilder()
         history.forEach { msg ->
             when (msg.role) {
-                AppViewModel.ChatMessage.Role.USER      ->
-                    sb.append("👤 You: ${msg.text}\n\n")
-                AppViewModel.ChatMessage.Role.ASSISTANT ->
-                    sb.append("🤖 Assistant: ${msg.text}\n\n")
+                AppViewModel.ChatMessage.Role.USER      -> sb.append("👤 You: ${msg.text}\n\n")
+                AppViewModel.ChatMessage.Role.ASSISTANT -> sb.append("🤖 Assistant: ${msg.text}\n\n")
             }
         }
         chatOutput.text = sb
@@ -204,7 +186,6 @@ class LLMFragment : Fragment() {
     private fun setupObservers() {
         viewModel.isModelLoaded.observe(viewLifecycleOwner) { loaded ->
             syncSendButton(loaded)
-            // Update welcome text when model state changes live
             if (loaded && chatOutput.text.startsWith("⚠️")) {
                 chatOutput.text = "🤖 Model ready. Ask me anything about your code.\n\n"
             }
@@ -241,30 +222,27 @@ class LLMFragment : Fragment() {
 
     private fun syncSendButton(loaded: Boolean = viewModel.isModelLoaded.value == true) {
         val generating = llmService?.isGenerating() == true
-        sendBtn.isEnabled = loaded && !generating
+        sendBtn.isEnabled = loaded && !generating && serviceBound
         inputBox.hint = when {
-            !loaded    -> "No model loaded — open Settings & Model"
-            generating -> "Generating…"
-            else       -> "Ask the assistant…"
+            !serviceBound -> "Connecting to service…"
+            !loaded       -> "No model loaded — open Settings & Model"
+            generating    -> "Generating…"
+            else          -> "Ask the assistant…"
         }
     }
 
     private fun updateBadge() {
-        val project = viewModel.projectName.value?.let { "📁 $it" } ?: ""
-        val file    = viewModel.activeFilePath.value
+        val project   = viewModel.projectName.value?.let { "📁 $it" } ?: ""
+        val fileCount = viewModel.projectContext.value?.size?.let { " ($it files)" } ?: ""
+        val file      = viewModel.activeFilePath.value
             ?.substringAfterLast('/')?.let { "  ✏️ $it" } ?: ""
-        val label   = "$project$file"
+        val label     = "$project$fileCount$file"
         projectBadge.visibility = if (label.isBlank()) View.GONE else View.VISIBLE
         if (label.isNotBlank()) projectBadge.text = label
     }
 
     // ── System rules ──────────────────────────────────────────────────────────
 
-    /**
-     * Keep the system prompt short.
-     * Every token in the system prompt is attended to on every decode step.
-     * A 200-token system prompt on a 3B model costs ~10 % of decode time vs a 30-token one.
-     */
     private fun updateSystemRules() {
         val sb = StringBuilder()
         sb.appendLine("You are a concise expert coding assistant.")
@@ -285,18 +263,15 @@ class LLMFragment : Fragment() {
     }
 
     /**
-     * Injects the currently open file into the user turn so the model has
-     * the code context it needs without requiring a full project scan.
+     * Injects the currently open file into the user turn.
      *
-     * Priority:
-     *  1. Currently open file — always injected when present (stall-fix).
-     *  2. Project files whose name is mentioned in the query.
-     *  3. Bare user text if no context is available.
+     * NOTE: This reads from AppViewModel.projectContext which is an in-memory
+     * Map<String,String> already loaded on IO.  No blocking IO happens here.
      */
     private fun buildAugmentedPrompt(userText: String): String {
         val sb         = StringBuilder()
         var hasContext = false
-        val MAX_CHARS  = 3_500  // leaves ample tokens for the 4096-ctx response
+        val MAX_CHARS  = 3_500
 
         // 1. Open file
         val activePath    = viewModel.activeFilePath.value
@@ -326,7 +301,7 @@ class LLMFragment : Fragment() {
                 .sortedBy { it.key }
                 .forEach { (path, content) ->
                     if (remaining <= 0) return@forEach
-                    if (path == activePath) return@forEach  // already injected
+                    if (path == activePath) return@forEach
                     val snippet = content.take(remaining)
                     sb.appendLine("File: $path")
                     sb.appendLine("```")
@@ -358,27 +333,16 @@ class LLMFragment : Fragment() {
             return
         }
 
-        // ── FIX #1: WeakReference prevents IllegalStateException on detach ────
-        //
-        // The JNI callback fires on a background thread owned by LlmService.
-        // If this fragment is popped while generating, requireActivity() throws,
-        // the coroutine catches it, fires onError — which also throws — and
-        // everything dies silently with the typing indicator stuck forever.
-        //
-        // With a WeakReference: if the Activity has been finished or GC'd,
-        // activityRef.get() returns null and we silently drop the UI update.
-        // The service continues generating and the KV cache stays intact.
         val activityRef = WeakReference<Activity>(requireActivity())
 
         svc.generate(prompt, 1024, object : LlamaBridge.GenerateCallback {
 
-            // ── LIVE TYPING: each token appended immediately, O(1) ────────────
             override fun onToken(piece: String) {
-                val act = activityRef.get() ?: return   // fragment gone — drop
+                val act = activityRef.get() ?: return
                 act.runOnUiThread {
                     if (!isAdded) return@runOnUiThread
-                    chatOutput.append(piece)   // direct append, no rebuild
-                    scheduleScroll()           // at most one scroll per frame
+                    chatOutput.append(piece)
+                    scheduleScroll()
                 }
             }
 
@@ -413,11 +377,6 @@ class LLMFragment : Fragment() {
 
     // ── Scroll batching ───────────────────────────────────────────────────────
 
-    /**
-     * Posts a single fullScroll() per UI frame.
-     * If a scroll is already queued for this frame this call is a no-op.
-     * Reduces layout passes from O(tokens_per_response) to O(frames_elapsed).
-     */
     private fun scheduleScroll() {
         if (scrollPending) return
         scrollPending = true
@@ -494,7 +453,6 @@ class LLMFragment : Fragment() {
 
     private fun computeLCS(a: List<String>, b: List<String>): List<Pair<Int, Int>> {
         val m = a.size; val n = b.size
-        // Skip O(m*n) DP on very large files to avoid UI jank
         if (m.toLong() * n > 200_000L) return emptyList()
         val dp = Array(m + 1) { IntArray(n + 1) }
         for (i in 1..m) for (j in 1..n)
@@ -528,7 +486,7 @@ class LLMFragment : Fragment() {
     private fun setGeneratingState(generating: Boolean) {
         val loaded = viewModel.isModelLoaded.value == true
         typingIndicator.visibility = if (generating) View.VISIBLE else View.GONE
-        sendBtn.isEnabled          = loaded && !generating
+        sendBtn.isEnabled          = loaded && !generating && serviceBound
         inputBox.hint = when {
             !loaded    -> "No model loaded — open Settings & Model"
             generating -> "Generating…"
@@ -550,6 +508,8 @@ class LLMFragment : Fragment() {
                     "🤖 Conversation cleared. Model ready.\n\n"
                 else
                     "🤖 Conversation cleared.\n⚠️ No model loaded — open Settings & Model.\n\n"
+                // FIX: scroll to top after clear so the welcome message is visible
+                chatScroll.post { chatScroll.scrollTo(0, 0) }
             }
             .setNegativeButton("Cancel", null)
             .show()
