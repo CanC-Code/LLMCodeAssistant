@@ -12,41 +12,60 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.*
 
 /**
  * Full-featured source code editor fragment.
  *
- * QOL improvements in this revision:
+ * FIXES IN THIS REVISION
+ * ──────────────────────
+ * 1. HANG ON FILE OPEN (PRIMARY BUG)
+ *    loadFileContent() called projectLoader.getFileContent(filePath) which is now a
+ *    suspend function (doing IO on Dispatchers.IO). Calling it directly from
+ *    onCreateView / onViewCreated on the main thread would crash with
+ *    "Cannot access database on the main thread" equivalent — or, with the old
+ *    synchronous version, it would block the main thread causing an ANR on SAF paths.
  *
- * 1. UNDO/REDO SCROLL  — after each undo or redo the editor scrolls to the
- *    first line that changed, so you can immediately see what was reverted.
- *    The AppViewModel.scrollToLine LiveData is also updated so any other
- *    observer can react.
+ *    Fix: loadFileContent() is now a suspend fun launched in viewLifecycleOwner's
+ *    lifecycleScope. It shows a loading indicator while reading and only populates
+ *    the editor when the content is available.
  *
- * 2. LINE NUMBER SYNC  — line-number ScrollView is programmatically synced
- *    to the editor's vertical scroll position on every scroll event.
- *    Previously they were in separate independent ScrollViews.
+ * 2. LINE:COL NEVER UPDATED WHILE TYPING
+ *    updateLineCol() was wired to onClick and onKeyListener but not to the
+ *    TextWatcher. It was therefore always "Ln 1, Col 1" unless the user tapped
+ *    the editor explicitly.
+ *    Fix: call updateLineCol() inside afterTextChanged().
  *
- * 3. DIFF APPLY — observes AppViewModel.editorContent. When LLMFragment
- *    applies a diff suggestion, the new content is written to the EditText
- *    here, pushed onto the undo stack (so it's reversible), and the editor
- *    briefly flashes green to confirm the change.
+ * 3. ACTION_SAVE_AS MENU ITEM UNHANDLED
+ *    The editor menu declared action_save_as but onOptionsItemSelected had no branch
+ *    for it, so tapping it would silently fall through to super.
+ *    Fix: add a "Save As…" branch that launches a create-document picker.
  *
- * 4. CURSOR-POSITION SCROLL — after undo/redo the cursor is placed at the
- *    first changed character and scrollIntoView() ensures it is visible.
+ * 4. UNDO STACK SEEDED WITH EMPTY STRING
+ *    The undo stack was populated with "" before the async load completed, meaning
+ *    the first undo after opening a file would wipe the whole content.
+ *    Fix: seed the stack only after content is loaded.
+ *
+ * 5. SAVE BUTTON VISIBLE WHILE LOADING
+ *    Minor UX: toolbar buttons were enabled immediately even before content was ready.
+ *    Fix: disable toolbar during load and re-enable when done.
  */
 class EnhancedEditorFragment : Fragment() {
 
     private val appViewModel: AppViewModel by activityViewModels()
 
     private lateinit var lineNumbersView:  TextView
-    private lateinit var lineNumScroll:    ScrollView
+    private lateinit var lineNumScroll:    android.widget.ScrollView
     private lateinit var editorView:       EditText
-    private lateinit var editorScroll:     ScrollView
+    private lateinit var editorScroll:     android.widget.ScrollView
     private lateinit var scrollContainer:  HorizontalScrollView
     private lateinit var lineColIndicator: TextView
     private lateinit var toolbarLayout:    LinearLayout
+    private lateinit var loadingOverlay:   View
 
     private var filePath  = ""
     private var fileUri   = ""
@@ -57,9 +76,28 @@ class EnhancedEditorFragment : Fragment() {
     private val redoStack = ArrayDeque<String>()
     private var currentContent        = ""
     private var isUndoRedoOperation   = false
-    private var isExternalUpdate      = false   // suppresses undo recording for VM-driven changes
+    private var isExternalUpdate      = false
     private var hasUnsavedChanges     = false
     private val MAX_UNDO              = 200
+
+    // ── Save-As picker ────────────────────────────────────────────────────────
+    private val saveAsPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            val text = editorView.text.toString()
+            try {
+                requireContext().contentResolver.openOutputStream(uri, "wt")?.use {
+                    it.write(text.toByteArray())
+                }
+                hasUnsavedChanges = false
+                updateTitle(false)
+                Toast.makeText(requireContext(), "Saved as new file", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Save As failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     companion object {
         private const val ARG_PATH = "file_path"
@@ -80,7 +118,7 @@ class EnhancedEditorFragment : Fragment() {
         super.onCreate(savedInstanceState)
         setHasOptionsMenu(true)
         filePath = arguments?.getString(ARG_PATH, "") ?: ""
-        fileUri  = arguments?.getString(ARG_URI, "")  ?: ""
+        fileUri  = arguments?.getString(ARG_URI,  "") ?: ""
         if (!::projectLoader.isInitialized) {
             projectLoader = (activity as? MainActivity)?.getProjectLoader()
                 ?: ProjectLoader(requireContext())
@@ -92,20 +130,26 @@ class EnhancedEditorFragment : Fragment() {
     ): View {
         val root = inflater.inflate(R.layout.fragment_enhanced_editor, container, false)
 
-        lineNumbersView = root.findViewById(R.id.lineNumbers)
-        lineNumScroll   = root.findViewById(R.id.lineNumberScroll)
-        editorView      = root.findViewById(R.id.editorText)
-        editorScroll    = root.findViewById(R.id.editorInnerScroll)
-        scrollContainer = root.findViewById(R.id.editorScrollContainer)
+        lineNumbersView  = root.findViewById(R.id.lineNumbers)
+        lineNumScroll    = root.findViewById(R.id.lineNumberScroll)
+        editorView       = root.findViewById(R.id.editorText)
+        editorScroll     = root.findViewById(R.id.editorInnerScroll)
+        scrollContainer  = root.findViewById(R.id.editorScrollContainer)
         lineColIndicator = root.findViewById(R.id.lineColIndicator)
-        toolbarLayout   = root.findViewById(R.id.editorToolbar)
+        toolbarLayout    = root.findViewById(R.id.editorToolbar)
+        // A simple ProgressBar or semi-transparent overlay in the layout
+        loadingOverlay   = root.findViewById(R.id.editorLoadingOverlay)
 
         setupEditor()
-        setupToolbar()
-        loadFileContent()
+        setupToolbar(enabled = false)   // disabled until content is loaded
         setupViewModelObservers()
 
         return root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        loadFileContentAsync()
     }
 
     // ── Editor setup ──────────────────────────────────────────────────────────
@@ -128,6 +172,8 @@ class EnhancedEditorFragment : Fragment() {
             override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int)     {}
             override fun afterTextChanged(s: Editable?) {
                 updateLineNumbers()
+                // FIX: update cursor position on every keystroke, not just click
+                updateLineCol()
                 if (!isUndoRedoOperation && !isExternalUpdate) {
                     val new = s.toString()
                     if (new != currentContent) {
@@ -150,27 +196,29 @@ class EnhancedEditorFragment : Fragment() {
         }
     }
 
-    private fun setupToolbar() {
+    private fun setupToolbar(enabled: Boolean = true) {
         val btnUndo   = toolbarLayout.findViewById<ImageButton>(R.id.btnUndo)
         val btnRedo   = toolbarLayout.findViewById<ImageButton>(R.id.btnRedo)
         val btnSave   = toolbarLayout.findViewById<ImageButton>(R.id.btnSave)
         val btnAskLLM = toolbarLayout.findViewById<ImageButton>(R.id.btnAskLlm)
 
-        btnUndo.setOnClickListener   { performUndo() }
-        btnRedo.setOnClickListener   { performRedo() }
-        btnSave.setOnClickListener   { saveFile() }
-        btnAskLLM.setOnClickListener { askLlmAboutFile() }
+        listOf(btnUndo, btnRedo, btnSave, btnAskLLM).forEach { it.isEnabled = enabled }
+
+        if (enabled) {
+            btnUndo.setOnClickListener   { performUndo() }
+            btnRedo.setOnClickListener   { performRedo() }
+            btnSave.setOnClickListener   { saveFile() }
+            btnAskLLM.setOnClickListener { askLlmAboutFile() }
+        }
     }
 
     // ── ViewModel observers ───────────────────────────────────────────────────
 
     private fun setupViewModelObservers() {
-        // When LLMFragment applies a diff, editorContent is updated in the ViewModel.
-        // We receive it here, push it onto the undo stack, apply it, and flash green.
         appViewModel.editorContent.observe(viewLifecycleOwner) { newContent ->
             if (newContent == null) return@observe
             val currentText = editorView.text.toString()
-            if (newContent == currentText) return@observe   // no-op
+            if (newContent == currentText) return@observe
 
             isExternalUpdate = true
             undoStack.addLast(currentText)
@@ -189,7 +237,6 @@ class EnhancedEditorFragment : Fragment() {
             updateTitle(true)
         }
 
-        // Respond to scroll-to-line requests (e.g. from undo/redo in another context)
         appViewModel.scrollToLine.observe(viewLifecycleOwner) { line ->
             if (line != null) {
                 scrollEditorToLine(line)
@@ -198,34 +245,50 @@ class EnhancedEditorFragment : Fragment() {
         }
     }
 
-    // ── Load ──────────────────────────────────────────────────────────────────
+    // ── Load (ASYNC — fixes the hang) ─────────────────────────────────────────
 
-    private fun loadFileContent() {
-        val content = if (fileUri.isNotEmpty()) {
-            try {
-                val uri = Uri.parse(fileUri)
-                requireContext().contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                    it.readText()
-                } ?: ""
-            } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Error loading: ${e.message}", Toast.LENGTH_SHORT).show()
-                ""
+    private fun loadFileContentAsync() {
+        loadingOverlay.visibility = View.VISIBLE
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val content = withContext(Dispatchers.IO) {
+                if (fileUri.isNotEmpty()) {
+                    try {
+                        val uri = Uri.parse(fileUri)
+                        requireContext().contentResolver
+                            .openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(requireContext(),
+                                "Error loading: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                        ""
+                    }
+                } else {
+                    // FIX: getFileContent is now suspend — awaited properly
+                    projectLoader.getFileContent(filePath)
+                }
             }
-        } else {
-            projectLoader.getFileContent(filePath)
+
+            // Back on Main
+            loadingOverlay.visibility = View.GONE
+            setupToolbar(enabled = true)
+
+            // FIX: seed undo stack AFTER content is ready, not before
+            currentContent = content
+            undoStack.clear()
+            undoStack.addLast(content)
+
+            isUndoRedoOperation = true
+            editorView.setText(content)
+            isUndoRedoOperation = false
+
+            updateLineNumbers()
+            updateTitle(false)
+
+            val displayPath = filePath.ifEmpty { fileUri.substringAfterLast('/') }
+            appViewModel.setActiveEditorFile(displayPath, content)
         }
-
-        currentContent = content
-        undoStack.clear()
-        undoStack.addLast(content)
-        isUndoRedoOperation = true
-        editorView.setText(content)
-        isUndoRedoOperation = false
-        updateLineNumbers()
-        updateTitle(false)
-
-        val displayPath = filePath.ifEmpty { fileUri.substringAfterLast('/') }
-        appViewModel.setActiveEditorFile(displayPath, content)
     }
 
     // ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -242,8 +305,7 @@ class EnhancedEditorFragment : Fragment() {
         currentContent = restoredContent
         editorView.setText(restoredContent)
         editorView.setSelection(
-            findLineStart(restoredContent, changedLine)
-                .coerceAtMost(editorView.length())
+            findLineStart(restoredContent, changedLine).coerceAtMost(editorView.length())
         )
         isUndoRedoOperation = false
         updateLineNumbers()
@@ -273,31 +335,22 @@ class EnhancedEditorFragment : Fragment() {
         markUnsaved()
     }
 
-    /** Returns the 0-based index of the first line that differs between [a] and [b]. */
     private fun firstDifferentLine(a: String, b: String): Int {
-        val aLines = a.lines()
-        val bLines = b.lines()
+        val aLines = a.lines(); val bLines = b.lines()
         val minLen = minOf(aLines.size, bLines.size)
-        for (i in 0 until minLen) {
-            if (aLines[i] != bLines[i]) return i
-        }
-        return minLen   // one string is longer — change starts at the end
+        for (i in 0 until minLen) if (aLines[i] != bLines[i]) return i
+        return minLen
     }
 
-    /** Returns the char offset in [text] where line [lineIndex] begins. */
     private fun findLineStart(text: String, lineIndex: Int): Int {
         if (lineIndex == 0) return 0
         var count = 0
         for (i in text.indices) {
-            if (text[i] == '\n') {
-                count++
-                if (count == lineIndex) return i + 1
-            }
+            if (text[i] == '\n') { count++; if (count == lineIndex) return i + 1 }
         }
         return text.length
     }
 
-    /** Scrolls the editor so that [lineIndex] (0-based) is near the top. */
     private fun scrollEditorToLine(lineIndex: Int) {
         editorView.post {
             try {
@@ -314,24 +367,29 @@ class EnhancedEditorFragment : Fragment() {
 
     private fun saveFile() {
         val text = editorView.text.toString()
-        val ok = if (fileUri.isNotEmpty()) {
-            try {
-                requireContext().contentResolver
-                    .openOutputStream(Uri.parse(fileUri), "wt")?.use { it.write(text.toByteArray()) }
-                true
-            } catch (e: Exception) { false }
-        } else {
-            projectLoader.saveFile(filePath, text)
-        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ok = if (fileUri.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        requireContext().contentResolver
+                            .openOutputStream(Uri.parse(fileUri), "wt")?.use { it.write(text.toByteArray()) }
+                        true
+                    } catch (e: Exception) { false }
+                }
+            } else {
+                // FIX: saveFile is now suspend
+                projectLoader.saveFile(filePath, text)
+            }
 
-        if (ok) {
-            hasUnsavedChanges = false
-            updateTitle(false)
-            val displayPath = filePath.ifEmpty { fileUri.substringAfterLast('/') }
-            appViewModel.setActiveEditorFile(displayPath, text)
-            Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(requireContext(), "Save failed", Toast.LENGTH_LONG).show()
+            if (ok) {
+                hasUnsavedChanges = false
+                updateTitle(false)
+                val displayPath = filePath.ifEmpty { fileUri.substringAfterLast('/') }
+                appViewModel.setActiveEditorFile(displayPath, text)
+                Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Save failed", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -374,33 +432,25 @@ class EnhancedEditorFragment : Fragment() {
         val cursor = editorView.selectionStart.coerceAtLeast(0)
         val text   = editorView.text.toString().take(cursor)
         val line   = text.count { it == '\n' } + 1
-        val col    = cursor - text.lastIndexOf('\n')
+        val col    = cursor - (text.lastIndexOf('\n').takeIf { it >= 0 } ?: -1)
         lineColIndicator.text = "Ln $line, Col $col"
     }
 
     private fun markUnsaved() {
-        if (!hasUnsavedChanges) {
-            hasUnsavedChanges = true
-            updateTitle(true)
-        }
+        if (!hasUnsavedChanges) { hasUnsavedChanges = true; updateTitle(true) }
     }
 
     private fun updateTitle(unsaved: Boolean) {
-        val name = filePath.substringAfterLast('/')
-            .ifEmpty { fileUri.substringAfterLast('/').ifEmpty { "Untitled" } }
+        val name   = filePath.substringAfterLast('/').ifEmpty {
+            fileUri.substringAfterLast('/').ifEmpty { "Untitled" }
+        }
         val prefix = if (unsaved) "● " else ""
         (activity as? AppCompatActivity)?.supportActionBar?.title = "$prefix$name"
     }
 
-    /**
-     * Briefly flashes the editor background green to confirm an applied change.
-     * Uses a simple post-delayed reset — no animation library required.
-     */
     private fun flashGreen() {
-        editorView.setBackgroundColor(Color.parseColor("#1A3D1A"))   // dark green
-        editorView.postDelayed({
-            editorView.setBackgroundColor(Color.parseColor("#1E1E1E"))  // back to dark
-        }, 600)
+        editorView.setBackgroundColor(Color.parseColor("#1A3D1A"))
+        editorView.postDelayed({ editorView.setBackgroundColor(Color.parseColor("#1E1E1E")) }, 600)
     }
 
     // ── Options menu ──────────────────────────────────────────────────────────
@@ -412,10 +462,16 @@ class EnhancedEditorFragment : Fragment() {
 
     @Suppress("DEPRECATION")
     override fun onOptionsItemSelected(item: MenuItem) = when (item.itemId) {
-        R.id.action_save  -> { saveFile();    true }
-        R.id.action_undo  -> { performUndo(); true }
-        R.id.action_redo  -> { performRedo(); true }
-        else              -> super.onOptionsItemSelected(item)
+        R.id.action_save    -> { saveFile();    true }
+        R.id.action_save_as -> {
+            // FIX: handle Save As via create-document picker
+            val defaultName = filePath.substringAfterLast('/').ifEmpty { "untitled.txt" }
+            saveAsPicker.launch(defaultName)
+            true
+        }
+        R.id.action_undo    -> { performUndo(); true }
+        R.id.action_redo    -> { performRedo(); true }
+        else                -> super.onOptionsItemSelected(item)
     }
 
     override fun onDestroyView() {
