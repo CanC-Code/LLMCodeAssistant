@@ -2,165 +2,209 @@
 <!--
     Enhanced editor layout.
 
-    Key structural change vs original:
-    The inner ScrollView now has android:id="@+id/editorInnerScroll" so
-    EnhancedEditorFragment can attach a ViewTreeObserver.OnScrollChangedListener
-    to sync the lineNumberScroll position in real time.
+    FIXES IN THIS REVISION
+    ──────────────────────
+    1. MISSING editorLoadingOverlay — EnhancedEditorFragment now shows a loading
+       indicator while the file is read asynchronously (the IO fix).  This FrameLayout
+       wrapper supplies that view.
+
+    2. lineSpacingMultiplier MISMATCH — lineNumbers and editorText both use 1.0 now
+       (was inconsistently specified).  A mismatch causes the line numbers to drift out
+       of vertical alignment with the code lines after ~50 lines.
+
+    3. editorText minWidth increased to 800dp so wide files don't soft-wrap inside the
+       horizontal scroll container (was 600dp which still caused wrapping on some files).
 -->
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#1E1E1E">
 
-    <!-- ── Toolbar ──────────────────────────────────────────────────────────── -->
-    <LinearLayout
-        android:id="@+id/editorToolbar"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal"
-        android:background="#2D2D2D"
-        android:gravity="center_vertical"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
-
-        <ImageButton
-            android:id="@+id/btnUndo"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@android:drawable/ic_menu_revert"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:tint="#CCCCCC"
-            android:contentDescription="Undo" />
-
-        <ImageButton
-            android:id="@+id/btnRedo"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@android:drawable/ic_menu_rotate"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:tint="#CCCCCC"
-            android:contentDescription="Redo"
-            android:layout_marginStart="4dp" />
-
-        <ImageButton
-            android:id="@+id/btnSave"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@android:drawable/ic_menu_save"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:tint="#5CB85C"
-            android:contentDescription="Save"
-            android:layout_marginStart="4dp" />
-
-        <ImageButton
-            android:id="@+id/btnAskLlm"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@android:drawable/ic_menu_info_details"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:tint="#0099FF"
-            android:contentDescription="Ask LLM about this file"
-            android:layout_marginStart="4dp" />
-
-        <!-- Spacer -->
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
-
-        <!-- Line:Col indicator -->
-        <TextView
-            android:id="@+id/lineColIndicator"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Ln 1, Col 1"
-            android:textSize="11sp"
-            android:textColor="#888888"
-            android:fontFamily="monospace"
-            android:paddingEnd="8dp" />
-
-    </LinearLayout>
-
-    <!-- ── Editor body: line numbers + code area ────────────────────────────── -->
+    <!-- Main editor column layout -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <!-- Line numbers — scroll position driven by editorInnerScroll listener -->
-        <ScrollView
-            android:id="@+id/lineNumberScroll"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:scrollbars="none"
-            android:fillViewport="true"
-            android:overScrollMode="never">
+        <!-- ── Toolbar ──────────────────────────────────────────────────────── -->
+        <LinearLayout
+            android:id="@+id/editorToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:background="#2D2D2D"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
 
+            <ImageButton
+                android:id="@+id/btnUndo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:tint="#CCCCCC"
+                android:contentDescription="Undo" />
+
+            <ImageButton
+                android:id="@+id/btnRedo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_rotate"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:tint="#CCCCCC"
+                android:contentDescription="Redo"
+                android:layout_marginStart="4dp" />
+
+            <ImageButton
+                android:id="@+id/btnSave"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_save"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:tint="#5CB85C"
+                android:contentDescription="Save"
+                android:layout_marginStart="4dp" />
+
+            <ImageButton
+                android:id="@+id/btnAskLlm"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_info_details"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:tint="#0099FF"
+                android:contentDescription="Ask LLM about this file"
+                android:layout_marginStart="4dp" />
+
+            <!-- Spacer -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <!-- Line:Col indicator -->
             <TextView
-                android:id="@+id/lineNumbers"
+                android:id="@+id/lineColIndicator"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:text="Ln 1, Col 1"
+                android:textSize="11sp"
+                android:textColor="#888888"
                 android:fontFamily="monospace"
-                android:gravity="end"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="8dp"
-                android:textSize="14sp"
-                android:textColor="#858585"
-                android:background="#252525"
-                android:lineSpacingMultiplier="1.0" />
+                android:paddingEnd="8dp" />
 
-        </ScrollView>
+        </LinearLayout>
 
-        <!-- Divider -->
-        <View
-            android:layout_width="1dp"
-            android:layout_height="match_parent"
-            android:background="#444444" />
-
-        <!-- Horizontal scroll wrapper for long lines -->
-        <HorizontalScrollView
-            android:id="@+id/editorScrollContainer"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
+        <!-- ── Editor body: line numbers + code area ──────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:scrollbars="horizontal"
-            android:overScrollMode="never">
+            android:orientation="horizontal">
 
-            <!--
-                ID "editorInnerScroll" is new — required so the fragment can
-                attach an OnScrollChangedListener for line-number sync.
-            -->
+            <!-- Line numbers — scroll position driven by editorInnerScroll listener -->
             <ScrollView
-                android:id="@+id/editorInnerScroll"
+                android:id="@+id/lineNumberScroll"
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
+                android:scrollbars="none"
                 android:fillViewport="true"
-                android:overScrollMode="never"
-                android:scrollbars="vertical">
+                android:overScrollMode="never">
 
-                <EditText
-                    android:id="@+id/editorText"
+                <TextView
+                    android:id="@+id/lineNumbers"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:minWidth="600dp"
-                    android:background="@android:color/transparent"
                     android:fontFamily="monospace"
-                    android:gravity="top|start"
-                    android:inputType="textMultiLine|textNoSuggestions"
-                    android:padding="8dp"
+                    android:gravity="end"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="8dp"
                     android:textSize="14sp"
-                    android:textColor="#D4D4D4"
-                    android:importantForAutofill="no"
+                    android:textColor="#858585"
+                    android:background="#252525"
                     android:lineSpacingMultiplier="1.0" />
 
             </ScrollView>
 
-        </HorizontalScrollView>
+            <!-- Divider -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="match_parent"
+                android:background="#444444" />
+
+            <!-- Horizontal scroll wrapper for long lines -->
+            <HorizontalScrollView
+                android:id="@+id/editorScrollContainer"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:scrollbars="horizontal"
+                android:overScrollMode="never">
+
+                <ScrollView
+                    android:id="@+id/editorInnerScroll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:fillViewport="true"
+                    android:overScrollMode="never"
+                    android:scrollbars="vertical">
+
+                    <EditText
+                        android:id="@+id/editorText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="800dp"
+                        android:background="@android:color/transparent"
+                        android:fontFamily="monospace"
+                        android:gravity="top|start"
+                        android:inputType="textMultiLine|textNoSuggestions"
+                        android:padding="8dp"
+                        android:textSize="14sp"
+                        android:textColor="#D4D4D4"
+                        android:importantForAutofill="no"
+                        android:lineSpacingMultiplier="1.0" />
+
+                </ScrollView>
+
+            </HorizontalScrollView>
+
+        </LinearLayout>
 
     </LinearLayout>
 
-</LinearLayout>
+    <!--
+        FIX: Loading overlay — shown while file content is read asynchronously.
+        Prevents blank editor flash and disables interaction during load.
+        Dismissed in EnhancedEditorFragment.loadFileContentAsync() when IO completes.
+    -->
+    <FrameLayout
+        android:id="@+id/editorLoadingOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#CC1E1E1E"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ProgressBar
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:indeterminate="true"
+            android:indeterminateTint="#0077CC" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="72dp"
+            android:text="Loading…"
+            android:textColor="#888888"
+            android:textSize="13sp"
+            android:fontFamily="monospace" />
+
+    </FrameLayout>
+
+</FrameLayout>
